@@ -94,12 +94,28 @@ export function WhalePet(props: WhalePetProps): ReactPortal {
   // Frame loop: advance the current track and write background-position.
   // Offsets must be in SCALED coordinates (background-position applies to the
   // scaled background image), so the current sprite scale rides a ref that
-  // the loop reads every tick.
+  // the loop reads every tick. Under prefers-reduced-motion the sprite holds
+  // its track's first frame instead of animating (presentation-only; the
+  // animation state machine is untouched).
   const spriteScale = display.size / FRAME_HEIGHT
   const animation = snapshot?.animation ?? 'idle'
   const scaleRef = useRef(spriteScale)
   scaleRef.current = spriteScale
   useEffect(() => {
+    const reduceMotion = typeof window !== 'undefined'
+      && window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches === true
+    // Paint one static sprite frame up front either way, so the pet is never
+    // blank while the loop heat-up runs.
+    const row = rowOfTrack(animation)
+    const track = frameCounts === null
+      ? TRACKS[animation]
+      : trimTrack(TRACKS[animation], frameCounts[row] ?? TRACKS[animation].frames.length)
+    const leadCol = track.frames[0]!
+    const lead = framePosition(row, leadCol, scaleRef.current)
+    if (spriteRef.current !== null) {
+      spriteRef.current.style.backgroundPosition = `${lead.x}px ${lead.y}px`
+    }
+    if (reduceMotion) return
     let raf = 0
     let last = performance.now()
     const tick = (ts: number): void => {

@@ -27,12 +27,14 @@ export interface AffinityState {
 
 export const AFFINITY_MAX = 100
 
-/** Affinity ranks by points; the pet visibly grows with its rank. */
+/** Affinity ranks by points; the pet visibly grows with its rank.
+ *  Marker glyphs are plain ASCII (the repo bans all emoji characters);
+ *  they read as a growing star trail alongside the rank name. */
 export const AFFINITY_RANKS = [
-  { min: 0, name: '幼鲸', emoji: '🐣' },
-  { min: 25, name: '伙伴', emoji: '🐬' },
-  { min: 50, name: '挚友', emoji: '🐳' },
-  { min: 80, name: '深海羁绊', emoji: '💙' },
+  { min: 0, name: '幼鲸', emoji: '*' },
+  { min: 25, name: '伙伴', emoji: '**' },
+  { min: 50, name: '挚友', emoji: '***' },
+  { min: 80, name: '深海羁绊', emoji: '****' },
 ] as const
 
 /** Interaction tuning (all in points / ms). */
