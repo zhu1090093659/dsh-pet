@@ -1,0 +1,139 @@
+.float {
+  position: fixed;
+  pointer-events: auto;
+  user-select: none;
+  -webkit-user-select: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.sprite {
+  position: relative;
+  image-rendering: auto;
+  touch-action: none;
+}
+
+.bubble {
+  position: absolute;
+  bottom: 100%;
+  margin-bottom: 6px;
+  white-space: nowrap;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  animation: pet-bubble-pop 2.6s ease-out forwards;
+  pointer-events: none;
+}
+
+.bubblePet {
+  background: rgba(244, 114, 182, 0.92);
+}
+
+.bubbleFeed {
+  background: rgba(56, 189, 248, 0.92);
+}
+
+@keyframes pet-bubble-pop {
+  0% {
+    opacity: 0;
+    transform: translateY(6px) scale(0.85);
+  }
+  15% {
+    opacity: 1;
+    transform: translateY(0) scale(1.05);
+  }
+  25% {
+    transform: translateY(0) scale(1);
+  }
+  75% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.95);
+  }
+}
+
+.panel {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  background: rgba(15, 23, 42, 0.92);
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  border-radius: 10px;
+  padding: 8px 10px;
+  color: #e2e8f0;
+  font-size: 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(6px);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 132px;
+}
+
+.rankRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  white-space: nowrap;
+}
+
+.nameCell {
+  font-weight: 600;
+}
+
+.renameRow {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.nameInput {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid rgba(125, 211, 252, 0.5);
+  border-radius: 6px;
+  background: rgba(30, 41, 59, 0.9);
+  color: #e2e8f0;
+  font-size: 12px;
+  padding: 3px 6px;
+  outline: none;
+}
+
+.nameInput:focus {
+  border-color: #38bdf8;
+}
+
+.actions {
+  display: flex;
+  gap: 6px;
+}
+
+.action {
+  flex: 1;
+  border: none;
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 12px;
+  cursor: pointer;
+  color: #0f172a;
+  background: linear-gradient(180deg, #7dd3fc, #38bdf8);
+}
+
+.action:hover {
+  filter: brightness(1.08);
+}
+
+.summon {
+  border: 1px dashed rgba(125, 211, 252, 0.6);
+  background: rgba(15, 23, 42, 0.75);
+  color: #7dd3fc;
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 11px;
+  cursor: pointer;
+}
