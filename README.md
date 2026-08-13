@@ -73,20 +73,20 @@ conversation.input.selector.context 槽位 <-- 轮询 800ms -- pet-client（浏�
 
 ## 安装
 
+推荐直接安装全家桶聚合包 `@deepseek-ai/dsh-web-ui-all`（一个包装齐全部功能插件与皮肤），或单独安装本插件：
+
 ```sh
-# 1. 克隆并构建插件
-git clone <本仓库地址> dsh-pet && cd dsh-pet
-pnpm install && pnpm build
+# 当前（插件尚未发布到 npm）：克隆全家桶仓库后安装
+git clone https://github.com/zhu1090093659/dsh-web-ui.git
+cd dsh-web-ui
+pnpm install && pnpm -r build
+dsh plugin --profile web add link:$(pwd)/packages/dsh-pet
 
-# 2. 安装到 web profile（link 模式，改代码后重新 pnpm build 即生效）
-cd ~/.dsh/profiles/web
-pnpm add "@deepseek-ai/dsh-pet@link:<dsh-pet 的绝对路径>"
-
-# 3. 在 profile 的 package.json 中，把 "@deepseek-ai/dsh-pet" 加入 dsh.profile.bundles
-#    （bundle 的 cordis.patch.yml 会自动把插件行插入 web 插件表）
-
-# 4. 重启 dsh web
+# 发布后：直接安装 npm 包
+dsh plugin --profile web add @deepseek-ai/dsh-pet
 ```
+
+安装后**重启 `dsh web`**，鲸鱼娘出现在界面右下角即生效。link 模式下改代码后重新 `pnpm build` 并刷新页面即可，无需重装。
 
 ## 开发
 
