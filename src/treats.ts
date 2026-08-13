@@ -29,9 +29,9 @@ export const defaultTreatConfig: TreatConfig = {
 export interface TreatLedger {
   /** Current stocked treats (0..maxTreats). */
   treats: number
-  /** Epoch ms of the last time-output settlement (0 = never settled). */
+  /** Time-output anchor: epoch ms the wall-clock treat clock last advanced (0 = never started). */
   lastTreatGrantAt: number
-  /** Affinity turns counter at the last work-output settlement. */
+  /** Work-output anchor: affinity turns counter at the last work-out settle. */
   turnsAtLastTreatGrant: number
 }
 
@@ -53,10 +53,13 @@ function cap(treats: number, max: number): number {
 
 /**
  * Settle treat grants from both sources against one ledger snapshot.
- * Work output counts whole periods since the last settlement
- * (turnsDelta / turnsPerTreat); time output counts whole periods since
- * lastTreatGrantAt (0 treats history never backfills — the clock starts at
- * the first settlement). Both sources are clamped by the stock cap.
+ * Work output counts whole periods since the last work settlement
+ * (turnsDelta / turnsPerTreat) and advances only the work anchor;
+ * time output counts whole periods since the time anchor
+ * (`lastTreatGrantAt`) and advances only the time anchor. The two sources
+ * are independent so a continuously working user still earns time treats.
+ * 0 time history never backfills — the clock starts at the first settlement.
+ * Both sources are clamped by the stock cap.
  */
 export function settleTreatGrants(
   ledger: TreatLedger,
@@ -66,16 +69,21 @@ export function settleTreatGrants(
 ): TreatSettlement {
   const turnDelta = Math.max(0, turns - ledger.turnsAtLastTreatGrant)
   const workGrants = Math.floor(turnDelta / config.turnsPerTreat)
-  const timeGrants = ledger.lastTreatGrantAt === 0
-    ? 0
-    : Math.floor(Math.max(0, nowMs - ledger.lastTreatGrantAt) / config.timeTreatMs)
+  // The time clock starts at the first settlement (no backfill of pre-first
+  // idle history); thereafter only time grants move it forward.
+  const timeAnchor = ledger.lastTreatGrantAt === 0 ? nowMs : ledger.lastTreatGrantAt
+  const timeGrants = Math.floor(Math.max(0, nowMs - timeAnchor) / config.timeTreatMs)
   const gained = workGrants + timeGrants
   if (gained <= 0) return { ledger, gained: 0 }
   return {
     ledger: {
       treats: cap(ledger.treats + gained, config.maxTreats),
-      lastTreatGrantAt: nowMs,
-      turnsAtLastTreatGrant: turns - (turnDelta % config.turnsPerTreat),
+      lastTreatGrantAt: timeGrants > 0
+        ? timeAnchor + timeGrants * config.timeTreatMs
+        : timeAnchor,
+      turnsAtLastTreatGrant: workGrants > 0
+        ? turns - (turnDelta % config.turnsPerTreat)
+        : ledger.turnsAtLastTreatGrant,
     },
     gained,
   }

@@ -22,6 +22,9 @@ import styles from './pet.module.css'
 /** Browser URL of the whale-girl atlas (served by the host half's own route). */
 export const PET_SPRITESHEET_URL = '/pet/whale/spritesheet.webp'
 
+/** Browser URL of the whale-girl manifest (authoritative per-row frame counts). */
+export const PET_MANIFEST_URL = '/pet/whale/pet.json'
+
 /** Props injected by the slot registration (store actions + locale). */
 export interface WhalePetProps {
   /** Latest host snapshot; null while loading. */
@@ -74,22 +77,39 @@ export function WhalePet(props: WhalePetProps): ReactPortal {
     elapsed: 0,
   })
 
-  // Load the atlas once; then detect per-row frame counts so tracks never
-  // play the transparent trailing cells of a short row.
+  // Load the atlas once; then resolve per-row frame counts so tracks never
+  // play the transparent trailing cells of a short row. One decoded Image
+  // feeds both the sprite render and the frame-count detection. The counts
+  // prefer the authoritatively recorded `frames` field on the pet.json
+  // manifest route and only fall back to the getImageData atlas scan when
+  // that field is absent (older manifests).
   useEffect(() => {
+    let cancelled = false
     const img = new Image()
-    img.onload = () => setImageReady(true)
+    img.onload = () => {
+      if (cancelled) return
+      setImageReady(true)
+      fetch(PET_MANIFEST_URL)
+        .then((res) => (res.ok ? res.json() : Promise.resolve<{ frames?: unknown }>({})))
+        .then((manifest: { frames?: unknown }) => {
+          if (cancelled) return
+          const frames = manifest.frames
+          if (Array.isArray(frames) && frames.length === 9 && frames.every((n) => typeof n === 'number')) {
+            setFrameCounts(frames as number[])
+          } else {
+            setFrameCounts(detectFrameCounts(img))
+          }
+        })
+        .catch(() => {
+          if (!cancelled) setFrameCounts(detectFrameCounts(img))
+        })
+    }
     img.src = PET_SPRITESHEET_URL
-    return () => { img.onload = null }
+    return () => {
+      cancelled = true
+      img.onload = null
+    }
   }, [])
-
-  useEffect(() => {
-    if (!imageReady) return
-    const img = new Image()
-    img.onload = () => setFrameCounts(detectFrameCounts(img))
-    img.src = PET_SPRITESHEET_URL
-    return () => { img.onload = null }
-  }, [imageReady])
 
   // Frame loop: advance the current track and write background-position.
   // Offsets must be in SCALED coordinates (background-position applies to the
