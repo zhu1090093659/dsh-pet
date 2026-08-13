@@ -4,7 +4,7 @@
  * the spritesheet track matching the host animation snapshot, and exposes
  * the interaction surface: click to pet, hover panel with feed/hide, drag to
  * reposition (persisted via setConfig).
- * @module @deepseek-ai/dsh-pet/client/WhalePet
+ * @module @linxin666/dsh-pet/client/WhalePet
  */
 
 import { useEffect, useRef, useState } from 'react'

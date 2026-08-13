@@ -4,7 +4,7 @@
  * the blank-session hero, and the active seat), so the floating pet stays on
  * screen on the new-conversation screen too. While visible it mounts the
  * floating WhalePet (portal); while hidden it renders the summon button.
- * @module @deepseek-ai/dsh-pet/client/PetDockEntry
+ * @module @linxin666/dsh-pet/client/PetDockEntry
  */
 
 import { useEffect, useSyncExternalStore, type ReactElement } from 'react'

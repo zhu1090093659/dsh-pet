@@ -1,6 +1,6 @@
 /**
  * dsh-pet locale dictionaries (zh/en).
- * @module @deepseek-ai/dsh-pet/client/locales
+ * @module @linxin666/dsh-pet/client/locales
  */
 
 /** Dictionary namespace this package registers. */

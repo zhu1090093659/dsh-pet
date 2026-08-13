@@ -7,7 +7,7 @@
  * anchor becomes the summon button. Anchoring in the selector row (rather
  * than the session-only composer dock band) keeps the pet floating on the
  * new-conversation screen too, where no session exists to scope a slot by.
- * @module @deepseek-ai/dsh-pet/client
+ * @module @linxin666/dsh-pet/client
  */
 
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
