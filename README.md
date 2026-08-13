@@ -82,8 +82,6 @@ cd dsh-web-ui
 pnpm install && pnpm -r build
 dsh plugin --profile web add link:$(pwd)/packages/dsh-pet
 
-# 发布后：直接安装 npm 包
-dsh plugin --profile web add @deepseek-ai/dsh-pet
 ```
 
 安装后**重启 `dsh web`**，鲸鱼娘出现在界面右下角即生效。link 模式下改代码后重新 `pnpm build` 并刷新页面即可，无需重装。
