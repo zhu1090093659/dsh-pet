@@ -80,7 +80,7 @@ export {
 export const name = 'pet'
 
 /** Services required before the pet can mount its surfaces. */
-export const inject = ['httpServer']
+export const inject = ['webServer']
 
 /** Settings section schema: the display fields and name the web settings surface edits. */
 export const PET_SETTINGS_SCHEMA = z.object({
@@ -125,7 +125,7 @@ export function apply(ctx: Context, config: PetConfig = {}): void {
     if (disposeRoutes === undefined && enabled) {
       disposeRoutes = ctx.effect(
         () => {
-          const disposers = routes.map((route) => ctx.httpServer.register(route))
+          const disposers = routes.map((route) => ctx.webServer.register(route))
           return () => { for (const dispose of disposers) dispose() }
         },
         'pet: routes',
