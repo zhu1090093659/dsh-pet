@@ -1,6 +1,6 @@
 /**
  * Local slot-table augmentation for slots the official NPM SDK
- * (ui-conversation rc.2) does not publish yet, but the running dsh worktree
+ * (ui-conversation rc.6) does not publish yet, but the running dsh worktree
  * boots with (`conversation.input.selector.*`). Type-only supplement — the
  * runtime surface comes from the dsh profile. Module form (with an import)
  * so TS merges into the package declarations instead of shadowing them.
