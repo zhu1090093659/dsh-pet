@@ -76,7 +76,10 @@ conversation.input.selector.context 槽位 <-- 轮询 800ms -- pet-client（浏�
 推荐直接安装全家桶聚合包 `@linxin666/dsh-web-ui-all`（一个包装齐全部功能插件与皮肤），或单独安装本插件：
 
 ```sh
-# 当前（插件尚未发布到 npm）：克隆全家桶仓库后安装
+# 推荐：直接从 npm 安装
+dsh plugin --profile web add @linxin666/dsh-pet
+
+# 或从仓库安装（开发调试）
 git clone https://github.com/zhu1090093659/dsh-web-ui.git
 cd dsh-web-ui
 pnpm install && pnpm -r build
