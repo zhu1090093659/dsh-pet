@@ -100,6 +100,35 @@ export type PetKey = keyof typeof zh
 /** The settings-card slice of the pet dictionary. */
 export type SettingsCardKey = PetKey
 
+/**
+ * Active dictionary, picked by the document language at call time. The pet
+ * mounts as a global floating surface (not a session-scoped slot), so it has
+ * no framework locale seat and resolves its copy the same tiny way the
+ * task-board's DOM-injected surface does.
+ */
+export function dictionary(): Record<PetKey, string> {
+  const lang = typeof document !== 'undefined' ? document.documentElement.lang : 'zh'
+  return lang.toLowerCase().startsWith('en') ? en : zh
+}
+
+/**
+ * Translate a key with optional `{name}` template params. Mirrors the slot
+ * `Translate` contract `(key, params?) => string` so it can be handed to the
+ * same components that used to receive the framework-injected `t` seat. The
+ * key is typed loosely (`string`) so the function is assignable to the slot's
+ * `TranslateNS<'pet'>` (whose key domain also spans the shared common
+ * vocabulary); a missing key degrades to the key itself rather than throwing.
+ */
+export function t(key: string, params?: Record<string, unknown>): string {
+  let text: string = (dictionary() as Record<string, string>)[key] ?? key
+  if (params !== undefined) {
+    for (const [name, value] of Object.entries(params)) {
+      text = text.replaceAll(`{${name}}`, String(value))
+    }
+  }
+  return text
+}
+
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
     /** dsh-pet UI copy. */

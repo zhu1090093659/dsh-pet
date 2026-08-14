@@ -243,11 +243,13 @@ export function WhalePet(props: WhalePetProps): ReactPortal {
         // above the sprite), so moving onto them fires pointerleave on the
         // container. Treat a target still inside the container's DOM (the
         // overflowed panel) as "still hovering"; otherwise give the pointer a
-        // short grace period to reach the panel across the gap above it.
+        // short grace period to reach the panel across the gap above it. The
+        // bridge (`.panel::after`) keeps the pointer inside the hit area, and
+        // the grace period covers a slow mouse crossing the remaining sliver.
         const next = e.relatedTarget
         if (next instanceof Node && floatRef.current?.contains(next)) return
         clearHideTimer()
-        hideTimerRef.current = window.setTimeout(() => setHovered(false), 200)
+        hideTimerRef.current = window.setTimeout(() => setHovered(false), 300)
       }}
     >
       <div
@@ -280,7 +282,15 @@ export function WhalePet(props: WhalePetProps): ReactPortal {
         </div>
       )}
       {hovered && dragRef.current === null && (
-        <div className={styles.panel}>
+        <div
+          className={styles.panel}
+          onPointerEnter={() => {
+            // Reaching the panel (or its bridge) must cancel any hide timer
+            // the container's pointerleave may have armed while the pointer
+            // crossed the sliver between the sprite and the panel.
+            clearHideTimer()
+          }}
+        >
           {renaming ? (
             <div className={styles.renameRow}>
               <input
