@@ -40,7 +40,7 @@
     "cordis.patch.yml",
     "assets"
   ],
-  "license": "BSD-3-Clause",
+  "license": "Apache-2.0",
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
