@@ -10,7 +10,7 @@
  * @module @linxin666/dsh-pet/client
  */
 
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ClientContext, SettingsScope, SettingsScopeSpec } from '@deepseek-ai/dsh-client-runtime/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 // Type-only: pulls the settings-surface Context merge (ctx.settingsScope).
@@ -92,6 +92,18 @@ export interface SettingsPluginItemOwnerProps {
   children?: never
 }
 
+declare module '@deepseek-ai/cordis' {
+  interface Context {
+    /**
+     * Optional rc.6 compatibility binder provided by dsh-web-ui-settings;
+     * absent when that group plugin is not installed, so callers fall back to
+     * the official settings scope.
+     */
+    webUiSettings?: { bind<S>(spec: SettingsScopeSpec<S>): SettingsScope<S> }
+  }
+}
+
+
 /**
  * Client plugin body: register dictionaries, mount the global pet entry and
  * poll loop while the plugin is enabled, and seat the settings card in the
@@ -101,7 +113,8 @@ export interface SettingsPluginItemOwnerProps {
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'pet: dictionaries')
 
-  const settingsScope = ctx.settingsScope.bind<PetSettings>({ namespace: PET_SETTINGS_NS })
+  const binder = ctx.get('webUiSettings') ?? ctx.settingsScope
+  const settingsScope = binder.bind<PetSettings>({ namespace: PET_SETTINGS_NS })
   const enabled = (): boolean => {
     const snapshot = settingsScope.getSnapshot()
     return snapshot.status === 'ready'
