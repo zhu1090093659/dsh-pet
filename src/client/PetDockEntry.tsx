@@ -1,9 +1,8 @@
 /**
- * Dock anchor inside `conversation.input.selector.context`: the input
- * selector row mounts in EVERY conversation phase (no-session cold start,
- * the blank-session hero, and the active seat), so the floating pet stays on
- * screen on the new-conversation screen too. While visible it mounts the
- * floating WhalePet (portal); while hidden it renders the summon button.
+ * Dock anchor inside the official SDK's `conversation.input.dock` seat
+ * (the ambient readout band above the composer card, listed so several
+ * additions can stack). While visible it mounts the floating WhalePet
+ * (portal); while hidden it renders the summon button.
  * @module @linxin666/dsh-pet/client/PetDockEntry
  */
 
@@ -40,7 +39,7 @@ export interface PetInjected {
 
 /** Composed props of the dock entry (runtime + locale + injected). */
 export type PetDockEntryProps =
-  PropsRuntime<'conversation.input.selector.context'>
+  PropsRuntime<'conversation.input.dock'>
   & PetInjected
   & PropsLocale<typeof NS>
 
