@@ -1,14 +1,15 @@
 /**
  * Pet host service — the `pet.*` RPC domain. Owns the state machine wiring
- * (consumes `activity/status` session events and session lifecycle), the
- * affinity ledger, and the persisted display config. The API gateway maps
- * this service's methods onto `pet.state` / `pet.interact` /
- * `pet.setVisible` / `pet.setConfig` for browser consumers.
+ * (maps core rc.6 session events — turn/step/tool boundaries — and the
+ * session lifecycle onto the pet phases), the affinity ledger, and the
+ * persisted display config. The API gateway maps this service's methods onto
+ * `pet.state` / `pet.interact` / `pet.setVisible` / `pet.setConfig`
+ * for browser consumers.
  * @module @linxin666/dsh-pet/service
  */
 
 import { Context, Service } from '@deepseek-ai/cordis'
-import type { Session } from '@deepseek-ai/dsh-session'
+import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import {
   applyInteraction,
   applyTurnReward,
@@ -127,13 +128,6 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 
-/** One session/event guard: only the latest activity snapshot matters. */
-interface ActivityStatusEventLike {
-  phase?: string
-  line?: string
-  phrase?: string
-}
-
 /**
  * Cordis service exposing the pet RPC domain. Lazy: nothing is scanned or
  * written until a query or interaction arrives; event listeners update only
@@ -148,7 +142,8 @@ export class PetService extends Service {
   private readonly treatConfig: TreatConfig
   private readonly persistDir: string
   private persist: PetPersist
-  private lastTurnRewardAt = 0
+  /** Completed turns already rewarded, per session (turn numbers are per-session). */
+  private rewardedTurns = new Map<string, number>()
   private enabled: boolean
   private disposeActivity: (() => void) | undefined
 
@@ -201,20 +196,36 @@ export class PetService extends Service {
     if (!this.enabled) return
     this.disposeActivity = (() => {
       const disposers = [
-        this.ctx.on('session/event', (_session: Session, event: { type: string; data?: unknown }) => {
-          if (event.type !== 'activity/status') return
-          const payload = (event.data ?? {}) as ActivityStatusEventLike
-          if (payload.phase === undefined) return
-          const phase = payload.phase as PetStateSnapshot['phase']
-          // Guard against unknown phases from newer activity trackers.
-          if (!['idle', 'waiting', 'thinking', 'tool', 'done'].includes(phase)) return
-          this.machine.onActivityStatus({
-            phase,
-            ...(typeof payload.line === 'string' ? { line: payload.line } : {}),
-            ...(typeof payload.phrase === 'string' ? { phrase: payload.phrase } : {}),
-          })
-          this.machine.onSessionActive()
-          if (phase === 'done') this.rewardTurn()
+        this.ctx.on('session/event', (session: Session, event: SessionEvent) => {
+          // rc.6 publishes no 'activity/status' event (the working-activity
+          // tracker is gone), so the pet derives its phases from the core
+          // session vocabulary instead.
+          switch (event.type) {
+            case 'turn/start':
+              this.machine.onSessionActive()
+              break
+            case 'step/start':
+              this.machine.onSessionActive()
+              this.machine.onActivityStatus({ phase: 'thinking' })
+              break
+            case 'tool/call':
+              this.machine.onSessionActive()
+              this.machine.onActivityStatus({ phase: 'tool', line: 'tool: ' + event.data.name })
+              break
+            case 'turn/end':
+              this.machine.onSessionActive()
+              if (event.data.reason.kind === 'completed') {
+                this.machine.onActivityStatus({ phase: 'done' })
+                this.rewardTurn(String(session.id), event.data.turn)
+              } else {
+                // Aborted / failed turns clear the working pose instead of
+                // freezing the pet on its last phase.
+                this.machine.onActivityStatus({ phase: 'idle' })
+              }
+              break
+            default:
+              break
+          }
         }),
         this.ctx.on('session/disposed', () => {
           this.machine.onSessionDisposed()
@@ -318,19 +329,20 @@ export class PetService extends Service {
     })
   }
 
-  /** Award the turn reward once per done phase (idempotent per transition). */
-  private rewardTurn(): void {
-    const nowMs = Date.now()
-    // A done phase can repeat while celebrating; only reward the first.
-    if (nowMs - this.lastTurnRewardAt < 5_000) return
-    this.lastTurnRewardAt = nowMs
+  /** Award the turn reward once per completed turn (idempotent per session + turn). */
+  private rewardTurn(sessionId: string, turn: number): void {
+    const last = this.rewardedTurns.get(sessionId) ?? 0
+    if (turn <= last) return
+    this.rewardedTurns.set(sessionId, turn)
     this.persist = { ...this.persist, affinity: applyTurnReward(this.persist.affinity, this.affinityConfig) }
     this.flush()
   }
 
   /**
-   * Settle the treat economy (work + time output since the last
-   * settlement); persists only when treats were actually granted.
+   * Settle the treat economy (work + time output since the last settlement)
+   * and persist whenever the ledger changed. A zero-gain first settlement
+   * still starts the time clock (anchor write), which is what lets the
+   * 30-minute time output ever accrue.
    */
   private settleTreats(nowMs: number): void {
     const settlement = settleTreatGrants(
@@ -339,7 +351,7 @@ export class PetService extends Service {
       nowMs,
       this.treatConfig,
     )
-    if (settlement.gained > 0) {
+    if (settlement.ledger !== this.persist.treats) {
       this.persist = { ...this.persist, treats: settlement.ledger }
       this.flush()
     }

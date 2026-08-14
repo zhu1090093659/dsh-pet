@@ -23,11 +23,34 @@ describe('settleTreatGrants', () => {
     expect(s.ledger.lastTreatGrantAt).toBe(1_000 + 90 * 60_000)
   })
 
-  it('does not backfill time output before the first settlement', () => {
+  it('does not backfill time output before the first settlement, but starts the clock', () => {
     const ledger = emptyTreatLedger() // lastTreatGrantAt === 0
     const s = settleTreatGrants(ledger, 0, 1_000 + 10 * 60 * 60_000, defaultTreatConfig)
     expect(s.gained).toBe(0)
-    expect(s.ledger).toBe(ledger)
+    expect(s.ledger.treats).toBe(0)
+    expect(s.ledger.lastTreatGrantAt).toBe(1_000 + 10 * 60 * 60_000)
+  })
+
+  it('starts the time clock on a zero-gain settlement so later time output accrues (anchor deadlock)', () => {
+    // Regression for issue #99: the old code returned the ledger untouched
+    // when nothing was due, so lastTreatGrantAt stayed 0 forever and the
+    // 30-minute time output could never begin.
+    let ledger = emptyTreatLedger()
+    const first = settleTreatGrants(ledger, 0, 1_000, defaultTreatConfig)
+    expect(first.gained).toBe(0)
+    expect(first.ledger.lastTreatGrantAt).toBe(1_000)
+    expect(first.ledger.treats).toBe(0)
+    ledger = first.ledger
+    // Anchored and nothing due: the same object comes back (no persistence
+    // churn) and the anchor must not move.
+    const same = settleTreatGrants(ledger, 0, 1_000 + 10_000, defaultTreatConfig)
+    expect(same.gained).toBe(0)
+    expect(same.ledger).toBe(ledger)
+    // One full period after the anchor: the time treat finally lands.
+    const grant = settleTreatGrants(ledger, 0, 1_000 + defaultTreatConfig.timeTreatMs, defaultTreatConfig)
+    expect(grant.gained).toBe(1)
+    expect(grant.ledger.treats).toBe(1)
+    expect(grant.ledger.lastTreatGrantAt).toBe(1_000 + defaultTreatConfig.timeTreatMs)
   })
 
   it('caps stocked treats at maxTreats', () => {

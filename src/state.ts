@@ -1,8 +1,8 @@
 /**
- * Pet state machine — pure, clock-injected. Maps the DSH `activity/status`
- * phase vocabulary (session events) onto the 9-state Codex pet
- * animation contract, plus the session lifecycle transitions the web UI
- * exposes (turn end celebration, no-session idle).
+ * Pet state machine — pure, clock-injected. Maps the pet's working-phase
+ * vocabulary (the service derives it from core session events) onto the
+ * 9-state Codex pet animation contract, plus the session lifecycle
+ * transitions the web UI exposes (turn end celebration, no-session idle).
  *
  * The machine is deliberately dumb: it holds the last input phase, the
  * animation decision, and a one-shot "celebration" window after `done` so the
@@ -11,7 +11,7 @@
  * @module @linxin666/dsh-pet/state
  */
 
-/** The DSH `activity/status` phase vocabulary (wire contract of session events). */
+/** The pet's working-phase vocabulary (derived from core session events by the service). */
 export type ActivityPhase = 'idle' | 'waiting' | 'thinking' | 'tool' | 'done'
 
 /** The Codex-compatible 9-state animation contract (spritesheet rows). */
@@ -28,7 +28,7 @@ export type PetAnimation =
 
 /** One input snapshot consumed by the machine. */
 export interface PetStateInput {
-  /** Current activity/status phase of the active session. */
+  /** Current working phase of the active session. */
   phase: ActivityPhase
   /** Human-readable status line (plain text). */
   line?: string
@@ -110,7 +110,7 @@ export class PetStateMachine {
     private readonly now: () => number = Date.now,
   ) {}
 
-  /** Consume one `activity/status` session event. */
+  /** Consume one phase snapshot (fed by the service from session events). */
   onActivityStatus(input: PetStateInput): void {
     this.phase = input.phase
     this.line = input.line

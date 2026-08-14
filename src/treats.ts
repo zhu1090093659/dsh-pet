@@ -58,8 +58,12 @@ function cap(treats: number, max: number): number {
  * time output counts whole periods since the time anchor
  * (`lastTreatGrantAt`) and advances only the time anchor. The two sources
  * are independent so a continuously working user still earns time treats.
- * 0 time history never backfills — the clock starts at the first settlement.
- * Both sources are clamped by the stock cap.
+ * 0 time history never backfills — the clock starts at the first settlement,
+ * and even a zero-gain first settlement writes the time anchor so the next
+ * elapsed period can accrue (anchor deadlock fix). Both sources are clamped
+ * by the stock cap. When the anchor is already set and nothing is due, the
+ * input ledger is returned unchanged (same object), so callers can skip
+ * persistence cheaply.
  */
 export function settleTreatGrants(
   ledger: TreatLedger,
@@ -74,7 +78,15 @@ export function settleTreatGrants(
   const timeAnchor = ledger.lastTreatGrantAt === 0 ? nowMs : ledger.lastTreatGrantAt
   const timeGrants = Math.floor(Math.max(0, nowMs - timeAnchor) / config.timeTreatMs)
   const gained = workGrants + timeGrants
-  if (gained <= 0) return { ledger, gained: 0 }
+  if (gained <= 0) {
+    if (ledger.lastTreatGrantAt === 0) {
+      // Zero-gain first settlement: persist the clock start anyway, so the
+      // 30-minute time output can begin. Before this fix the anchor stayed 0
+      // forever (the deadlock: no grant means no anchor write means no grant).
+      return { ledger: { ...ledger, lastTreatGrantAt: nowMs }, gained: 0 }
+    }
+    return { ledger, gained: 0 }
+  }
   return {
     ledger: {
       treats: cap(ledger.treats + gained, config.maxTreats),

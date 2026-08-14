@@ -301,6 +301,11 @@ export function WhalePet(props: WhalePetProps): ReactPortal {
                 autoFocus
                 onChange={(e) => setNameDraft(e.target.value)}
                 onKeyDown={(e) => {
+                  // While an IME composition is active (e.g. selecting a
+                  // Chinese candidate), Enter/Escape keydowns belong to the
+                  // input method: ignore them so candidate selection can
+                  // neither submit the draft nor close the rename box.
+                  if (e.nativeEvent.isComposing) return
                   if (e.key === 'Enter') {
                     const trimmed = nameDraft.trim()
                     if (trimmed !== '') {
