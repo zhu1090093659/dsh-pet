@@ -21,6 +21,9 @@
     "src/treats.ts",
     "src/persist.ts",
     "src/state.ts",
+    "src/dsh-home.ts",
+    "src/event-projection.ts",
+    "src/ledger.ts",
     "src/client/css-modules.d.ts",
     "tests/**/*.spec.ts"
   ]

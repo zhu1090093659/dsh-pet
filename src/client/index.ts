@@ -1,7 +1,7 @@
 /**
  * dsh-pet browser half — mounts the whale-girl as a global floating surface
  * and drives it from the host's same-origin `/api/pet/*` JSON endpoints: poll
- * the host snapshot (~800 ms), forward interactions, persist drag positions.
+ * the host snapshot (~2 s), forward interactions, persist drag positions.
  * The pet is host-global (no session dimension), so it mounts directly onto
  * `document.body` via a single React root rather than a session-scoped slot —
  * on the new-conversation screen no session exists, and a dock-mounted pet
@@ -61,7 +61,7 @@ const petApi: PetHttpApi = {
 }
 
 /** Poll interval for the host snapshot. */
-const POLL_MS = 800
+const POLL_MS = 2000
 
 /** Settings namespace the pet settings card edits (the Host plugin registers it). */
 const PET_SETTINGS_NS = 'pet'
@@ -161,7 +161,7 @@ export function apply(ctx: ClientContext): void {
         // change while the page is hidden, so a background interval would
         // only burn RPCs (browser throttling is an unreliable backstop).
         // Coming back to the tab refreshes the pet immediately instead of
-        // waiting out the next 800 ms cycle.
+        // waiting out the next 2 s cycle.
         let timer: number | undefined
         const stop = (): void => {
           if (timer !== undefined) {

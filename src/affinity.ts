@@ -84,6 +84,39 @@ export function rankOf(points: number): (typeof AFFINITY_RANKS)[number] {
   return rank
 }
 
+/** Read-only affinity snapshot suited for the RPC view shape. */
+export interface PetAffinityView {
+  points: number
+  rank: string
+  rankEmoji: string
+  pets: number
+  feeds: number
+  turns: number
+  /** True while the pet interaction is inside its cooldown. */
+  petCooldown: boolean
+  /** True while the feed is inside its cooldown. */
+  feedCooldown: boolean
+}
+
+/** Derive the read-only view of one affinity state at a wall-clock instant. */
+export function affinityViewOf(
+  state: AffinityState,
+  nowMs: number,
+  config: AffinityConfig = defaultAffinityConfig,
+): PetAffinityView {
+  const rank = rankOf(state.points)
+  return {
+    points: state.points,
+    rank: rank.name,
+    rankEmoji: rank.emoji,
+    pets: state.pets,
+    feeds: state.feeds,
+    turns: state.turns,
+    petCooldown: nowMs - state.lastPetAt < config.petCooldownMs,
+    feedCooldown: nowMs - state.lastFeedAt < config.feedCooldownMs,
+  }
+}
+
 function clamp(points: number): number {
   return Math.min(AFFINITY_MAX, Math.max(0, points))
 }

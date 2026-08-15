@@ -7,7 +7,7 @@
 
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { homedir } from 'node:os'
+import { dshHome } from './dsh-home.ts'
 import { AFFINITY_MAX, emptyAffinity, type AffinityState } from './affinity.ts'
 import { defaultTreatConfig, emptyTreatLedger, type TreatLedger } from './treats.ts'
 
@@ -60,9 +60,13 @@ export function emptyPersist(): PetPersist {
   }
 }
 
-/** Resolve the persistence directory ($DSH_HOME or ~/.dsh). */
+/**
+ * Resolve the persistence directory ($DSH_HOME or ~/.dsh). Delegates to the
+ * shared {@link dshHome} resolution so the plugin family keeps one DSH_HOME
+ * definition (env override, ~ expansion, cwd-joined relative values).
+ */
 export function petHomeDir(): string {
-  return process.env.DSH_HOME ?? join(homedir(), '.dsh')
+  return dshHome()
 }
 
 /** Numeric field guard: finite numbers only, else the fallback. */

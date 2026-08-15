@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
@@ -426,15 +426,36 @@ describe('PetService (rc.6 session events)', () => {
     }
   })
 
-  it('persists the time anchor on a zero-gain settlement (anchor deadlock)', async () => {
+  it('does not settle or write on a read-only state() call (settle removed from view)', async () => {
     const ctx = new Context()
     const dir = tempDir()
     try {
       const service = new PetService(ctx, { persistDir: dir })
-      expect(loadPetPersist(dir).treats.lastTreatGrantAt).toBe(0)
-      // A state read settles the economy; with no turns and no elapsed time
-      // it must still write the clock-start anchor.
+      expect(existsSync(join(dir, 'pet.json'))).toBe(false)
       await service.state()
+      // Reads must not settle the economy nor write pet.json: settlement
+      // moved to explicit economic events (turn rewards and feeds).
+      expect(existsSync(join(dir, 'pet.json'))).toBe(false)
+      expect(loadPetPersist(dir).treats.lastTreatGrantAt).toBe(0)
+      // A repeated read is still a no-op.
+      await service.state()
+      expect(existsSync(join(dir, 'pet.json'))).toBe(false)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('settles the economy on the explicit turn-reward path and writes the anchor', async () => {
+    const ctx = new Context()
+    const dir = tempDir()
+    const session = makeSession('s1')
+    try {
+      const service = new PetService(ctx, { persistDir: dir })
+      expect(existsSync(join(dir, 'pet.json'))).toBe(false)
+      ctx.emit('session/event', session, turnEnd(1, { kind: 'completed' }, 1))
+      // The completed-turn reward is an explicit economic event: it settles
+      // (starting the idle clock) and persists to disk.
+      expect(existsSync(join(dir, 'pet.json'))).toBe(true)
       expect(loadPetPersist(dir).treats.lastTreatGrantAt).toBeGreaterThan(0)
     } finally {
       rmSync(dir, { recursive: true, force: true })
