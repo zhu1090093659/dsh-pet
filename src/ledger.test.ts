@@ -55,13 +55,15 @@ describe('PetLedger', () => {
     expect(ledger.takeDirty()).toBe(true)
   })
 
-  it('exposes the treat stock cap and display/name setters', () => {
+  it('exposes the treat stock cap and display/pet/name setters', () => {
     const ledger = new PetLedger(emptyPersist())
     expect(ledger.treatMax).toBe(defaultTreatConfig.maxTreats)
     ledger.setDisplay({ ...ledger.snapshot.display, visible: false })
-    ledger.setName('泡泡')
+    ledger.setPetId('otter')
+    ledger.setPetName('otter', '泡泡')
     expect(ledger.snapshot.display.visible).toBe(false)
-    expect(ledger.snapshot.name).toBe('泡泡')
+    expect(ledger.snapshot.petId).toBe('otter')
+    expect(ledger.snapshot.names).toEqual({ otter: '泡泡' })
     expect(ledger.takeDirty()).toBe(true)
   })
 })

@@ -1,11 +1,12 @@
 /**
- * dsh-pet browser half — mounts the whale-girl as a global floating surface
- * and drives it from the host's same-origin `/api/pet/*` JSON endpoints: poll
- * the host snapshot (~2 s), forward interactions, persist drag positions.
- * The pet is host-global (no session dimension), so it mounts directly onto
- * `document.body` via a single React root rather than a session-scoped slot —
- * on the new-conversation screen no session exists, and a dock-mounted pet
- * would vanish there (issue #48). When the pet is hidden the entry becomes a
+ * dsh-pet browser half — mounts the selected pet as a global floating
+ * surface and drives it from the host's same-origin '/api/pet/*' JSON
+ * endpoints: fetch the registry list once, poll the host snapshot (~2 s),
+ * forward interactions, persist drag positions. The pet is host-global (no
+ * session dimension), so it mounts directly onto 'document.body' via a
+ * single React root rather than a session-scoped slot — on the
+ * new-conversation screen no session exists, and a dock-mounted pet would
+ * vanish there (issue #48). When the pet is hidden the entry becomes a
  * fixed-position summon button.
  * @module @linxin666/dsh-pet/client
  */
@@ -20,6 +21,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { PetDisplayConfig } from '../persist.ts'
 import type { PetInteractResult, PetStateView } from '../service.ts'
 import type { PetInteraction } from '../affinity.ts'
+import type { PetDefinition } from '../registry.ts'
 import { createElement } from 'react'
 import { createRoot } from 'react-dom/client'
 import { createPetStore, type PetStoreInstance } from './pet-store.ts'
@@ -30,10 +32,12 @@ import { NS, en, zh, t } from './locales.ts'
 /** The host pet API as the browser sees it (same-origin JSON endpoints). */
 interface PetHttpApi {
   state(): Promise<PetStateView>
+  pets(): Promise<PetDefinition[]>
   interact(kind: PetInteraction): Promise<PetInteractResult>
   setVisible(visible: boolean): Promise<{ ok: true; display: PetDisplayConfig }>
   setConfig(patch: Partial<PetDisplayConfig>): Promise<{ ok: true; display: PetDisplayConfig }>
   setName(name: string): Promise<{ ok: true; name: string } | { ok: false; error: string }>
+  setPet(petId: string): Promise<{ ok: true; petId: string } | { ok: false; error: string }>
 }
 
 /** Same-origin JSON fetch helper (GET without body, POST with JSON body). */
@@ -46,7 +50,7 @@ async function petFetch<T>(path: string, body?: unknown): Promise<T> {
         body: JSON.stringify(body),
       })
   if (!response.ok) {
-    throw new Error(`pet ${path} failed: ${response.status}`)
+    throw new Error('pet ' + path + ' failed: ' + response.status)
   }
   return (await response.json()) as T
 }
@@ -54,10 +58,12 @@ async function petFetch<T>(path: string, body?: unknown): Promise<T> {
 /** The live host API instance (always defined; failures surface per call). */
 const petApi: PetHttpApi = {
   state: () => petFetch('/api/pet/state'),
+  pets: () => petFetch('/api/pet/pets'),
   interact: (kind) => petFetch('/api/pet/interact', { kind }),
   setVisible: (visible) => petFetch('/api/pet/set-visible', { visible }),
   setConfig: (patch) => petFetch('/api/pet/set-config', patch),
   setName: (name) => petFetch('/api/pet/set-name', { name }),
+  setPet: (petId) => petFetch('/api/pet/set-pet', { petId }),
 }
 
 /** Poll interval for the host snapshot. */
@@ -71,14 +77,16 @@ export const inject = ['slots', 'locale', 'connection', 'settingsScope', 'remote
 
 /** Re-exported for consumers that type against the injected face. */
 export type { PetInjected, PetDockEntryProps } from './PetDockEntry.tsx'
+export type { PetSpriteProps } from './PetSprite.tsx'
 export type { PetUiState, PetFeedback } from './pet-store.ts'
 export type { PetSettingsCardFace, PetSettingsCardState } from './PetSettingsCard.tsx'
+export type { PetDefinition } from '../registry.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface SlotMap {
     /**
      * The child slot the Web UI plugin group declares; this card registers
-     * into the group instead of the top-level `settings.plugin.item` list.
+     * into the group instead of the top-level 'settings.plugin.item' list.
      * Spelled here with the same shape so this package can register without
      * depending on the sibling UI package.
      */
@@ -103,7 +111,6 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 
-
 /**
  * Client plugin body: register dictionaries, mount the global pet entry and
  * poll loop while the plugin is enabled, and seat the settings card in the
@@ -122,8 +129,9 @@ export function apply(ctx: ClientContext): void {
       : snapshot.status === 'unavailable'
   }
 
-  // Plugin configuration card: one staged form over the `pet` settings
-  // namespace, contributed to the Web UI plugin group.
+  // Plugin configuration card: one staged form over the 'pet' settings
+  // namespace, contributed to the Web UI plugin group. The controller loads
+  // the petId choices from the registry endpoint itself.
   const petSettings = new PetSettingsCardController(settingsScope)
   ctx.slots.inject('web-ui.plugin.item', () => ctx.slots.register({
     name: 'web-ui.plugin.item',
@@ -145,10 +153,24 @@ export function apply(ctx: ClientContext): void {
       // it stateless on the new-conversation screen (no session to scope by).
       const petStore: PetStoreInstance = createPetStore().create()
       const setSnapshot = petStore.actions.setSnapshot
+      const setPets = petStore.actions.setPets
       const setState = petStore.actions.setState
       const setFeedback = petStore.actions.setFeedback
 
+      // The registry list is fetched lazily with retries baked into the poll
+      // cycle: until it lands, the dock entry renders nothing and every 2s
+      // tick tries again. After it lands, one list feeds both the sprite and
+      // the settings card's choices.
+      let petsLoaded = false
       const pollNow = (): void => {
+        if (!petsLoaded) {
+          petApi.pets().then((list) => {
+            petsLoaded = true
+            setPets(list)
+          }, () => {
+            // Retry on the next poll tick.
+          })
+        }
         petApi.state().then((snapshot) => {
           setSnapshot(snapshot)
         }, () => {
@@ -253,8 +275,8 @@ export function apply(ctx: ClientContext): void {
       // for a global floating surface — the dock is session-scoped, so a pet
       // mounted there would vanish on the new-conversation screen (issue #48).
       // The entry therefore mounts straight onto document.body via a single
-      // React root for the page lifetime: WhalePet portals itself to body when
-      // visible, and the hidden-state summon button is fixed-positioned.
+      // React root for the page lifetime: PetSprite portals itself to body
+      // when visible, and the hidden-state summon button is fixed-positioned.
       const container = document.createElement('div')
       container.dataset.dshPetRoot = ''
       document.body.appendChild(container)

@@ -1,14 +1,47 @@
 // @vitest-environment jsdom
 /**
- * WhalePet rename-box keyboard handling. The rename input must treat
+ * PetSprite rename-box keyboard handling. The rename input must treat
  * Enter/Escape keydowns that arrive during IME composition (candidate
  * selection) as composition input, never as submit/cancel (issue #89).
  */
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { WhalePet, type WhalePetProps } from './WhalePet.tsx'
+import { PetSprite, type PetSpriteProps } from './PetSprite.tsx'
 import { t } from './locales.ts'
 import type { PetStateView } from '../service.ts'
+import type { PetDefinition, PetTrackDef } from '../registry.ts'
+import type { PetAnimation } from '../state.ts'
+
+/** A minimal pet definition (geometry + tracks) as served by the host. */
+function petDefinition(): PetDefinition {
+  const track = (frames: number[], durations: number[], loop = true, fallback?: PetAnimation): PetTrackDef => ({
+    frames,
+    durations,
+    loop,
+    ...(fallback === undefined ? {} : { fallback }),
+  })
+  return {
+    id: 'whale-girl',
+    displayName: '鲸鱼娘',
+    description: '测试用鲸鱼娘',
+    cell: { width: 192, height: 208 },
+    columns: 8,
+    rows: [6, 8, 8, 4, 5, 8, 6, 6, 6],
+    tracks: {
+      idle: track([0, 1, 2, 3, 4, 5], [400, 400, 400, 400, 400, 400]),
+      'running-right': track([0, 1, 2, 3, 4, 5, 6, 7], [225, 225, 225, 225, 225, 225, 225, 225]),
+      'running-left': track([0, 1, 2, 3, 4, 5, 6, 7], [225, 225, 225, 225, 225, 225, 225, 225]),
+      waving: track([0, 1, 2, 3], [350, 350, 350, 350]),
+      jumping: track([0, 1, 2, 3, 4], [300, 300, 300, 300, 300], false, 'idle'),
+      failed: track([0, 1, 2, 3, 4, 5, 6, 7], [450, 450, 450, 450, 450, 450, 450, 450], false, 'idle'),
+      waiting: track([0, 1, 2, 3, 4, 5], [450, 450, 450, 450, 450, 450]),
+      running: track([0, 1, 2, 3, 4, 5], [250, 250, 250, 250, 250, 250]),
+      review: track([0, 1, 2, 3, 4, 5], [550, 550, 550, 550, 550, 550]),
+    },
+    atlasUrl: '/pet/whale-girl/spritesheet.webp',
+    manifestUrl: '/pet/whale-girl/pet.json',
+  }
+}
 
 /** Snapshot fixture: idle whale girl named 泡泡. */
 const snapshot: PetStateView = {
@@ -26,6 +59,7 @@ const snapshot: PetStateView = {
     feedCooldown: false,
   },
   display: { visible: true, size: 160, right: 24, bottom: 20 },
+  pet: { id: 'whale-girl', displayName: '鲸鱼娘', description: '测试用鲸鱼娘' },
   name: '泡泡',
   treats: { stocked: 3, max: 5 },
 }
@@ -55,10 +89,11 @@ afterEach(() => {
 })
 
 /** Render the pet with mocked callbacks; returns the rename spy. */
-function renderPet(overrides: Partial<WhalePetProps> = {}): { onRename: ReturnType<typeof vi.fn> } {
+function renderPet(overrides: Partial<PetSpriteProps> = {}): { onRename: ReturnType<typeof vi.fn> } {
   const onRename = vi.fn()
-  const props: WhalePetProps = {
+  const props: PetSpriteProps = {
     snapshot,
+    definition: petDefinition(),
     display: snapshot.display,
     feedback: null,
     onPet: vi.fn(),
@@ -70,13 +105,13 @@ function renderPet(overrides: Partial<WhalePetProps> = {}): { onRename: ReturnTy
     t,
     ...overrides,
   }
-  render(<WhalePet {...props} />)
+  render(<PetSprite {...props} />)
   return { onRename }
 }
 
 /** Hover the sprite to open the panel, then click the rename button. */
 function openRename(): HTMLInputElement {
-  fireEvent.pointerOver(screen.getByRole('button', { name: 'whale girl' }))
+  fireEvent.pointerOver(screen.getByRole('button', { name: '鲸鱼娘' }))
   fireEvent.click(screen.getByText('改名'))
   return screen.getByPlaceholderText('输入新名字') as HTMLInputElement
 }
@@ -100,7 +135,7 @@ function fireComposingKeydown(target: Element, key: string): void {
   fireEvent.compositionEnd(target)
 }
 
-describe('WhalePet rename input', () => {
+describe('PetSprite rename input', () => {
   it('submits the draft on Enter outside composition', () => {
     const { onRename } = renderPet()
     const input = openRename()
@@ -138,7 +173,7 @@ describe('WhalePet rename input', () => {
   })
 })
 
-describe('WhalePet status bubble', () => {
+describe('PetSprite status bubble', () => {
   const workingSnapshot: PetStateView = {
     ...snapshot,
     animation: 'running',
@@ -158,5 +193,18 @@ describe('WhalePet status bubble', () => {
     })
     expect(screen.queryByText('摸摸成功')).not.toBeNull()
     expect(screen.queryByText('正在思考')).toBeNull()
+  })
+})
+
+describe('PetSprite definition-driven render', () => {
+  it('labels the sprite with the pet display name', () => {
+    renderPet()
+    expect(screen.queryByRole('button', { name: '鲸鱼娘' })).not.toBeNull()
+  })
+
+  it('shows the renamed snapshot name in the hover panel', () => {
+    renderPet()
+    fireEvent.pointerOver(screen.getByRole('button', { name: '鲸鱼娘' }))
+    expect(screen.queryByText('泡泡')).not.toBeNull()
   })
 })

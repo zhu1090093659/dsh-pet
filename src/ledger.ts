@@ -88,9 +88,16 @@ export class PetLedger {
     this.dirty = true
   }
 
-  /** Replace the pet display name (validation stays a caller concern). */
-  setName(name: string): void {
-    this.current = { ...this.current, name }
+  /** Replace the selected pet id (validation stays a caller concern). */
+  setPetId(petId: string): void {
+    if (this.current.petId === petId) return
+    this.current = { ...this.current, petId }
+    this.dirty = true
+  }
+
+  /** Replace one pet's display name (validation stays a caller concern). */
+  setPetName(petId: string, name: string): void {
+    this.current = { ...this.current, names: { ...this.current.names, [petId]: name } }
     this.dirty = true
   }
 
@@ -161,7 +168,7 @@ export class PetLedger {
       const consume = consumeTreat(this.current.treats)
       if (!consume.ok) {
         return {
-          reaction: '没有小鱼干了，多陪鲸鱼娘工作一会儿吧～',
+          reaction: '没有小鱼干了，多陪我工作一会儿吧～',
           delta: 0,
           affinity: this.affinityView(nowMs),
         }

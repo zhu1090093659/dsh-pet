@@ -10,6 +10,7 @@ import { defineStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { EngineStoreHandle, EngineStoreInstance } from '@deepseek-ai/dsh-client-runtime/client'
 import type { PetStateView } from '../service.ts'
 import type { PetInteraction } from '../affinity.ts'
+import type { PetDefinition } from '../registry.ts'
 
 /** One transient reaction bubble on the pet. */
 export interface PetFeedback {
@@ -25,6 +26,8 @@ export interface PetFeedback {
 export interface PetUiState {
   /** Latest host snapshot; null before the first successful fetch. */
   snapshot: PetStateView | null
+  /** The registry list the host serves (atlas URLs + geometry + tracks). */
+  pets: PetDefinition[]
   /** Fetch lifecycle. */
   state: 'loading' | 'ready' | 'error'
   /** Transport error message (for the debug surface), when any. */
@@ -37,6 +40,8 @@ export interface PetUiState {
 export type PetUiActions = {
   /** Replace the host snapshot (poll result). */
   setSnapshot: (draft: PetUiState, snapshot: PetStateView) => void
+  /** Replace the registry list. */
+  setPets: (draft: PetUiState, pets: PetDefinition[]) => void
   /** Mark the fetch lifecycle. */
   setState: (draft: PetUiState, state: PetUiState['state'], error: string | null) => void
   /** Show a reaction bubble. */
@@ -48,6 +53,7 @@ export function createPetStore(): EngineStoreHandle<PetUiState, PetUiActions> {
   return defineStore({
     init: (): PetUiState => ({
       snapshot: null,
+      pets: [],
       state: 'loading',
       error: null,
       feedback: null,
@@ -57,6 +63,9 @@ export function createPetStore(): EngineStoreHandle<PetUiState, PetUiActions> {
         draft.snapshot = snapshot
         draft.state = 'ready'
         draft.error = null
+      },
+      setPets: (draft, pets) => {
+        draft.pets = pets
       },
       setState: (draft, state, error) => {
         draft.state = state

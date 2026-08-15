@@ -1,11 +1,34 @@
 import { describe, expect, it } from 'vitest'
-import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import type { Session, SessionEvent, TurnEndReason } from '@deepseek-ai/dsh-session'
 import { loadPetPersist } from '../src/persist.ts'
 import { PetService } from '../src/service.ts'
+import { resolvePetManifest, type PetRegistry } from '../src/registry.ts'
+
+/** Two-pet registry fixture (whale-girl + otter) for selection/name tests. */
+function fixtureRegistry(): PetRegistry {
+  const warnings: string[] = []
+  const whale = resolvePetManifest({
+    id: 'whale-girl',
+    displayName: '鲸鱼娘',
+    spritesheetPath: 'spritesheet.webp',
+  }, join(tmpdir(), 'whale'), { warnings })
+  const otter = resolvePetManifest({
+    id: 'otter',
+    displayName: '水獭',
+    spritesheetPath: 'spritesheet.webp',
+  }, join(tmpdir(), 'otter'), { warnings })
+  const entries = [whale!, otter!]
+  return {
+    entries,
+    warnings,
+    byId: id => entries.find(entry => entry.id === id),
+    defaultEntry: () => entries[0]!,
+  }
+}
 
 // The former working-activity plugin extended the mergeable event map. Keep
 // that external declaration test-only so dsh-pet itself does not claim the
@@ -462,18 +485,113 @@ describe('PetService (rc.6 session events)', () => {
     }
   })
 
-  it('trims settings names so whitespace-only values cannot persist', () => {
+  it('reports the selected pet identity and the registry list', async () => {
     const ctx = new Context()
     const dir = tempDir()
     try {
-      const service = new PetService(ctx, { persistDir: dir })
+      const service = new PetService(ctx, { persistDir: dir, registry: fixtureRegistry() })
+      const view = await service.state()
+      expect(view.pet.id).toBe('whale-girl')
+      expect(view.pet.displayName).toBe('鲸鱼娘')
+      expect(view.name).toBe('鲸鱼娘')
+      const pets = await service.pets()
+      expect(pets.map(entry => entry.id)).toEqual(['whale-girl', 'otter'])
+      expect(pets[0]!.atlasUrl).toBe('/pet/whale-girl/spritesheet.webp')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('switches pets and keeps an independent name per pet', async () => {
+    const ctx = new Context()
+    const dir = tempDir()
+    try {
+      const service = new PetService(ctx, { persistDir: dir, registry: fixtureRegistry() })
+      expect((await service.setName('小鲸')).ok).toBe(true)
+      expect((await service.state()).name).toBe('小鲸')
+
+      expect((await service.setPetId('otter')).ok).toBe(true)
+      expect((await service.state()).pet.id).toBe('otter')
+      // The new pet falls back to its manifest displayName until renamed.
+      expect((await service.state()).name).toBe('水獭')
+
+      expect((await service.setName('阿獭')).ok).toBe(true)
+      expect((await service.setPetId('whale-girl')).ok).toBe(true)
+      expect((await service.state()).name).toBe('小鲸')
+      expect((await service.setPetId('otter')).ok).toBe(true)
+      expect((await service.state()).name).toBe('阿獭')
+
+      expect(loadPetPersist(dir)).toMatchObject({
+        petId: 'otter',
+        names: { 'whale-girl': '小鲸', otter: '阿獭' },
+      })
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('refuses to switch to an unknown pet', async () => {
+    const ctx = new Context()
+    const dir = tempDir()
+    try {
+      const service = new PetService(ctx, { persistDir: dir, registry: fixtureRegistry() })
+      const result = await service.setPetId('dragon')
+      expect(result.ok).toBe(false)
+      expect((await service.state()).pet.id).toBe('whale-girl')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('applies a settings section that selects another pet', async () => {
+    const ctx = new Context()
+    const dir = tempDir()
+    try {
+      const service = new PetService(ctx, { persistDir: dir, registry: fixtureRegistry() })
       service.applySettingsSection({
+        petId: 'otter',
         visible: true,
         size: 160,
         right: 24,
         bottom: 20,
-        name: '  鲸鱼娘  ',
       })
+      expect((await service.state()).pet.id).toBe('otter')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('falls back to the default pet when the persisted selection is unknown', async () => {
+    const ctx = new Context()
+    const dir = tempDir()
+    try {
+      writeFileSync(join(dir, 'pet.json'), JSON.stringify({ petId: 'gone', display: { visible: true, size: 160, right: 24, bottom: 20 } }), 'utf8')
+      const service = new PetService(ctx, { persistDir: dir, registry: fixtureRegistry() })
+      expect((await service.state()).pet.id).toBe('whale-girl')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('migrates the legacy flat name onto the selected pet', async () => {
+    const ctx = new Context()
+    const dir = tempDir()
+    try {
+      writeFileSync(join(dir, 'pet.json'), JSON.stringify({ name: '泡泡' }), 'utf8')
+      const service = new PetService(ctx, { persistDir: dir, registry: fixtureRegistry() })
+      expect((await service.state()).name).toBe('泡泡')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects whitespace-only renames without persisting them', async () => {
+    const ctx = new Context()
+    const dir = tempDir()
+    try {
+      const service = new PetService(ctx, { persistDir: dir, registry: fixtureRegistry() })
+      const result = await service.setName('   ')
+      expect(result.ok).toBe(false)
       expect(service.petName()).toBe('鲸鱼娘')
     } finally {
       rmSync(dir, { recursive: true, force: true })

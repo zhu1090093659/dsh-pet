@@ -1,35 +1,47 @@
 /**
  * Pet HTTP routes — the browser half talks to the host through plain
- * same-origin JSON endpoints (`/api/pet/*`) and loads the whale-girl atlas
- * from `/pet/whale/*`. The `/plugins/` endpoint only serves client bundles
- * and RPC domains are platform-registered, so the pet serves its own API
- * and media — the same pattern as dsh-remote-web-ui's `/api/pair` family.
+ * same-origin JSON endpoints ('/api/pet/*') and loads pet assets from
+ * '/pet/<id>/*'. The '/plugins/' endpoint only serves client bundles and RPC
+ * domains are platform-registered, so the pet serves its own API and media —
+ * the same pattern as dsh-remote-web-ui's '/api/pair' family. The asset route
+ * is one prefix registration serving every registry entry (manifest, atlas,
+ * optional previews), so adding a pet never touches route wiring.
  * @module @linxin666/dsh-pet/routes
  */
 
-import type { IncomingMessage, ServerResponse } from 'node:http'
+import { existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import type { PetService } from './service.ts'
 import type { PetInteraction } from './affinity.ts'
+import { petEntryView, type PetEntry, type PetRegistry } from './registry.ts'
 
 /** Browser-facing base path of the pet API. */
 export const PET_API_PREFIX = '/api/pet'
 
-/** Browser-facing base path of the pet asset routes. */
-export const PET_ASSET_PREFIX = '/pet/whale'
+/** Browser-facing base path of the pet asset routes ('/pet/<id>/...'). */
+export const PET_ASSET_PREFIX = '/pet'
 
-/** Relative (to package root) asset files exposed under the prefix. */
-const ASSET_FILES = [
-  { name: 'spritesheet.webp', mime: 'image/webp' },
-  { name: 'pet.json', mime: 'application/json' },
-] as const
+const MANIFEST_FILE = 'pet.json'
+const PREVIEW_DIR = 'previews'
+const PREVIEW_PATTERN = /^[A-Za-z0-9._-]+$/
 
-/** Absolute package root, resolved from this module's own location (lib/). */
-export function petPackageRoot(importMetaUrl: string): string {
-  return fileURLToPath(new URL('../', importMetaUrl))
+const MIME_BY_EXT: Readonly<Record<string, string>> = {
+  '.webp': 'image/webp',
+  '.png': 'image/png',
+  '.gif': 'image/gif',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.json': 'application/json',
+}
+
+/** Content type by file extension (safe fallback: octet-stream). */
+function mimeFor(file: string): string {
+  const dot = file.lastIndexOf('.')
+  if (dot < 0) return 'application/octet-stream'
+  return MIME_BY_EXT[file.slice(dot).toLowerCase()] ?? 'application/octet-stream'
 }
 
 /** Write one JSON response. */
@@ -53,8 +65,6 @@ function readJsonBody(req: IncomingMessage): Promise<unknown> {
     req.on('data', (chunk: Buffer) => {
       size += chunk.length
       if (size > 64 * 1024) {
-        // Reject first so the error handler can write the 400 response,
-        // then close the connection once the response is flushed.
         reject(new Error('body-too-large'))
         queueMicrotask(() => req.destroy())
         return
@@ -112,60 +122,163 @@ function postRoute(path: string, run: (body: Record<string, unknown>) => Promise
   }
 }
 
-/** Build the full route family (API + assets) for one service + package root. */
-export function makePetRoutes(deps: { service: PetService; packageRoot: string }): WebRoute[] {
-  const { service, packageRoot } = deps
+/** Legacy URL aliases: each entry's directory basename (e.g. 'whale'). */
+function dirAliases(registry: PetRegistry): Map<string, PetEntry> {
+  const aliases = new Map<string, PetEntry>()
+  for (const entry of registry.entries) {
+    const alias = entry.dir.split(/[\\/]/).pop() ?? ''
+    if (alias !== '' && !aliases.has(alias)) aliases.set(alias, entry)
+  }
+  return aliases
+}
+
+/**
+ * The one asset handler behind the '/pet' prefix. Resolves the pet by id (or
+ * legacy directory alias), then serves exactly the files a manifest declares:
+ * pet.json, the declared spritesheet path, and optional 'previews/<name>'
+ * media. Composed pets without a manifest file get a synthesized pet.json.
+ */
+function assetHandler(registry: PetRegistry): WebRoute['handler'] {
+  const aliases = dirAliases(registry)
+  return (req: IncomingMessage, res: ServerResponse): void => {
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      res.writeHead(405)
+      res.end()
+      return
+    }
+    let pathname: string
+    try {
+      pathname = new URL(req.url ?? '/', 'http://pet.local').pathname
+    } catch {
+      res.writeHead(400)
+      res.end()
+      return
+    }
+    const segments = pathname.split('/').filter(segment => segment !== '')
+    if (segments[0] !== 'pet' || segments[1] === undefined) {
+      res.writeHead(404)
+      res.end()
+      return
+    }
+    let id: string
+    try {
+      id = decodeURIComponent(segments[1])
+    } catch {
+      res.writeHead(400)
+      res.end()
+      return
+    }
+    const entry = registry.byId(id) ?? aliases.get(id)
+    if (entry === undefined) {
+      res.writeHead(404)
+      res.end()
+      return
+    }
+    const rest: string[] = []
+    for (const segment of segments.slice(2)) {
+      let decoded: string
+      try {
+        decoded = decodeURIComponent(segment)
+      } catch {
+        res.writeHead(400)
+        res.end()
+        return
+      }
+      rest.push(decoded)
+    }
+    const rel = rest.join('/')
+    let file: string | undefined
+    let synthesized = false
+    if (rest.length === 1 && rest[0] === MANIFEST_FILE) {
+      const manifestFile = join(entry.dir, MANIFEST_FILE)
+      file = existsSync(manifestFile) ? manifestFile : undefined
+      if (file === undefined) synthesized = true
+    } else if (rest.length > 0 && rel === entry.spritesheetPath) {
+      file = join(entry.dir, entry.spritesheetPath)
+    } else if (rest.length === 2 && rest[0] === PREVIEW_DIR && PREVIEW_PATTERN.test(rest[1]!)) {
+      const preview = join(entry.dir, PREVIEW_DIR, rest[1]!)
+      file = existsSync(preview) ? preview : undefined
+    }
+    if (synthesized) {
+      const body = Buffer.from(JSON.stringify(petEntryView(entry), null, 2), 'utf8')
+      res.writeHead(200, {
+        'content-type': 'application/json; charset=utf-8',
+        'content-length': String(body.byteLength),
+        'cache-control': 'no-cache',
+      })
+      if (req.method === 'HEAD') {
+        res.end()
+        return
+      }
+      res.end(body)
+      return
+    }
+    if (file === undefined) {
+      res.writeHead(404)
+      res.end()
+      return
+    }
+    const resolved = file
+    readFile(resolved).then((body) => {
+      res.writeHead(200, {
+        'content-type': mimeFor(resolved),
+        'content-length': String(body.byteLength),
+        'cache-control': 'no-cache',
+      })
+      if (req.method === 'HEAD') {
+        res.end()
+        return
+      }
+      res.end(body)
+    }, () => {
+      res.writeHead(404)
+      res.end()
+    })
+  }
+}
+
+/** Build the full route family (API + assets) for one service. */
+export function makePetRoutes(deps: { service: PetService }): WebRoute[] {
+  const { service } = deps
   const apiRoutes: WebRoute[] = [
-    getRoute(`${PET_API_PREFIX}/state`, () => service.state()),
-    postRoute(`${PET_API_PREFIX}/interact`, (body) => {
+    getRoute(PET_API_PREFIX + '/state', () => service.state()),
+    getRoute(PET_API_PREFIX + '/pets', () => service.pets()),
+    postRoute(PET_API_PREFIX + '/interact', (body) => {
       const kind = body.kind as PetInteraction | undefined
       if (kind !== 'pet' && kind !== 'feed') return Promise.reject(new Error('invalid-kind'))
       return service.interact(kind)
     }),
-    postRoute(`${PET_API_PREFIX}/set-visible`, (body) => {
+    postRoute(PET_API_PREFIX + '/set-visible', (body) => {
       const visible = body.visible
       if (typeof visible !== 'boolean') return Promise.reject(new Error('invalid-visible'))
       return service.setVisible(visible)
     }),
-    postRoute(`${PET_API_PREFIX}/set-config`, (body) => service.setConfig({
+    postRoute(PET_API_PREFIX + '/set-config', (body) => service.setConfig({
       ...(typeof body.size === 'number' ? { size: body.size } : {}),
       ...(typeof body.right === 'number' ? { right: body.right } : {}),
       ...(typeof body.bottom === 'number' ? { bottom: body.bottom } : {}),
       ...(typeof body.visible === 'boolean' ? { visible: body.visible } : {}),
     })),
-    postRoute(`${PET_API_PREFIX}/set-name`, (body) => {
+    postRoute(PET_API_PREFIX + '/set-name', (body) => {
       const name = body.name
       if (typeof name !== 'string') return Promise.reject(new Error('invalid-name'))
       return service.setName(name)
     }),
+    postRoute(PET_API_PREFIX + '/set-pet', (body) => {
+      const petId = body.petId
+      if (typeof petId !== 'string') return Promise.reject(new Error('invalid-pet'))
+      return service.setPetId(petId)
+    }),
   ]
 
-  const assetRoutes: WebRoute[] = ASSET_FILES.map((file): WebRoute => ({
-    kind: 'exact',
-    path: `${PET_ASSET_PREFIX}/${file.name}`,
-    handler: (req: IncomingMessage, res: ServerResponse): Promise<void> | void => {
-      if (req.method !== 'GET' && req.method !== 'HEAD') {
-        res.writeHead(405)
-        res.end()
-        return
-      }
-      return readFile(join(packageRoot, 'assets', 'whale', file.name)).then((body) => {
-        res.writeHead(200, {
-          'content-type': file.mime,
-          'content-length': String(body.byteLength),
-          'cache-control': 'no-cache',
-        })
-        if (req.method === 'HEAD') {
-          res.end()
-          return
-        }
-        res.end(body)
-      }, () => {
-        res.writeHead(404)
-        res.end()
-      })
-    },
-  }))
+  const assetRoute: WebRoute = {
+    kind: 'prefix',
+    path: PET_ASSET_PREFIX,
+    handler: assetHandler(service.registrySnapshot()),
+  }
 
-  return [...apiRoutes, ...assetRoutes]
+  return [...apiRoutes, assetRoute]
 }
+
+// Re-exported for the package surface (the registry owns the definition now).
+export { petPackageRoot } from './registry.ts'

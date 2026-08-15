@@ -3,8 +3,8 @@
  * the pure event projection (`event-projection`) onto the state machine,
  * delegates the affinity economy to the ledger (`ledger`), and routes
  * persistence through `persist`. The API gateway maps these methods onto
- * `pet.state` / `pet.interact` / `pet.setVisible` / `pet.setConfig` for
- * browser consumers.
+ * `pet.state` / `pet.pets` / `pet.interact` / `pet.setVisible` /
+ * `pet.setConfig` / `pet.setName` / `pet.setPet` for browser consumers.
  * @module @linxin666/dsh-pet/service
  */
 
@@ -21,6 +21,7 @@ import {
 } from './event-projection.ts'
 import { PetLedger, type LedgerConfig, type LedgerInteractionResult } from './ledger.ts'
 import {
+  DEFAULT_PET_NAME,
   DISPLAY_INSET_MAX,
   DISPLAY_SIZE_MAX,
   DISPLAY_SIZE_MIN,
@@ -31,6 +32,14 @@ import {
   type PetDisplayConfig,
   type PetPersist,
 } from './persist.ts'
+import {
+  loadPetRegistry,
+  petEntryView,
+  petPackageRoot,
+  type PetDefinition,
+  type PetManifest,
+  type PetRegistry,
+} from './registry.ts'
 import {
   defaultPetStateConfig,
   PetStateMachine,
@@ -51,14 +60,22 @@ export interface PetConfig {
   persistDir?: string
   /** Master switch for the plugin (browser half + host routes). */
   enabled?: boolean
+  /** Prebuilt registry (tests); defaults to scanning the package + user dirs. */
+  registry?: PetRegistry
+  /** Extra manifest entries composed by the embedding application. */
+  pets?: readonly PetManifest[]
 }
 
 /**
- * The pet's settings-namespace section: the display fields and name the web
- * settings surface edits. `right`/`bottom` are also updated by drag
+ * The pet's settings-namespace section: the pet selection and display fields
+ * the web settings surface edits. `right`/`bottom` are also updated by drag
  * interactions, which keep the settings document in sync through the service.
+ * Naming is per pet and lives outside the settings document (the hover-panel
+ * rename targets the selected pet).
  */
 export interface PetSettingsSection {
+  /** Selected pet id (a registry entry; the service clamps stale values). */
+  petId?: string
   /** Master switch. */
   visible: boolean
   /** Scale of the rendered pet in px (sprite cell height). */
@@ -67,8 +84,6 @@ export interface PetSettingsSection {
   right: number
   /** Vertical inset from the viewport bottom edge, px. */
   bottom: number
-  /** User-customizable pet display name. */
-  name: string
   /** Master switch for the plugin (browser half + host routes). */
   enabled?: boolean
 }
@@ -86,7 +101,16 @@ export interface PetStateView {
   affinity: PetAffinityView
   /** Display configuration. */
   display: PetDisplayConfig
-  /** User-customizable pet display name. */
+  /** The selected pet's registry identity. */
+  pet: {
+    /** Registry id. */
+    id: string
+    /** Manifest display name (unrenamed default). */
+    displayName: string
+    /** Manifest description. */
+    description: string
+  }
+  /** The selected pet's display name (user rename or manifest default). */
   name: string
   /** Treat (小鱼干) stock snapshot. */
   treats: {
@@ -117,6 +141,7 @@ export class PetService extends Service {
 
   private readonly machine: PetStateMachine
   private readonly ledger: PetLedger
+  private readonly registry: PetRegistry
   private readonly persistDir: string
   private enabled: boolean
   private disposeActivity: (() => void) | undefined
@@ -127,8 +152,22 @@ export class PetService extends Service {
   constructor(ctx: Context, config: PetConfig = {}) {
     super(ctx, 'pet')
     this.persistDir = config.persistDir ?? petHomeDir()
+    this.registry = config.registry
+      ?? loadPetRegistry({
+        packageRoot: petPackageRoot(import.meta.url),
+        ...(config.pets === undefined ? {} : { extra: config.pets }),
+      })
+    if (this.registry.entries.length === 0) {
+      throw new Error('[dsh-pet] no valid pet manifests found; nothing to render')
+    }
+    let persist = loadPetPersist(this.persistDir)
+    if (this.registry.byId(persist.petId) === undefined) {
+      // The selected pet no longer exists (removed or a fresh install with a
+      // copied pet.json): fall back to the registry default.
+      persist = { ...persist, petId: this.registry.defaultEntry().id }
+    }
     const ledgerConfig: LedgerConfig = { affinity: config.affinity, treats: config.treats }
-    this.ledger = new PetLedger(loadPetPersist(this.persistDir), ledgerConfig)
+    this.ledger = new PetLedger(persist, ledgerConfig)
     this.machine = new PetStateMachine({
       ...defaultPetStateConfig,
       ...(config.state ?? {}),
@@ -153,9 +192,41 @@ export class PetService extends Service {
     return { ...this.ledger.snapshot.display }
   }
 
-  /** Current persisted pet name (read-only view). */
-  petName(): string {
-    return this.ledger.snapshot.name
+  /** RPC: the registry entries the browser half renders and selects from. */
+  async pets(): Promise<PetDefinition[]> {
+    return this.registry.entries.map(petEntryView)
+  }
+
+  /** The loaded registry (the asset routes serve its entries). */
+  registrySnapshot(): PetRegistry {
+    return this.registry
+  }
+
+  /** The selected pet's registry entry. */
+  activeEntry(): NonNullable<PetRegistry['entries'][number]> {
+    return this.registry.byId(this.selectedPetId()) ?? this.registry.defaultEntry()
+  }
+
+  /** Currently selected pet id (persisted). */
+  selectedPetId(): string {
+    return this.ledger.snapshot.petId
+  }
+
+  /** The display name of one pet (user rename or manifest displayName). */
+  petName(petId: string = this.selectedPetId()): string {
+    const stored = this.ledger.snapshot.names[petId]
+    if (stored !== undefined && stored.trim() !== '') return stored
+    return this.registry.byId(petId)?.displayName ?? DEFAULT_PET_NAME
+  }
+
+  /** RPC: switch the selected pet (persisted, settings document mirrored). */
+  async setPetId(petId: string): Promise<{ ok: true; petId: string } | { ok: false; error: string }> {
+    const entry = this.registry.byId(petId)
+    if (entry === undefined) return { ok: false, error: 'unknown-pet' }
+    this.ledger.setPetId(entry.id)
+    this.flush()
+    this.syncSettingsFromPet()
+    return { ok: true, petId: entry.id }
   }
 
   /** Start or stop the session-activity listeners that drive the pet. */
@@ -257,31 +328,36 @@ export class PetService extends Service {
     return { ok: true, display: this.ledger.snapshot.display }
   }
 
-  /** RPC: rename the pet (trimmed, 1–20 chars). */
+  /** RPC: rename the selected pet (trimmed, 1–20 chars, per-pet storage). */
   async setName(name: string): Promise<{ ok: true; name: string } | { ok: false; error: string }> {
     const trimmed = name.trim()
     if (trimmed === '') return { ok: false, error: 'name-empty' }
     if (trimmed.length > PET_NAME_MAX_LENGTH) return { ok: false, error: 'name-too-long' }
-    this.ledger.setName(trimmed)
+    this.ledger.setPetName(this.selectedPetId(), trimmed)
     this.flush()
-    this.syncSettingsFromPet()
     return { ok: true, name: trimmed }
   }
 
   /**
-   * Apply a committed settings section to the persisted display config. Called
-   * by the settings surface on every change; values are clamped exactly like
-   * the setConfig RPC so both write paths converge.
+   * Apply a committed settings section to the persisted selection and display
+   * config. Called by the settings surface on every change; values are
+   * clamped exactly like the setConfig RPC so both write paths converge.
    * @param section - the resolved settings section.
    */
   applySettingsSection(section: PetSettingsSection): void {
+    if (typeof section.petId === 'string' && this.registry.byId(section.petId) !== undefined) {
+      this.ledger.setPetId(section.petId)
+    } else if (section.petId !== undefined) {
+      // The stored selection names a pet the registry no longer has: keep the
+      // current selection and repair the settings document.
+      this.syncSettingsFromPet()
+    }
     const next = { ...this.ledger.snapshot.display }
     next.visible = section.visible && (section.enabled ?? true)
     next.size = Math.round(Math.min(DISPLAY_SIZE_MAX, Math.max(DISPLAY_SIZE_MIN, section.size)))
     next.right = Math.round(Math.min(DISPLAY_INSET_MAX, Math.max(0, section.right)))
     next.bottom = Math.round(Math.min(DISPLAY_INSET_MAX, Math.max(0, section.bottom)))
     this.ledger.setDisplay(next)
-    this.ledger.setName(section.name.trim())
     this.flush()
   }
 
@@ -295,7 +371,7 @@ export class PetService extends Service {
       size: snapshot.display.size,
       right: snapshot.display.right,
       bottom: snapshot.display.bottom,
-      name: snapshot.name,
+      petId: snapshot.petId,
     }).catch(() => {
       // A settings write failure must not break the pet's own persistence.
     })
@@ -313,6 +389,7 @@ export class PetService extends Service {
 
   private view(): PetStateView {
     const snapshot = this.machine.render()
+    const entry = this.activeEntry()
     // Read-only: the ledger settles on economic events only, never on a read,
     // so polling the state cannot trigger pet.json writes.
     return {
@@ -322,7 +399,12 @@ export class PetService extends Service {
       sessionActive: snapshot.sessionActive,
       affinity: this.ledger.affinityView(Date.now()),
       display: { ...this.ledger.snapshot.display },
-      name: this.ledger.snapshot.name,
+      pet: {
+        id: entry.id,
+        displayName: entry.displayName,
+        description: entry.description,
+      },
+      name: this.petName(),
       treats: {
         stocked: this.ledger.snapshot.treats.treats,
         max: this.ledger.treatMax,
