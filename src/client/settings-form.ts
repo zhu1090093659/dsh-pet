@@ -20,6 +20,14 @@ export type FieldWrite =
 export interface FieldSpec {
   /** Field name inside the namespace section. */
   field: string
+  /**
+   * Whether the Host treats this field as a secret and redacts its value from
+   * the read-back (role('secret') in the section schema). Redacted secrets are
+   * never compared against the draft on save; the field lands when the scope
+   * reports the write succeeded (its secret-set marker under the bridge), so
+   * a successful secret save is not misreported as failed.
+   */
+  secret?: boolean
   /** Render a stored value as draft text; the empty string when the section carries none. */
   format: (value: unknown) => string
   /**
@@ -61,6 +69,12 @@ export interface CardShell {
   saving: boolean
   /** Whether the last save did not land as staged; cleared by the next edit or save. */
   failed: boolean
+  /**
+   * The rejection code/message the Host returned for the last failed save,
+   * surfaced next to the generic failure text. Undefined while no save has
+   * failed (or the failure carried no server reason).
+   */
+  failedReason?: string
 }
 
 /** The write actions the card's slot entry injects. */
@@ -87,8 +101,50 @@ interface StagedEdit {
 interface PlannedWrite {
   /** Field this entry writes. */
   field: string
+  /** The durable write this entry performs, described for a batched scope. */
+  op: BatchedWrite
   /** Perform the write and report whether the Host holds the staged value afterwards. */
   run: (() => Promise<boolean>) | undefined
+}
+
+/** One durable write a batched settings scope performs. */
+export interface BatchedWrite {
+  /** Field this entry writes. */
+  field: string
+  /** set stores a value; unset drops the leaf. */
+  op: 'set' | 'unset'
+  /** Value for op set (absent for unset). */
+  value?: unknown
+}
+
+/** Per-field outcome of one batched scope write. */
+export interface BatchedFieldResult {
+  /** Field this entry writes. */
+  field: string
+  /** Whether the Host accepted this field's write (per the read-back view). */
+  landed: boolean
+}
+
+/**
+ * Result of a batched scope write. The bridge scope posts every planned write
+ * in one /mutate so the Host validate hook judges baseURL+model together; a
+ * batched refusal fails the whole save rather than per-field.
+ */
+export interface BatchResult {
+  /** Whether the whole mutate was accepted. */
+  ok: boolean
+  /** Per-field success, in the request order (always present when ok). */
+  fields: BatchedFieldResult[]
+  /** Host rejection code (mutate refused). */
+  code?: string
+  /** Host rejection message (mutate refused). */
+  message?: string
+}
+
+/** The optional batch surface the bridge scope adds over the SettingsScope contract. */
+interface BatchedSettingsScope {
+  /** Write every operation in one scope mutation, reporting per-field success. */
+  mutate: (writes: BatchedWrite[]) => Promise<BatchResult>
 }
 
 /** Constraints a numeric field's accepted drafts must satisfy, mirroring the host schema. */
@@ -127,6 +183,16 @@ export function textField(field: string): FieldSpec {
       return trimmed === '' ? { kind: 'clear' } : { kind: 'set', value: trimmed }
     },
   }
+}
+
+/**
+ * A free-text field the Host treats as a secret and redacts from the read-back
+ * (role('secret') in the section schema). The card still edits it like text,
+ * but a save never compares the redacted value back and relies on the scope
+ * reporting the write landed.
+ */
+export function secretField(field: string): FieldSpec {
+  return { ...textField(field), secret: true }
 }
 
 /** A boolean field, edited through true/false draft text. */
@@ -170,6 +236,7 @@ export class CardForm<T> {
   private readonly listeners = new Set<() => void>()
   private saving = false
   private failed = false
+  private failedReason: string | undefined
 
   /** @param scope - the bound settings scope for this card's namespace. */
   constructor(
@@ -199,6 +266,7 @@ export class CardForm<T> {
       invalid: plan.some(item => item.run === undefined),
       saving: this.saving,
       failed: this.failed,
+      ...this.failedReason === undefined ? {} : { failedReason: this.failedReason },
     }
   }
 
@@ -229,6 +297,7 @@ export class CardForm<T> {
         if (this.staged.size === 0 && !this.failed) return
         this.staged.clear()
         this.failed = false
+        this.failedReason = undefined
         this.publish()
       },
     }
@@ -236,28 +305,55 @@ export class CardForm<T> {
 
   /**
    * Write every staged edit, then re-seed from what the Host accepted.
+   *
+   * When the scope carries the optional batch surface (the dsh-web-ui
+   * bridge scope), every planned write rides one mutation so cross-field
+   * validate hooks (baseURL+model) judge the batch as a unit instead of
+   * deadlocking on per-field writes. Otherwise the per-field loop runs.
+   * A field lands only when the Host reports it held the staged value; a
+   * landed field's draft is dropped, a failed one stays staged for the user.
    * @returns settlement after every write and the read-back.
    */
   async save(): Promise<void> {
     const plan = this.plan()
-    const writes = plan.flatMap(item => item.run === undefined ? [] : [item.run])
-    if (plan.length === 0 || this.saving || writes.length !== plan.length) return
+    const valid = plan.filter(item => item.run !== undefined)
+    if (plan.length === 0 || this.saving || valid.length !== plan.length) return
+    const plannedWrites = valid.map(item => item.op)
     // Snapshot the fields this save writes, so edits staged while it is in
     // flight survive: only the staged keys this save actually wrote are cleared.
     const fields = new Set(plan.map(item => item.field))
     this.saving = true
     this.failed = false
+    this.failedReason = undefined
     this.publish()
-    let landed = true
-    for (const write of writes) {
-      landed = await write() && landed
+    const landed = new Set<string>()
+    const batch = this.batchedScope()
+    if (batch !== undefined) {
+      const result = await batch.mutate(plannedWrites)
+      if (result.ok) {
+        for (const field of result.fields) {
+          if (field.landed) landed.add(field.field)
+        }
+      } else {
+        this.failedReason = result.message
+      }
+    } else {
+      for (const item of valid) {
+        if (await item.run!()) landed.add(item.field)
+      }
     }
-    if (landed) {
-      for (const field of fields) this.staged.delete(field)
+    for (const field of fields) {
+      if (landed.has(field)) this.staged.delete(field)
     }
     this.saving = false
-    this.failed = !landed
+    this.failed = landed.size !== fields.size
     this.publish()
+  }
+
+  /** The scope's batch surface when it supports one; undefined conservatively otherwise. */
+  private batchedScope(): BatchedSettingsScope | undefined {
+    const candidate = this.scope as unknown as BatchedSettingsScope | undefined
+    return typeof candidate?.mutate === 'function' ? candidate : undefined
   }
 
   /**
@@ -272,14 +368,14 @@ export class CardForm<T> {
     for (const [field, staged] of this.staged) {
       const spec = this.specOf(field)
       if (staged.clear) {
-        if (this.stored(field)) plan.push({ field, run: () => this.clear(field) })
+        if (this.stored(field)) plan.push({ field, op: { field, op: 'unset' }, run: () => this.clear(field) })
         continue
       }
       if (staged.text === spec.format(this.sectionValue(field))) continue
       const write = spec.parse(staged.text)
-      if (write === undefined) plan.push({ field, run: undefined })
-      else if (write.kind === 'clear') plan.push({ field, run: () => this.clear(field) })
-      else plan.push({ field, run: () => this.store(field, write.value) })
+      if (write === undefined) plan.push({ field, op: { field, op: 'unset' }, run: undefined })
+      else if (write.kind === 'clear') plan.push({ field, op: { field, op: 'unset' }, run: () => this.clear(field) })
+      else plan.push({ field, op: { field, op: 'set', value: write.value }, run: () => this.store(field, write.value) })
     }
     return plan
   }
@@ -291,12 +387,18 @@ export class CardForm<T> {
 
   private async store(field: string, value: unknown): Promise<boolean> {
     await this.scope.set(field, value)
+    // A redacted secret never appears in the user layer read-back; judging it
+    // by value would misreport a successful secret save as failed. The bridge
+    // reports secret writes through its secret-set markers (batch path); on
+    // the per-field path the scope resolved, so the write is landed.
+    if (this.specOf(field).secret) return true
     return this.userLayer()?.[field] === value
   }
 
   private stage(field: string, edit: StagedEdit): void {
     this.staged.set(field, edit)
     this.failed = false
+    this.failedReason = undefined
     this.publish()
   }
 

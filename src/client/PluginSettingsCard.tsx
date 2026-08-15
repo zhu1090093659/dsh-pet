@@ -138,7 +138,13 @@ export function PluginSettingsCard<TKey extends string = string>(props: PluginSe
             {!state.writable ? <p className={css.readOnly} role="status">{props.t('settings.readOnly')}</p> : null}
             {props.children}
             <div className={css.footer}>
-              {state.failed ? <p className={css.failed} role="status">{props.t('settings.saveFailed')}</p> : null}
+              {state.failed
+                ? (
+                  <p className={css.failed} role="status">
+                    {props.t('settings.saveFailed')}{state.failedReason ? ' - ' + state.failedReason : ''}
+                  </p>
+                )
+                : null}
               <button
                 type="button"
                 className={css.discard}
