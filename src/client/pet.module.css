@@ -48,7 +48,7 @@
 
 /* 多会话气泡栈：并行会话各自一个气泡，自精灵头顶向上堆叠，
    最近更新的会话在最上。栈内气泡改流入列布局，不再绝对定位
-   互相覆盖。 */
+   互相覆盖。气泡可点击：点击跳转到对应会话。 */
 .bubbleStack {
   position: absolute;
   bottom: 100%;
@@ -56,13 +56,32 @@
   flex-direction: column;
   align-items: center;
   gap: 4px;
-  pointer-events: none;
+  pointer-events: auto;
 }
 
 .bubbleStack .bubble {
   position: relative;
   bottom: auto;
   margin-bottom: 0;
+  pointer-events: auto;
+}
+
+.bubbleClickable {
+  cursor: pointer;
+  font: inherit;
+  text-align: center;
+  appearance: none;
+  transition: filter 120ms ease, box-shadow 120ms ease;
+}
+
+.bubbleClickable:hover {
+  filter: brightness(1.12);
+}
+
+.bubbleClickable:focus-visible {
+  outline: none;
+  /* 2px accent ring on the pet's own palette, theme-agnostic. */
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.85);
 }
 
 @keyframes pet-bubble-pop {

@@ -88,9 +88,13 @@ afterEach(() => {
   cleanup()
 })
 
-/** Render the pet with mocked callbacks; returns the rename spy. */
-function renderPet(overrides: Partial<PetSpriteProps> = {}): { onRename: ReturnType<typeof vi.fn> } {
+/** Render the pet with mocked callbacks; returns the rename and open spys. */
+function renderPet(overrides: Partial<PetSpriteProps> = {}): {
+  onRename: ReturnType<typeof vi.fn>
+  onOpenSession: ReturnType<typeof vi.fn>
+} {
   const onRename = vi.fn()
+  const onOpenSession = vi.fn()
   const props: PetSpriteProps = {
     snapshot,
     definition: petDefinition(),
@@ -101,12 +105,13 @@ function renderPet(overrides: Partial<PetSpriteProps> = {}): { onRename: ReturnT
     onHide: vi.fn(),
     onDragEnd: vi.fn(),
     onRename,
+    onOpenSession,
     onFeedbackDone: vi.fn(),
     t,
     ...overrides,
   }
   render(<PetSprite {...props} />)
-  return { onRename }
+  return { onRename, onOpenSession }
 }
 
 /** Hover the sprite to open the panel, then click the rename button. */
@@ -226,6 +231,32 @@ describe('PetSprite status bubble', () => {
     expect(screen.queryByText('摸摸成功')).not.toBeNull()
     expect(screen.queryByText('正在思考')).toBeNull()
     expect(screen.queryByText('正在使用 grep')).toBeNull()
+  })
+
+  it('clicking a session bubble navigates to that session', () => {
+    const { onOpenSession } = renderPet({
+      snapshot: {
+        ...workingSnapshot,
+        bubble: '正在思考',
+        sessions: [
+          { sessionId: 's-a', animation: 'running', phase: 'thinking', bubble: '正在思考' },
+          { sessionId: 's-b', animation: 'running-right', phase: 'tool', bubble: '正在使用 grep' },
+        ],
+      },
+    })
+    fireEvent.click(screen.getByText('正在使用 grep'))
+    expect(onOpenSession).toHaveBeenCalledTimes(1)
+    expect(onOpenSession).toHaveBeenCalledWith('s-b')
+    fireEvent.click(screen.getByText('正在思考'))
+    expect(onOpenSession).toHaveBeenCalledTimes(2)
+    expect(onOpenSession).toHaveBeenCalledWith('s-a')
+    // Petting stays on the sprite only: bubble clicks must not pet.
+  })
+
+  it('clicking the legacy single bubble does not navigate (no session identity)', () => {
+    const { onOpenSession } = renderPet({ snapshot: workingSnapshot })
+    fireEvent.click(screen.getByText('正在思考'))
+    expect(onOpenSession).not.toHaveBeenCalled()
   })
 })
 

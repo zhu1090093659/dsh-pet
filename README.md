@@ -23,7 +23,7 @@ Re-implemented from the pet feature of the Codex desktop app, as an official DSH
 | Dragging | Hold and drag the pet to reposition; position persisted |
 | Hide/Summon | Hover panel 隐藏 (Hide); after hiding, a 召唤{name} (Summon {name}) button appears |
 | Witty remarks | Built-in remark library (10 lines per event) plus per-pet custom lines from a manifest remarks block — community PRs give their pet its own voice |
-| Status bubbles | Each concurrently active session gets its own bubble, stacked above the pet (up to 12); transient interaction feedback temporarily takes priority |
+| Status bubbles | Each concurrently active session gets its own bubble, stacked above the pet (up to 12); click a bubble to jump to its session; transient interaction feedback temporarily takes priority |
 | Multi-session activity | The pet is host-global: the most recent meaningful event drives the sprite animation while every active session reports its own state in a separate bubble; completed turns from every session contribute affinity and treats |
 
 ## Pet contract

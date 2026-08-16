@@ -11,7 +11,7 @@
  * @module @linxin666/dsh-pet/client
  */
 
-import type { ClientContext, SettingsScope, SettingsScopeSpec } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ClientContext, ISessions, SessionId, SettingsScope, SettingsScopeSpec } from '@deepseek-ai/dsh-client-runtime/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 // Type-only: pulls the settings-surface Context merge (ctx.settingsScope).
@@ -72,8 +72,8 @@ const POLL_MS = 2000
 /** Settings namespace the pet settings card edits (the Host plugin registers it). */
 const PET_SETTINGS_NS = 'pet'
 
-/** Required services. */
-export const inject = ['slots', 'locale', 'connection', 'settingsScope', 'remote']
+/** Required services (sessions powers bubble-to-session navigation). */
+export const inject = ['slots', 'locale', 'connection', 'settingsScope', 'remote', 'sessions']
 
 /** Re-exported for consumers that type against the injected face. */
 export type { PetInjected, PetDockEntryProps } from './PetDockEntry.tsx'
@@ -202,9 +202,23 @@ export function apply(ctx: ClientContext): void {
         }
       }, 'pet: poll')
 
+      // Clicking a session bubble jumps the GUI to that session. A bubble
+      // can outlive its disposed session by one poll tick, and the sessions
+      // service fails loud on unknown ids, so consult the live list first.
+      // The pet's type program also loads the host-side dsh-session package
+      // through the service types, whose Context merge declares a different
+      // 'sessions' face; pin the browser runtime's outward face here.
+      const sessions = ctx.sessions as unknown as ISessions
+      const openSession = (sessionId: string): void => {
+        const list = sessions.list.getSnapshot()
+        if (list.byId[sessionId as SessionId] === undefined) return
+        sessions.open(sessionId as SessionId)
+      }
+
       const injected = (): PetInjected => ({
         store: petStore,
         ensure: pollNow,
+        openSession,
         pet: () => {
           petApi.interact('pet').then((result) => {
             setFeedback({

@@ -43,6 +43,8 @@ export interface PetSpriteProps {
   onDragEnd: (right: number, bottom: number) => void
   /** Rename the selected pet (persisted by the host). */
   onRename: (name: string) => void
+  /** Navigate to the session one status bubble reports on. */
+  onOpenSession: (sessionId: string) => void
   /** Clear the reaction bubble (after its CSS animation). */
   onFeedbackDone: () => void
   /** Locale translate seat (namespace-bound). */
@@ -271,11 +273,17 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
         </div>
       )}
       {feedback === null && !hovered && sessionBubbles.length > 0 && (
-        <div className={styles.bubbleStack} role="status" aria-live="polite">
+        <div className={styles.bubbleStack}>
           {sessionBubbles.map(session => (
-            <div key={session.sessionId} className={clsx(styles.bubble, styles.bubbleStatus)}>
+            <button
+              key={session.sessionId}
+              type="button"
+              className={clsx(styles.bubble, styles.bubbleStatus, styles.bubbleClickable)}
+              title={props.t('pet.openSessionHint')}
+              onClick={() => { props.onOpenSession(session.sessionId) }}
+            >
               {session.bubble}
-            </div>
+            </button>
           ))}
         </div>
       )}
