@@ -258,6 +258,28 @@ describe('PetSprite status bubble', () => {
     fireEvent.click(screen.getByText('正在思考'))
     expect(onOpenSession).not.toHaveBeenCalled()
   })
+
+  it('keeps session bubbles visible and clickable while the hover panel is open', () => {
+    // Regression: the panel used to occupy the same region as the bubble
+    // stack and hide it on hover, so reaching a bubble was impossible. The
+    // panel now opens beside the sprite and the stack stays interactive.
+    const { onOpenSession } = renderPet({
+      snapshot: {
+        ...workingSnapshot,
+        sessions: [
+          { sessionId: 's-a', animation: 'running', phase: 'thinking', bubble: '正在思考' },
+          { sessionId: 's-b', animation: 'running-right', phase: 'tool', bubble: '正在使用 grep' },
+        ],
+      },
+    })
+    fireEvent.pointerOver(screen.getByRole('button', { name: '鲸鱼娘' }))
+    // The hover panel is open...
+    expect(screen.queryByText('改名')).not.toBeNull()
+    // ...and the bubbles are still there, still clickable.
+    expect(screen.getByText('正在使用 grep')).not.toBeNull()
+    fireEvent.click(screen.getByText('正在使用 grep'))
+    expect(onOpenSession).toHaveBeenCalledWith('s-b')
+  })
 })
 
 describe('PetSprite definition-driven render', () => {

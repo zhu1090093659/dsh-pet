@@ -213,9 +213,10 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
   const spriteHeight = Math.round(cell.height * spriteScale)
   // Concurrent sessions each render their own bubble (stacked above the
   // sprite); the legacy single 'bubble' is the fallback when the host serves
-  // no per-session list.
+  // no per-session list. The hover panel now sits beside the sprite, so the
+  // bubbles stay visible and clickable while hovering — no region swap.
   const sessionBubbles = snapshot?.sessions ?? []
-  const statusBubble = feedback === null && !hovered && sessionBubbles.length === 0
+  const statusBubble = feedback === null && sessionBubbles.length === 0
     ? snapshot?.bubble
     : undefined
   const displayName = snapshot?.name ?? definition.displayName
@@ -230,13 +231,14 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
         setHovered(true)
       }}
       onPointerLeave={(e) => {
-        // The panel and bubble render OUTSIDE the container's box (absolute,
-        // above the sprite), so moving onto them fires pointerleave on the
-        // container. Treat a target still inside the container's DOM (the
-        // overflowed panel) as "still hovering"; otherwise give the pointer a
-        // short grace period to reach the panel across the gap above it. The
-        // bridge ('.panel::after') keeps the pointer inside the hit area, and
-        // the grace period covers a slow mouse crossing the remaining sliver.
+        // The panel renders OUTSIDE the container's box (absolute, beside
+        // the sprite), so moving onto it fires pointerleave on the container.
+        // Treat a target still inside the container's DOM (the overflowed
+        // panel) as "still hovering"; otherwise give the pointer a short
+        // grace period to reach the panel across the gap beside the sprite.
+        // The bridge ('.panel::after') keeps the pointer inside the hit
+        // area, and the grace period covers a slow mouse crossing the
+        // remaining sliver.
         const next = e.relatedTarget
         if (next instanceof Node && floatRef.current?.contains(next)) return
         clearHideTimer()
@@ -272,7 +274,7 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
           {feedback.text}
         </div>
       )}
-      {feedback === null && !hovered && sessionBubbles.length > 0 && (
+      {feedback === null && sessionBubbles.length > 0 && (
         <div className={styles.bubbleStack}>
           {sessionBubbles.map(session => (
             <button
