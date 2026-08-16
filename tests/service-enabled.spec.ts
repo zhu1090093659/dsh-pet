@@ -20,6 +20,7 @@ function fixtureRegistry(): PetRegistry {
     id: 'otter',
     displayName: '水獭',
     spritesheetPath: 'spritesheet.webp',
+    remarks: { pet: '水獭专属摸头台词' },
   }, join(tmpdir(), 'otter'), { warnings })
   const entries = [whale!, otter!]
   return {
@@ -316,6 +317,117 @@ describe('PetService (rc.6 session events)', () => {
     }
   })
 
+  it('renders concurrent sessions as separate bubbles, most recent first', async () => {
+    const ctx = new Context()
+    const dir = tempDir()
+    const sessionA = makeSession('s-a')
+    const sessionB = makeSession('s-b')
+    try {
+      const service = new PetService(ctx, { persistDir: dir })
+
+      ctx.emit('session/event', sessionA, assistantChunk(1, 1, {
+        type: 'reasoning-delta', index: 0, text: 'A',
+      }, 1))
+      ctx.emit('session/event', sessionB, toolCall(1, 1, 'call-b', 'search', 1))
+
+      let view = await service.state()
+      expect(view).toMatchObject({ animation: 'running-right', bubble: '正在使用 search' })
+      expect(view.sessions).toEqual([
+        { sessionId: 's-b', animation: 'running-right', phase: 'tool', bubble: '正在使用 search' },
+        { sessionId: 's-a', animation: 'running', phase: 'thinking', bubble: '正在思考' },
+      ])
+
+      // A new event on A moves A to the top of the stack.
+      ctx.emit('session/event', sessionA, assistantChunk(1, 1, {
+        type: 'text-delta', index: 0, text: 'A',
+      }, 2))
+      view = await service.state()
+      expect(view.sessions?.map(session => session.sessionId)).toEqual(['s-a', 's-b'])
+
+      // Disposing B removes only B's bubble.
+      ctx.emit('session/disposed', sessionB)
+      view = await service.state()
+      expect(view.sessions).toEqual([
+        { sessionId: 's-a', animation: 'review', phase: 'review', bubble: '整理回复中' },
+      ])
+
+      ctx.emit('session/disposed', sessionA)
+      view = await service.state()
+      expect(view.sessions).toEqual([])
+      expect(view).toMatchObject({ animation: 'idle', sessionActive: false })
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('falls back to the most recent remaining session when the display session is disposed', async () => {
+    const ctx = new Context()
+    const dir = tempDir()
+    const sessionA = makeSession('s-a')
+    const sessionB = makeSession('s-b')
+    try {
+      const service = new PetService(ctx, { persistDir: dir })
+      ctx.emit('session/event', sessionA, assistantChunk(1, 1, {
+        type: 'reasoning-delta', index: 0, text: 'A',
+      }, 1))
+      ctx.emit('session/event', sessionB, toolCall(1, 1, 'call-b', 'search', 1))
+      expect(await service.state()).toMatchObject({ animation: 'running-right' })
+
+      // The display session (B) is disposed: the sprite replays A's last
+      // input instead of resetting while A is still working.
+      ctx.emit('session/disposed', sessionB)
+      const view = await service.state()
+      expect(view).toMatchObject({ animation: 'running', bubble: '正在思考', sessionActive: true })
+      expect(view.sessions).toEqual([
+        { sessionId: 's-a', animation: 'running', phase: 'thinking', bubble: '正在思考' },
+      ])
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('caps simultaneous session bubbles at MAX_SESSION_BUBBLES, dropping the oldest', async () => {
+    const ctx = new Context()
+    const dir = tempDir()
+    try {
+      const service = new PetService(ctx, { persistDir: dir })
+      for (let index = 0; index < 14; index++) {
+        const session = makeSession('s-' + index)
+        ctx.emit('session/event', session, toolCall(1, 1, 'call-' + index, 'shell', index + 1))
+      }
+      const view = await service.state()
+      expect(view.sessions?.length).toBe(12)
+      expect(view.sessions?.some(entry => entry.sessionId === 's-0')).toBe(false)
+      expect(view.sessions?.some(entry => entry.sessionId === 's-1')).toBe(false)
+      expect(view.sessions?.[0]?.sessionId).toBe('s-13')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it("speaks the selected pet's custom remarks and falls back to built-ins per slot", async () => {
+    const ctx = new Context()
+    const dir = tempDir()
+    try {
+      const service = new PetService(ctx, { persistDir: dir, registry: fixtureRegistry() })
+      // The otter's custom pet line replaces only its own slot.
+      await service.setPetId('otter')
+      const otterPet = await service.interact('pet')
+      expect(otterPet.reaction).toBe('水獭专属摸头台词')
+      // Slots the otter does not declare keep the built-in pools.
+      const otterFeed = await service.interact('feed')
+      expect(otterFeed.reaction).toBe('没有小鱼干了，多陪我工作一会儿吧～')
+
+      // whale-girl declares no remarks: fully built-in. The pet cooldown
+      // still gates across pets (the affinity ledger is shared).
+      await service.setPetId('whale-girl')
+      const whalePet = await service.interact('pet')
+      expect(whalePet.reaction).toBe('摸过头啦，让鲸鱼娘歇口气～')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
   it('evicts ledger bookkeeping when a session is disposed so a reused id re-awards', async () => {
     const ctx = new Context()
     const dir = tempDir()
@@ -394,20 +506,20 @@ describe('PetService (rc.6 session events)', () => {
     }
   })
 
-  it('counts each completed turn once and grants a work treat per 3 turns', async () => {
+  it('counts each completed turn once and grants a work treat per 30 turns', async () => {
     const ctx = new Context()
     const dir = tempDir()
     const session = makeSession('s1')
     try {
       const service = new PetService(ctx, { persistDir: dir })
-      ctx.emit('session/event', session, turnEnd(1, { kind: 'completed' }, 1))
-      ctx.emit('session/event', session, turnEnd(2, { kind: 'completed' }, 2))
-      ctx.emit('session/event', session, turnEnd(3, { kind: 'completed' }, 3))
-      // A duplicate delivery of turn 3 must not double count.
-      ctx.emit('session/event', session, turnEnd(3, { kind: 'completed' }, 4))
+      for (let turn = 1; turn <= 30; turn++) {
+        ctx.emit('session/event', session, turnEnd(turn, { kind: 'completed' }, turn))
+      }
+      // A duplicate delivery of turn 30 must not double count.
+      ctx.emit('session/event', session, turnEnd(30, { kind: 'completed' }, 31))
       const view = await service.state()
-      expect(view.affinity.turns).toBe(3)
-      expect(view.affinity.points).toBe(3)
+      expect(view.affinity.turns).toBe(30)
+      expect(view.affinity.points).toBe(30)
       expect(view.treats.stocked).toBe(1)
     } finally {
       rmSync(dir, { recursive: true, force: true })
@@ -440,13 +552,13 @@ describe('PetService (rc.6 session events)', () => {
     const session = makeSession('s1')
     try {
       const service = new PetService(ctx, { persistDir: dir })
-      for (let turn = 1; turn <= 3; turn++) {
+      for (let turn = 1; turn <= 30; turn++) {
         ctx.emit('session/event', session, turnEnd(turn, { kind: 'completed' }, turn))
       }
       const first = await service.interact('feed')
       expect(first.delta).toBe(5)
       expect(first.affinity.feeds).toBe(1)
-      expect(first.affinity.points).toBe(8) // 3 turns (1 point each) + 5 feed points
+      expect(first.affinity.points).toBe(35) // 30 turns (1 point each) + 5 feed points
       expect((await service.state()).treats.stocked).toBe(0)
       // Inside the feed cooldown the feed is refused and burns nothing.
       const second = await service.interact('feed')
