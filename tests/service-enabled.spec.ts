@@ -461,9 +461,39 @@ describe('PetService (rc.6 session events)', () => {
         kind: 'aborted', reason: { kind: 'user' },
       }, 2))
       const view = await service.state()
-      expect(view).toMatchObject({ animation: 'idle', bubble: '已停止' })
+      // A stopped session settles to idle without any bubble or stack entry.
+      expect(view).toMatchObject({ animation: 'idle' })
+      expect(view.bubble).toBeUndefined()
+      expect(view.sessions ?? []).toEqual([])
       expect(view.affinity.turns).toBe(0)
       expect(view.treats.stocked).toBe(0)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('drops the bubble of a stopped session while concurrent sessions keep theirs', async () => {
+    const ctx = new Context()
+    const dir = tempDir()
+    const sessionA = makeSession('s-a')
+    const sessionB = makeSession('s-b')
+    try {
+      const service = new PetService(ctx, { persistDir: dir })
+      ctx.emit('session/event', sessionA, toolCall(1, 1, 'call-a', 'grep', 1))
+      ctx.emit('session/event', sessionB, toolCall(1, 1, 'call-b', 'shell', 1))
+      ctx.emit('session/event', sessionA, turnEnd(1, {
+        kind: 'aborted', reason: { kind: 'user' },
+      }, 2))
+      const view = await service.state()
+      // The stopped session leaves no bubble; B keeps reporting its tool work.
+      expect(view.sessions).toEqual([
+        { sessionId: 's-b', animation: 'running-right', phase: 'tool', bubble: '正在使用 shell' },
+      ])
+      // The stopped session was the latest event, so the sprite settles to
+      // idle while B's bubble stays in the stack.
+      expect(view).toMatchObject({ animation: 'idle' })
+      expect(view.bubble).toBeUndefined()
+      expect(view.affinity.turns).toBe(0)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
