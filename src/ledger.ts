@@ -82,6 +82,14 @@ export class PetLedger {
     return was
   }
 
+  /**
+   * Drop a session's rewarded-turn bookkeeping once that session is disposed,
+   * so the per-session map does not grow without bound.
+   */
+  forgetSession(sessionId: string): void {
+    this.rewardedTurns.delete(sessionId)
+  }
+
   /** Replace the display block (clamping stays a caller concern). */
   setDisplay(display: PetDisplayConfig): void {
     this.current = { ...this.current, display }

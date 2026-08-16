@@ -316,6 +316,28 @@ describe('PetService (rc.6 session events)', () => {
     }
   })
 
+  it('evicts ledger bookkeeping when a session is disposed so a reused id re-awards', async () => {
+    const ctx = new Context()
+    const dir = tempDir()
+    const sessionA = makeSession('reuse')
+    const sessionB = makeSession('reuse')
+    try {
+      const service = new PetService(ctx, { persistDir: dir })
+
+      ctx.emit('session/event', sessionA, turnEnd(1, { kind: 'completed' }, 1))
+      expect((await service.state()).affinity.turns).toBe(1)
+
+      ctx.emit('session/disposed', sessionA)
+      // The disposed listener evicts the per-session bookkeeping, so a fresh
+      // session carrying the same id is treated as a new lifecycle and a
+      // replayed turn is awarded again instead of being deduplicated.
+      ctx.emit('session/event', sessionB, turnEnd(1, { kind: 'completed' }, 2))
+      expect((await service.state()).affinity.turns).toBe(2)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
   it('clears an aborted turn without rewarding it', async () => {
     const ctx = new Context()
     const dir = tempDir()

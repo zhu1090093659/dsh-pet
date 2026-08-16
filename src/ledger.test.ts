@@ -25,6 +25,19 @@ describe('PetLedger', () => {
     expect(ledger.snapshot.affinity.turns).toBe(1)
   })
 
+  it('forgetSession re-arms a session so a repeated reward can award again', () => {
+    const ledger = new PetLedger(emptyPersist())
+    const n = 1_000_000
+    ledger.rewardTurn('s1', 1, n)
+    expect(ledger.snapshot.affinity.turns).toBe(1)
+    // The disposed-session eviction drops only the per-session bookkeeping.
+    ledger.forgetSession('s1')
+    // The same turn number is now treated as fresh: a same-turn retry on a
+    // new session lifecycle re-awards rather than being deduplicated.
+    expect(ledger.rewardTurn('s1', 1, n + 1)).toBe(true)
+    expect(ledger.snapshot.affinity.turns).toBe(2)
+  })
+
   it('a read of the view does not mark dirty (no settle on read)', () => {
     const ledger = new PetLedger(emptyPersist())
     ledger.affinityView(1_000_000)

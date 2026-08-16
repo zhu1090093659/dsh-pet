@@ -274,6 +274,7 @@ export class PetService extends Service {
           }
         }),
         this.ctx.on('session/disposed', (session: Session) => {
+          this.ledger.forgetSession(String(session.id))
           if (session !== this.displaySession) return
           this.displaySession = undefined
           this.machine.onSessionDisposed()
