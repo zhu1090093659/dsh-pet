@@ -1,7 +1,7 @@
 /**
  * The pet settings card: pet selection plus display layout, bound to the
  * 'pet' settings namespace the host plugin registers. Registered into the
- * 'web-ui.plugin.item' slot the plugin-configuration section renders. The
+ * 'settings.plugin.item' slot the plugin-configuration section renders. The
  * petId choices come from the registry endpoint ('/api/pet/pets') — the same
  * list the sprite renders from — so the card carries no per-pet knowledge.
  */
@@ -133,7 +133,7 @@ export class PetSettingsCardController {
 
 /** Props the renderer binds for the pet settings card. */
 export type PetSettingsCardProps =
-  PropsRuntime<'web-ui.plugin.item'>
+  PropsRuntime<'settings.plugin.item'>
   & PropsLocale<'pet'>
   & InjectFace<PetSettingsCardFace>
 
