@@ -25,6 +25,7 @@ describe('resolvePetManifest', () => {
     expect(entry!.id).toBe('otter')
     expect(entry!.cell).toEqual(DEFAULT_PET_CELL)
     expect(entry!.columns).toBe(8)
+    expect(entry!.atlasRows).toBe(9)
     expect(entry!.rows).toEqual([...DEFAULT_FRAME_COUNTS])
     expect(entry!.atlasUrl).toBe('/pet/otter/spritesheet.webp')
     expect(entry!.manifestUrl).toBe('/pet/otter/pet.json')
@@ -35,6 +36,21 @@ describe('resolvePetManifest', () => {
     expect(entry!.tracks.jumping.fallback).toBe('idle')
     expect(entry!.tracks.failed.loop).toBe(false)
     expect(entry!.tracks.running.loop).toBe(true)
+  })
+
+  it('marks v2 (spriteVersionNumber 2) atlases with 11 rows', () => {
+    const entry = resolvePetManifest({
+      id: 'firefly',
+      displayName: 'Firefly',
+      spritesheetPath: 'spritesheet.webp',
+      spriteVersionNumber: 2,
+    }, join(tmpdir(), 'firefly'))
+    expect(entry).toBeDefined()
+    // v2 atlases carry 11 rows: the 9 animation rows plus 2 look rows.
+    expect(entry!.atlasRows).toBe(11)
+    // The 9 animation rows still resolve the hatch-pet contract.
+    expect(entry!.rows).toEqual([...DEFAULT_FRAME_COUNTS])
+    expect(entry!.tracks.idle.frames.length).toBe(entry!.rows[0])
   })
 
   it('keeps the legacy whale-girl frame counts and its own durations', () => {
@@ -152,8 +168,9 @@ describe('loadPetRegistry', () => {
 
 describe('codexPetsDir', () => {
   it('honors CODEX_HOME and expands a leading tilde', () => {
-    expect(codexPetsDir({ CODEX_HOME: '/opt/codex' }, '/home/user')).toBe('/opt/codex/pets')
-    expect(codexPetsDir({ CODEX_HOME: '~/codex' }, '/home/user')).toBe('/home/user/codex/pets')
-    expect(codexPetsDir({}, '/home/user')).toBe('/home/user/.codex/pets')
+    // Expected values join through the platform separator (POSIX on CI).
+    expect(codexPetsDir({ CODEX_HOME: '/opt/codex' }, '/home/user')).toBe(join('/opt/codex', 'pets'))
+    expect(codexPetsDir({ CODEX_HOME: '~/codex' }, '/home/user')).toBe(join('/home/user', 'codex', 'pets'))
+    expect(codexPetsDir({}, '/home/user')).toBe(join('/home/user', '.codex', 'pets'))
   })
 })
