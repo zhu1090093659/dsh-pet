@@ -96,9 +96,12 @@ export interface PetSettingsSection {
 export const PET_SETTINGS_NAMESPACE = 'pet'
 
 /**
- * One active session as the pet displays it. Sessions run in parallel, so
- * each gets its own bubble while the sprite itself follows the most recent
- * meaningful event (the display session).
+ * One active TOP-LEVEL session as the pet displays it. Sessions run in
+ * parallel, so each gets its own bubble while the sprite itself follows the
+ * most recent meaningful event (the display session). Subagent children
+ * report no bubble of their own: their work is already reflected by the
+ * bubble of the conversation that spawned them, and the bubble buttons
+ * navigate to GUI sessions, which subagents are not.
  */
 export interface PetSessionView {
   /** Session identity (stringified for the wire; never exposed as a key). */
@@ -121,9 +124,10 @@ export interface PetStateView {
   phase: PetStateSnapshot['phase']
   sessionActive: boolean
   /**
-   * Per-session bubbles for every concurrently active session, most recent
-   * first; optional so older hosts without the multi-session view stay
-   * consumable. The single 'bubble' above mirrors the display session.
+   * Per-session bubbles for every concurrently active TOP-LEVEL session,
+   * most recent first; optional so older hosts without the multi-session
+   * view stay consumable. The single 'bubble' above mirrors the display
+   * session.
    */
   sessions?: PetSessionView[]
   /** Affinity ledger snapshot. */
@@ -472,12 +476,16 @@ export class PetService extends Service {
   private view(): PetStateView {
     const snapshot = this.machine.render()
     const entry = this.activeEntry()
-    // One bubble per concurrently active session, most recent first.
+    // One bubble per concurrently active TOP-LEVEL session, most recent
+    // first. Subagent children render no bubble of their own (their activity
+    // already shows through the spawning conversation's bubble/display, and
+    // the bubble buttons navigate to GUI sessions, which subagents are not).
     // Sessions whose own machine has settled (no bubble copy) drop out, so a
     // finished turn does not leave a stale bubble behind.
     const sessions: PetSessionView[] = []
     for (const [session, activity] of [...this.sessionActivity.entries()].reverse()) {
       if (sessions.length >= MAX_SESSION_BUBBLES) break
+      if (session.header?.origin === 'subagent') continue
       const perSession = activity.machine.render()
       if (perSession.bubble === undefined) continue
       sessions.push({

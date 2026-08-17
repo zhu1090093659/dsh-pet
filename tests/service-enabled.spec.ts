@@ -54,6 +54,21 @@ function makeSession(id: string): Session {
   return { id } as unknown as Session
 }
 
+/** A session the host classifies as a subagent child (see SessionHeader). */
+function makeSubagentSession(id: string, parentId: string): Session {
+  return {
+    id,
+    header: {
+      version: 0,
+      id,
+      createdAt: 0,
+      parentSession: parentId,
+      origin: 'subagent',
+      delegationDepth: 1,
+    },
+  } as unknown as Session
+}
+
 function callId(value: string): ToolCallId {
   return value as ToolCallId
 }
@@ -355,6 +370,53 @@ describe('PetService (rc.6 session events)', () => {
       view = await service.state()
       expect(view.sessions).toEqual([])
       expect(view).toMatchObject({ animation: 'idle', sessionActive: false })
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('keeps subagent sessions out of the bubble stack while they still drive the display', async () => {
+    const ctx = new Context()
+    const dir = tempDir()
+    const sessionA = makeSession('s-a')
+    const sessionB = makeSession('s-b')
+    const child = makeSubagentSession('s-child', 's-b')
+    try {
+      const service = new PetService(ctx, { persistDir: dir })
+
+      ctx.emit('session/event', sessionA, assistantChunk(1, 1, {
+        type: 'reasoning-delta', index: 0, text: 'A',
+      }, 1))
+      ctx.emit('session/event', sessionB, toolCall(1, 1, 'call-b', 'search', 1))
+      // The subagent's activity is the most recent meaningful event: the
+      // sprite follows it, but it must not occupy its own bubble.
+      ctx.emit('session/event', child, toolCall(1, 1, 'call-c', 'run_code', 1))
+
+      const view = await service.state()
+      expect(view).toMatchObject({ animation: 'running-right', bubble: '正在使用 run_code' })
+      expect(view.sessions).toEqual([
+        { sessionId: 's-b', animation: 'running-right', phase: 'tool', bubble: '正在使用 search' },
+        { sessionId: 's-a', animation: 'running', phase: 'thinking', bubble: '正在思考' },
+      ])
+      expect(view.sessions?.some(entry => entry.sessionId === 's-child')).toBe(false)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('falls back to the single display bubble when only subagent sessions are active', async () => {
+    const ctx = new Context()
+    const dir = tempDir()
+    const child = makeSubagentSession('s-child', 's-parent')
+    try {
+      const service = new PetService(ctx, { persistDir: dir })
+      ctx.emit('session/event', child, toolCall(1, 1, 'call-c', 'run_code', 1))
+
+      const view = await service.state()
+      // No top-level session: the stack is empty and the subagent's work is
+      // reported through the legacy single bubble instead.
+      expect(view.sessions ?? []).toEqual([])
+      expect(view).toMatchObject({ animation: 'running-right', bubble: '正在使用 run_code' })
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
