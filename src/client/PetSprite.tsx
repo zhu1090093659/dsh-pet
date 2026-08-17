@@ -260,7 +260,7 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
           width: spriteWidth,
           height: spriteHeight,
           backgroundImage: imageReady ? 'url(' + definition.atlasUrl + ')' : undefined,
-          backgroundSize: (cell.width * columns * spriteScale) + 'px ' + (cell.height * rows.length * spriteScale) + 'px',
+          backgroundSize: (cell.width * columns * spriteScale) + 'px ' + (cell.height * (definition.atlasRows ?? rows.length) * spriteScale) + 'px',
           backgroundRepeat: 'no-repeat',
           backgroundPosition: '0 0',
           cursor: dragRef.current === null ? 'grab' : 'grabbing',

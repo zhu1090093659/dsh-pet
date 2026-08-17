@@ -38,6 +38,7 @@ A pet is a directory holding one `pet.json` manifest and one atlas image. Nothin
   "spritesheetPath": "spritesheet.webp",   // atlas, relative to the manifest
   "cell": { "width": 192, "height": 208 }, // optional; defaults to the Codex contract
   "columns": 8,                            // optional; default 8
+  "spriteVersionNumber": 1,                // optional; 2 marks an 11-row v2 atlas (9 animation rows + 2 look rows)
   "frames": [6, 8, 8, 4, 5, 8, 6, 6, 6],   // optional per-row frame counts
   "tracks": {                              // optional per-track rhythm overrides
     "idle": { "durations": [400, 400, 500, 400, 400, 500] }
@@ -49,7 +50,7 @@ A pet is a directory holding one `pet.json` manifest and one atlas image. Nothin
 }
 ```
 
-- The atlas is an 8-column × 9-row grid (192×208 cells by default); rows are fixed in this order: 0 idle, 1 running-right, 2 running-left, 3 waving, 4 jumping, 5 failed, 6 waiting, 7 running, 8 review. Unused cells stay fully transparent.
+- The atlas is an 8-column × 9-row grid (192×208 cells by default); rows are fixed in this order: 0 idle, 1 running-right, 2 running-left, 3 waving, 4 jumping, 5 failed, 6 waiting, 7 running, 8 review. Unused cells stay fully transparent. v2 Codex atlases declare `"spriteVersionNumber": 2` and hold 11 rows — the same 9 animation rows plus 2 trailing look rows; the plugin renders the 9 animation rows and ignores the look rows.
 - The optional remarks block overrides the reaction bubbles the pet speaks on pet / petCooldown / feed / feedCooldown / noTreats events. Each slot accepts one line or a pool of lines (cycled round-robin); a declared slot replaces the built-in pool for that slot only. This is how community contributions give their pet its own witty voice.
 - `frames` counts the used columns per row (defaults to the hatch-pet contract table `[6, 8, 8, 4, 5, 8, 6, 6, 6]`); `tracks` overrides per-frame durations (cycled to the row's frame count), `loop`, and `fallback` per animation (defaults: everything loops; `jumping` and `failed` hold their last frame, then fall back to `idle`).
 

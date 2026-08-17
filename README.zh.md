@@ -38,6 +38,7 @@
   "spritesheetPath": "spritesheet.webp",   // 图集，相对 manifest 所在目录
   "cell": { "width": 192, "height": 208 }, // 可选；默认 Codex 契约
   "columns": 8,                            // 可选；默认 8
+  "spriteVersionNumber": 1,                // 可选；2 表示 11 行 v2 图集（9 行动画行 + 2 行视线跟随行）
   "frames": [6, 8, 8, 4, 5, 8, 6, 6, 6],   // 可选的每行帧数
   "tracks": {                              // 可选的每轨节奏覆盖
     "idle": { "durations": [400, 400, 500, 400, 400, 500] }
@@ -49,7 +50,7 @@
 }
 ```
 
-- 图集是 8 列 × 9 行网格（默认 192×208 单元格）；行序固定：0 idle、1 running-right、2 running-left、3 waving、4 jumping、5 failed、6 waiting、7 running、8 review。未使用的格子保持全透明。
+- 图集是 8 列 × 9 行网格（默认 192×208 单元格）；行序固定：0 idle、1 running-right、2 running-left、3 waving、4 jumping、5 failed、6 waiting、7 running、8 review。未使用的格子保持全透明。v2（Codex）图集在 manifest 里声明 `"spriteVersionNumber": 2`，共 11 行——同样的 9 行动画行外加末尾 2 行视线跟随行；插件渲染这 9 行动画行、忽略视线行。
 - 可选 remarks 块覆盖宠物在 pet（摸头）/ petCooldown / feed（喂食）/ feedCooldown / noTreats（缺粮）事件上的气泡台词。每个槽位接受一句或一组台词（轮询循环）；声明过的槽位只替换该槽位的内置默认池。社区贡献就是这样给自家宠物配上专属妙语的。
 - `frames` 记录每行用到的列数（缺省按 hatch-pet 契约表 `[6, 8, 8, 4, 5, 8, 6, 6, 6]`）；`tracks` 按动画覆盖每帧时长（按该行帧数循环补足）、`loop` 与 `fallback`（默认：全部循环；`jumping` 与 `failed` 停在最后一帧后回到 `idle`）。
 

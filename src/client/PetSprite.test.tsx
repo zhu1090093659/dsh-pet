@@ -27,6 +27,7 @@ function petDefinition(): PetDefinition {
     cell: { width: 192, height: 208 },
     columns: 8,
     rows: [6, 8, 8, 4, 5, 8, 6, 6, 6],
+    atlasRows: 9,
     tracks: {
       idle: track([0, 1, 2, 3, 4, 5], [400, 400, 400, 400, 400, 400]),
       'running-right': track([0, 1, 2, 3, 4, 5, 6, 7], [225, 225, 225, 225, 225, 225, 225, 225]),

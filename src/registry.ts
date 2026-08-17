@@ -165,6 +165,8 @@ export interface PetDefinition {
   columns: number
   /** Per-row frame counts (length 9, row order above). */
   rows: number[]
+  /** Total atlas rows (9 for v1, 11 for v2 look-row atlases). */
+  atlasRows: number
   /** Fully resolved animation tracks (frames + durations + loop/fallback). */
   tracks: Record<PetAnimation, PetTrackDef>
   /** Browser URL of the atlas (served by the host asset route). */
@@ -256,6 +258,8 @@ export function resolvePetManifest(
     height: finiteInt(rawCell.height, DEFAULT_PET_CELL.height, 2048),
   }
   const columns = finiteInt(source.columns, DEFAULT_PET_COLUMNS, 32)
+  // v2 atlases (spriteVersionNumber 2) hold 11 rows: 9 animation rows + 2 look rows.
+  const atlasRowCount = source.spriteVersionNumber === 2 ? 11 : DEFAULT_PET_ROW_COUNT
   const rows = DEFAULT_FRAME_COUNTS.map((fallback, index) => {
     const value = Array.isArray(source.frames) ? source.frames[index] : undefined
     return finiteInt(value, fallback, columns)
@@ -295,6 +299,7 @@ export function resolvePetManifest(
     cell,
     columns,
     rows,
+    atlasRows: atlasRowCount,
     tracks,
     atlasUrl: assetUrl(assetPrefix, id, spritesheet),
     manifestUrl: assetUrl(assetPrefix, id, 'pet.json'),
@@ -393,6 +398,7 @@ export function petEntryView(entry: PetEntry): PetDefinition {
     cell: entry.cell,
     columns: entry.columns,
     rows: entry.rows,
+    atlasRows: entry.atlasRows,
     tracks: entry.tracks,
     atlasUrl: entry.atlasUrl,
     manifestUrl: entry.manifestUrl,
