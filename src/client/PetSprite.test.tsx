@@ -87,6 +87,7 @@ beforeAll(() => {
 
 afterEach(() => {
   cleanup()
+  vi.restoreAllMocks()
 })
 
 /** Render the pet with mocked callbacks; returns the rename and open spys. */
@@ -226,6 +227,23 @@ describe('PetSprite rename input', () => {
   })
 })
 
+describe('PetSprite hover panel placement', () => {
+  it('places the panel above when an old saved position leaves no room below', () => {
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: 900 })
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      if (this.style.bottom !== '') {
+        return { top: 720, right: 1256, bottom: 880, left: 1108, width: 148, height: 160, x: 1108, y: 720, toJSON: () => ({}) }
+      }
+      return { top: 888, right: 1259, bottom: 974, left: 1105, width: 154, height: 86, x: 1105, y: 888, toJSON: () => ({}) }
+    })
+
+    renderPet({ display: { ...snapshot.display, bottom: 20 } })
+    fireEvent.pointerOver(screen.getByRole('button', { name: '鲸鱼娘' }))
+
+    expect(screen.getByText('改名').closest('[data-placement]')?.getAttribute('data-placement')).toBe('above')
+  })
+})
+
 describe('PetSprite status bubble', () => {
   const workingSnapshot: PetStateView = {
     ...snapshot,
@@ -340,5 +358,37 @@ describe('PetSprite definition-driven render', () => {
     renderPet()
     fireEvent.pointerOver(screen.getByRole('button', { name: '鲸鱼娘' }))
     expect(screen.queryByText('泡泡')).not.toBeNull()
+  })
+
+  it('advances a configured scene sequence after the current track duration', () => {
+    vi.spyOn(window, 'matchMedia').mockReturnValue({
+      matches: false,
+      media: '(prefers-reduced-motion: reduce)',
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+    })
+    vi.spyOn(performance, 'now').mockReturnValue(0)
+    let nextFrame: FrameRequestCallback | undefined
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => {
+      nextFrame = callback
+      return 1
+    })
+    vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {})
+    const definition = petDefinition()
+    definition.sequences = {
+      thinking: ['running', 'waiting', 'running', 'waiting', 'running'],
+    }
+    renderPet({
+      definition,
+      snapshot: { ...snapshot, animation: 'running', phase: 'thinking' },
+    })
+    const sprite = screen.getByRole('button', { name: '鲸鱼娘' })
+    expect(sprite.style.backgroundPosition).toBe('0px -1120px')
+    act(() => { nextFrame?.(1_500) })
+    expect(sprite.style.backgroundPosition).toBe('0px -960px')
   })
 })

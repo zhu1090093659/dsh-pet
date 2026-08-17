@@ -9,7 +9,7 @@
  * @module @linxin666/dsh-pet/client/PetSprite
  */
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent, ReactPortal } from 'react'
 import { createPortal } from 'react-dom'
 import clsx from 'clsx'
@@ -19,7 +19,8 @@ import type { PetStateView } from '../service.ts'
 import type { PetDefinition } from '../registry.ts'
 import type { PetFeedback } from './pet-store.ts'
 import { framePosition, rowOfTrack, trimTrack } from './spritesheet.ts'
-import type { PetAnimation } from '../state.ts'
+import { sequenceFrameAt } from './sequences.ts'
+import { animationForPhase, type PetAnimation } from '../state.ts'
 import { NS } from './locales.ts'
 import styles from './pet.module.css'
 
@@ -66,9 +67,11 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
   const { snapshot, definition, display, feedback } = props
   const spriteRef = useRef<HTMLDivElement | null>(null)
   const floatRef = useRef<HTMLDivElement | null>(null)
+  const panelRef = useRef<HTMLDivElement | null>(null)
   const [imageReady, setImageReady] = useState(false)
   const [hovered, setHovered] = useState(false)
   const [renaming, setRenaming] = useState(false)
+  const [panelAbove, setPanelAbove] = useState(false)
   const [nameDraft, setNameDraft] = useState('')
   // Explicit IME composition tracking: some input methods (WeChat IME on
   // Windows) report keydowns with isComposing === false mid-composition, so
@@ -87,6 +90,7 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
   const columns = definition.columns
   const rows = definition.rows
   const tracks = definition.tracks
+  const sequences = definition.sequences
 
   // Load the atlas once; the definition carries the authoritative per-row
   // frame counts and per-track durations, so nothing else is fetched.
@@ -110,14 +114,17 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
   // its track's first frame instead of animating (presentation-only; the
   // animation state machine is untouched).
   const spriteScale = display.size / cell.height
+  const phase = snapshot?.phase ?? 'idle'
   const animation = snapshot?.animation ?? 'idle'
   const scaleRef = useRef(spriteScale)
   scaleRef.current = spriteScale
   useEffect(() => {
     const reduceMotion = typeof window !== 'undefined'
       && window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches === true
-    const row = rowOfTrack(animation)
-    const track = trimTrack(tracks[animation], rows[row] ?? tracks[animation].frames.length)
+    const sequence = animation === animationForPhase(phase) ? sequences?.[phase] : undefined
+    const leadAnimation = sequence?.[0] ?? animation
+    const row = rowOfTrack(leadAnimation)
+    const track = trimTrack(tracks[leadAnimation], rows[row] ?? tracks[leadAnimation].frames.length)
     // Paint one static sprite frame up front either way, so the pet is never
     // blank while the loop heat-up runs.
     const leadCol = track.frames[0]!
@@ -128,9 +135,26 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
     if (reduceMotion) return
     let raf = 0
     let last = performance.now()
+    let sequenceElapsed = 0
     const tick = (ts: number): void => {
       const delta = ts - last
       last = ts
+      if (sequence !== undefined) {
+        sequenceElapsed += delta
+        const current = sequenceFrameAt(sequence, tracks, sequenceElapsed)
+        const currentRow = rowOfTrack(current.animation)
+        const currentTrack = trimTrack(
+          tracks[current.animation],
+          rows[currentRow] ?? tracks[current.animation].frames.length,
+        )
+        const col = currentTrack.frames[current.frameIndex]!
+        const pos = framePosition(cell, columns, currentRow, col, scaleRef.current)
+        if (spriteRef.current !== null) {
+          spriteRef.current.style.backgroundPosition = pos.x + 'px ' + pos.y + 'px'
+        }
+        raf = requestAnimationFrame(tick)
+        return
+      }
       // row/track come from the effect scope: they were computed once above
       // and this effect re-runs when animation/tracks/rows change, so the
       // per-frame recompute (trimTrack slices fresh arrays) is pure waste.
@@ -163,7 +187,7 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
     }
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
-  }, [animation, cell, columns, rows, tracks])
+  }, [animation, phase, cell, columns, rows, tracks, sequences])
 
   // Auto-clear the feedback bubble after its CSS animation. The callback
   // rides a ref so re-renders never reset the timer: the 2s poll rebuilds
@@ -214,10 +238,28 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
   const pos = dragPos ?? { right: display.right, bottom: display.bottom }
   const spriteWidth = Math.round(cell.width * spriteScale)
   const spriteHeight = Math.round(cell.height * spriteScale)
+
+  useLayoutEffect(() => {
+    if (!hovered) {
+      setPanelAbove(false)
+      return
+    }
+    const updatePanelPlacement = (): void => {
+      const sprite = spriteRef.current
+      const panel = panelRef.current
+      if (sprite === null || panel === null) return
+      const availableBelow = window.innerHeight - sprite.getBoundingClientRect().bottom
+      setPanelAbove(availableBelow < panel.getBoundingClientRect().height + 8)
+    }
+    updatePanelPlacement()
+    window.addEventListener('resize', updatePanelPlacement)
+    return () => window.removeEventListener('resize', updatePanelPlacement)
+  }, [hovered, renaming, pos.right, pos.bottom, display.size])
+
   // Concurrent sessions each render their own bubble (stacked above the
   // sprite); the legacy single 'bubble' is the fallback when the host serves
-  // no per-session list. The hover panel now sits beside the sprite, so the
-  // bubbles stay visible and clickable while hovering — no region swap.
+  // no per-session list. The hover panel normally sits below the sprite, so
+  // the bubbles stay visible and clickable while hovering — no region swap.
   const sessionBubbles = snapshot?.sessions ?? []
   const statusBubble = feedback === null && sessionBubbles.length === 0
     ? snapshot?.bubble
@@ -234,11 +276,11 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
         setHovered(true)
       }}
       onPointerLeave={(e) => {
-        // The panel renders OUTSIDE the container's box (absolute, beside
+        // The panel renders OUTSIDE the container's box (absolute, below
         // the sprite), so moving onto it fires pointerleave on the container.
         // Treat a target still inside the container's DOM (the overflowed
         // panel) as "still hovering"; otherwise give the pointer a short
-        // grace period to reach the panel across the gap beside the sprite.
+        // grace period to reach the panel across the gap below the sprite.
         // The bridge ('.panel::after') keeps the pointer inside the hit
         // area, and the grace period covers a slow mouse crossing the
         // remaining sliver.
@@ -304,7 +346,9 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
       )}
       {hovered && dragRef.current === null && (
         <div
-          className={styles.panel}
+          ref={panelRef}
+          className={clsx(styles.panel, panelAbove && styles.panelAbove)}
+          data-placement={panelAbove ? 'above' : 'below'}
           onPointerEnter={() => {
             // Reaching the panel (or its bridge) must cancel any hide timer
             // the container's pointerleave may have armed while the pointer
