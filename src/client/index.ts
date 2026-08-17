@@ -152,6 +152,11 @@ export function apply(ctx: ClientContext): void {
       // tick tries again. After it lands, one list feeds both the sprite and
       // the settings card's choices.
       let petsLoaded = false
+      // Latest-wins guard: the 2s tick, visibility recovery, and
+      // interaction-triggered refreshes can overlap; only the newest
+      // response may publish, so a slow older one can never roll the
+      // snapshot back.
+      let stateSeq = 0
       const pollNow = (): void => {
         if (!petsLoaded) {
           petApi.pets().then((list) => {
@@ -161,9 +166,13 @@ export function apply(ctx: ClientContext): void {
             // Retry on the next poll tick.
           })
         }
+        const seq = stateSeq + 1
+        stateSeq = seq
         petApi.state().then((snapshot) => {
+          if (seq !== stateSeq) return
           setSnapshot(snapshot)
         }, () => {
+          if (seq !== stateSeq) return
           setState('error', 'pet.state transport error')
         })
       }
