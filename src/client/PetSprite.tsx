@@ -127,10 +127,9 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
     const tick = (ts: number): void => {
       const delta = ts - last
       last = ts
-      // Trim the track to the row's real frame count (transparent cells
-      // would render as a vanishing pet).
-      const row = rowOfTrack(animation)
-      const track = trimTrack(tracks[animation], rows[row] ?? tracks[animation].frames.length)
+      // row/track come from the effect scope: they were computed once above
+      // and this effect re-runs when animation/tracks/rows change, so the
+      // per-frame recompute (trimTrack slices fresh arrays) is pure waste.
       const st = frameRef.current
       if (st.track !== animation) {
         st.track = animation
