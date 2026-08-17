@@ -290,6 +290,92 @@
   border-color: var(--dsw-alias-label-error);
 }
 
+.selectWrap {
+  position: relative;
+}
+
+.selectButton {
+  appearance: none;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  display: flex;
+}
+
+.selectLabel {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.selectChevron {
+  color: var(--dsw-alias-label-tertiary);
+  flex: none;
+  transition: transform 0.16s;
+}
+
+.selectChevronOpen {
+  transform: rotate(180deg);
+}
+
+.selectPopup {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 40;
+  flex-direction: column;
+  max-height: 240px;
+  overflow-y: auto;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-3);
+  box-shadow: 0 8px 24px var(--dsw-alias-bg-mask-2);
+  padding: 4px;
+  opacity: 0;
+  transform: translateY(-4px);
+  transition: opacity 0.16s ease, transform 0.16s ease;
+  display: flex;
+}
+
+.selectPopupOpen {
+  opacity: 1;
+  transform: none;
+}
+
+.selectPopupClose {
+  opacity: 0;
+  transform: translateY(-4px);
+  pointer-events: none;
+}
+
+.selectOption {
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--dsw-alias-label-primary);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.selectOption:hover,
+.selectOptionActive {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.selectOptionSelected {
+  color: var(--dsw-alias-brand-primary);
+  font-weight: 500;
+  background: color-mix(in srgb, var(--dsw-alias-brand-primary-new-colorprimary-new-color) 10%, transparent);
+}
+
 .invalid {
   color: var(--dsw-alias-label-error);
   margin: 0;
@@ -310,7 +396,10 @@
   .chevron,
   .chevronOpen,
   .discard,
-  .save {
+  .save,
+  .selectChevron,
+  .selectChevronOpen,
+  .selectPopup {
     transition: none;
   }
 }
