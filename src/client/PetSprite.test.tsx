@@ -5,7 +5,7 @@
  * selection) as composition input, never as submit/cancel (issue #89).
  */
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { PetSprite, type PetSpriteProps } from './PetSprite.tsx'
 import { t } from './locales.ts'
 import type { PetStateView } from '../service.ts'
@@ -175,6 +175,53 @@ describe('PetSprite rename input', () => {
     fireEvent.keyDown(input, { key: 'Escape' })
     expect(onRename).not.toHaveBeenCalled()
     expect(screen.queryByPlaceholderText('输入新名字')).toBeNull()
+  })
+
+  it('ignores Enter between compositionStart and compositionEnd even when isComposing is false (#303)', () => {
+    // WeChat IME (Windows) marks composition keydowns with isComposing ===
+    // false; only the explicit composition events can be trusted.
+    const { onRename } = renderPet()
+    const input = openRename()
+    fireEvent.change(input, { target: { value: '泡泡酱' } })
+    fireEvent.compositionStart(input)
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(onRename).not.toHaveBeenCalled()
+    expect(screen.getByPlaceholderText('输入新名字')).toBe(input)
+    fireEvent.compositionEnd(input)
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(onRename).toHaveBeenCalledWith('泡泡酱')
+  })
+
+  it("ignores 'Process' keydowns emitted by IMEs mid-composition (#303)", () => {
+    const { onRename } = renderPet()
+    const input = openRename()
+    fireEvent.change(input, { target: { value: '泡泡酱' } })
+    fireEvent.keyDown(input, { key: 'Process' })
+    expect(onRename).not.toHaveBeenCalled()
+    expect(screen.getByPlaceholderText('输入新名字')).toBe(input)
+  })
+
+  it('keeps the rename panel open when the pointer leaves mid-rename (#303)', () => {
+    // An IME candidate window is an OS-level window: moving the pointer onto
+    // it fires pointerleave on the float. The hide timer must not unmount
+    // the input mid-composition (that crashes some IMEs / the renderer).
+    vi.useFakeTimers()
+    try {
+      renderPet()
+      const input = openRename()
+      const float = input.parentElement?.parentElement?.parentElement
+      expect(float).not.toBeNull()
+      fireEvent.pointerOut(float!, { relatedTarget: null })
+      act(() => { vi.advanceTimersByTime(1000) })
+      expect(screen.getByPlaceholderText('输入新名字')).toBe(input)
+      // After the rename ends, hover behavior works again.
+      fireEvent.keyDown(input, { key: 'Escape' })
+      fireEvent.pointerOut(float!, { relatedTarget: null })
+      act(() => { vi.advanceTimersByTime(1000) })
+      expect(screen.queryByText('改名')).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 

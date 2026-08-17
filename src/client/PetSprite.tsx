@@ -70,6 +70,10 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
   const [hovered, setHovered] = useState(false)
   const [renaming, setRenaming] = useState(false)
   const [nameDraft, setNameDraft] = useState('')
+  // Explicit IME composition tracking: some input methods (WeChat IME on
+  // Windows) report keydowns with isComposing === false mid-composition, so
+  // the native flag alone is not a safe submit/cancel guard (#303).
+  const composingRef = useRef(false)
   const [dragPos, setDragPos] = useState<{ right: number; bottom: number } | null>(null)
   const dragRef = useRef<{ startX: number; startY: number; right: number; bottom: number } | null>(null)
   const hideTimerRef = useRef<number | null>(null)
@@ -240,6 +244,11 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
         // remaining sliver.
         const next = e.relatedTarget
         if (next instanceof Node && floatRef.current?.contains(next)) return
+        // Never auto-hide while the rename box is open: moving the pointer
+        // onto an IME candidate window (an OS-level window outside the
+        // webview) fires pointerleave, and unmounting the input mid-IME-
+        // composition crashes some input methods / the renderer (#303).
+        if (renaming) return
         clearHideTimer()
         hideTimerRef.current = window.setTimeout(() => setHovered(false), 300)
       }}
@@ -312,12 +321,16 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
                 placeholder={props.t('pet.namePlaceholder')}
                 autoFocus
                 onChange={(e) => setNameDraft(e.target.value)}
+                onCompositionStart={() => { composingRef.current = true }}
+                onCompositionEnd={() => { composingRef.current = false }}
                 onKeyDown={(e) => {
                   // While an IME composition is active (e.g. selecting a
                   // Chinese candidate), Enter/Escape keydowns belong to the
                   // input method: ignore them so candidate selection can
-                  // neither submit the draft nor close the rename box.
-                  if (e.nativeEvent.isComposing) return
+                  // neither submit the draft nor close the rename box. The
+                  // explicit ref and the 'Process' key cover IMEs that mark
+                  // composition keydowns with isComposing === false (#303).
+                  if (composingRef.current || e.nativeEvent.isComposing || e.key === 'Process') return
                   if (e.key === 'Enter') {
                     const trimmed = nameDraft.trim()
                     if (trimmed !== '') {
@@ -361,6 +374,9 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
                   type="button"
                   className={styles.action}
                   onClick={() => {
+                    // Cancel any pending hide so the rename box cannot
+                    // unmount right as the user starts typing (#303).
+                    clearHideTimer()
                     setNameDraft(displayName)
                     setRenaming(true)
                   }}
