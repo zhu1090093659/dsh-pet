@@ -7,7 +7,7 @@
  */
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useSyncExternalStore, type ComponentProps } from 'react'
 import type { SettingsScope, SettingsScopeSnapshot } from '@deepseek-ai/dsh-client-runtime/client'
 // The npm SDK's client half is a closure-factory bundle for the GUI's
@@ -93,7 +93,8 @@ describe('PetSettingsSection', () => {
     render(<PetSettingsSection {...sectionProps(new FakeScope({}))} />)
     const enabled = screen.getByLabelText(/enable the pet/i)
     expect(enabled.id).toBe('settings-pet-enabled')
-    const options = Array.from(enabled.querySelectorAll('option')).map(option => option.textContent)
+    fireEvent.click(enabled)
+    const options = screen.getAllByRole('option').map(option => option.textContent)
     expect(options).toEqual(['Inherit', 'On', 'Off'])
   })
 })
