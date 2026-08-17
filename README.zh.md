@@ -15,7 +15,7 @@
 | 多宠物注册表 | 宿主扫描内置 `assets/`、hatch-pet 自定义宠物目录和组合配置条目；每只宠物 = manifest + 图集 |
 | 设置中选择宠物 | 插件设置卡片列出所有已注册宠物；切换即持久化，精灵立即更换 |
 | 每只宠物独立命名 | 在悬浮面板改名；每只宠物保存自己的名字（按宠物 id 存储，旧版平铺名字自动迁移） |
-| 状态动画 | 官方会话活动 → 9 态动画：`thinking → running`、`tool → running-right`、`review → review`、`waiting → waiting`、`done → jumping`、`failed → failed` |
+| 状态动画 | 官方会话活动 → 9 态动画：`thinking → running`、`tool → running-right`、`review → review`、`waiting → waiting`、`done → jumping`、`failed → failed`（短暂展示后回到 idle） |
 | 摸头互动 | 点击宠物 → 气泡反馈 + 亲密度 +1（10s 冷却） |
 | 喂食 | 悬浮面板 喂食 → 消耗 1 条小鱼干 + 亲密度 +5（30s 冷却） |
 | 小鱼干经济 | 库存（上限 20）：每工作 30 轮 +1，每 300 分钟（5 小时）+1 —— 获取难度为原来的 10 倍 |

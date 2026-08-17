@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -594,6 +594,36 @@ describe('PetService (rc.6 session events)', () => {
       }
       expect((await service.state()).affinity.turns).toBe(0)
     } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('expires failed session bubbles while other sessions remain active', async () => {
+    const ctx = new Context()
+    const dir = tempDir()
+    const failed = makeSession('failed')
+    const active = makeSession('active')
+    vi.useFakeTimers()
+    vi.setSystemTime(1_000)
+    try {
+      const service = new PetService(ctx, { persistDir: dir })
+      ctx.emit('session/event', failed, turnEnd(1, {
+        kind: 'error', error: { message: 'boom', code: 'UNKNOWN' },
+      }, 1))
+      ctx.emit('session/event', active, toolCall(1, 1, 'call-active', 'search', 2))
+      expect((await service.state()).sessions).toEqual([
+        { sessionId: 'active', animation: 'running-right', phase: 'tool', bubble: '正在使用 search' },
+        { sessionId: 'failed', animation: 'failed', phase: 'failed', bubble: '执行失败' },
+      ])
+
+      vi.advanceTimersByTime(2400)
+      const view = await service.state()
+      expect(view).toMatchObject({ animation: 'running-right', bubble: '正在使用 search' })
+      expect(view.sessions).toEqual([
+        { sessionId: 'active', animation: 'running-right', phase: 'tool', bubble: '正在使用 search' },
+      ])
+    } finally {
+      vi.useRealTimers()
       rmSync(dir, { recursive: true, force: true })
     }
   })

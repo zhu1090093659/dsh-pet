@@ -15,7 +15,7 @@ Re-implemented from the pet feature of the Codex desktop app, as an official DSH
 | Multi-pet registry | The host scans built-in `assets/`, the hatch-pet custom pets directory, and composed config entries; each pet is a manifest plus an atlas |
 | Pet selection in settings | The plugin settings card lists every registered pet; switching persists and the sprite swaps immediately |
 | Per-pet naming | Rename from the hover panel; each pet keeps its own name (stored per pet id, migrated from the legacy flat name) |
-| State animation | Official session activity → 9-state animation: `thinking → running`, `tool → running-right`, `review → review`, `waiting → waiting`, `done → jumping`, `failed → failed` |
+| State animation | Official session activity → 9-state animation: `thinking → running`, `tool → running-right`, `review → review`, `waiting → waiting`, `done → jumping`, `failed → failed` briefly before returning to idle |
 | Head-pat interaction | Click the pet → bubble feedback + affinity +1 (10s cooldown) |
 | Feeding | Hover panel 喂食 (Feed) → consumes 1 dried fish + affinity +5 (30s cooldown) |
 | Treat economy | Dried-fish stock (cap 20): +1 every 30 rounds of work, +1 every 300 minutes (5 hours) — 10x rarer than the original cadence |

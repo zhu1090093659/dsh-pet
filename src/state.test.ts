@@ -33,6 +33,19 @@ describe('PetStateMachine', () => {
     expect(machine.render().bubble).toBeUndefined()
   })
 
+  it('shows failure briefly, then clears its bubble', () => {
+    let now = 1_000_000
+    const machine = new PetStateMachine({ celebrateMs: 2400, failureMs: 2400 }, () => now)
+    machine.onSessionActive()
+    machine.onActivityStatus({ phase: 'failed', line: '执行失败' })
+    expect(machine.render()).toMatchObject({ animation: 'failed', bubble: '执行失败' })
+    now += 2399
+    expect(machine.render()).toMatchObject({ animation: 'failed', bubble: '执行失败' })
+    now += 1
+    expect(machine.render()).toMatchObject({ animation: 'idle' })
+    expect(machine.render().bubble).toBeUndefined()
+  })
+
   it('shows the phrase bubble when present, else the line', () => {
     const machine = new PetStateMachine(defaultPetStateConfig, () => 1_000)
     machine.onActivityStatus({ phase: 'thinking', phrase: '查资料中', line: 'tool: grep' })
