@@ -17,17 +17,22 @@ describe('pet hover panel css', () => {
     expect(bridge).toContain('height: 14px')
   })
 
-  it('styles the whisper as a high-contrast tone of the shared bubble', () => {
+  it('keeps the whisper on the shared bubble glass for a unified palette', () => {
     const whisper = css.match(/\.bubbleWhisper\s*\{([^}]*)\}/)?.[1] ?? ''
-    // A tone variant, not a standalone bubble: it carries only the mood
-    // overrides (violet glass + entrance) and inherits geometry/interaction
-    // from .bubble/.bubbleStatus.
-    expect(whisper).toContain('background: linear-gradient')
+    // Unified palette: the whisper inherits background/border/shadow/color
+    // from .bubble/.bubbleStatus, so a whispering bubble and a status bubble
+    // stacked side by side share the same DeepSeek-blue glass; only the mood
+    // (quotes, letter-spacing, entrance) is overridden.
+    expect(whisper).not.toContain('background')
+    expect(whisper).not.toContain('border')
+    expect(whisper).not.toContain('box-shadow')
+    expect(whisper).not.toContain('color')
+    expect(whisper).toContain('animation: pet-whisper-in')
     expect(whisper).not.toContain('font-style: italic')
     expect(whisper).not.toContain('pointer-events')
     expect(whisper).not.toContain('position:')
     expect(css).toContain('@keyframes pet-whisper-in')
-    // The tone must be declared after .bubbleStatus to win the cascade.
+    // The mood overrides must be declared after .bubbleStatus to win the cascade.
     expect(css.indexOf('.bubbleWhisper {')).toBeGreaterThan(css.indexOf('.bubbleStatus {'))
   })
 

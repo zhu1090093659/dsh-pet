@@ -23,51 +23,47 @@
   border-radius: 999px;
   font-size: 12px;
   line-height: 1.4;
-  color: #fff;
+  color: #f4f7ff;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
   animation: pet-bubble-pop 2.6s ease-out forwards;
   pointer-events: none;
 }
 
+/* 互动反馈气泡：同属蓝色家族 —— 抚摸是 DeepSeek 品牌蓝，
+   喂食是深海晴空蓝，与状态气泡的蓝黑玻璃保持和谐。 */
 .bubblePet {
-  background: rgba(244, 114, 182, 0.92);
+  background: rgba(77, 107, 254, 0.95);
 }
 
 .bubbleFeed {
-  background: rgba(56, 189, 248, 0.92);
+  background: rgba(3, 105, 161, 0.95);
 }
 
-/* 状态气泡：深色渐变玻璃 + 青色描边微光 + 进场浮现。碎碎念不再单独
-   渲染第二只气泡，而是以 .bubbleWhisper 色调变体接管这同一只气泡。 */
+/* 状态气泡：虎鲸蓝黑渐变玻璃 + DeepSeek 蓝描边微光 + 进场浮现。
+   碎碎念不再单独渲染第二只气泡，也不换色调，而是以 .bubbleWhisper
+   接管这同一只气泡的文案，气泡栈内所有气泡共用同一片玻璃。 */
 .bubbleStatus {
   max-width: min(280px, calc(100vw - 24px));
   overflow: hidden;
   text-overflow: ellipsis;
   padding: 5px 12px;
-  background: linear-gradient(160deg, rgba(30, 41, 59, 0.88), rgba(15, 23, 42, 0.92));
-  border: 1px solid rgba(125, 211, 252, 0.45);
+  background: linear-gradient(160deg, rgba(19, 28, 54, 0.9), rgba(7, 11, 26, 0.94));
+  border: 1px solid rgba(126, 152, 255, 0.45);
   box-shadow:
     0 4px 12px rgba(2, 6, 23, 0.35),
-    inset 0 1px 0 rgba(226, 232, 240, 0.1),
-    0 0 12px rgba(56, 189, 248, 0.14);
+    inset 0 1px 0 rgba(226, 232, 255, 0.1),
+    0 0 12px rgba(77, 107, 254, 0.18);
   backdrop-filter: blur(8px);
   letter-spacing: 0.02em;
   animation: pet-bubble-in 240ms ease-out;
 }
 
-/* 碎碎念色调（与 .bubbleStatus 叠加使用）：同一只气泡切换为深紫粉玻璃 +
-   「」引号，表现宠物的内心独白。深底白字保证对比度（弃用旧的浅粉斜体 +
-   虚线描边）；叠在会话气泡上时保持可点击，跳转语义不变。规则顺序在
-   .bubbleStatus 之后，色调声明方可胜出。 */
+/* 碎碎念（与 .bubbleStatus 叠加使用）：同一只气泡、同一片蓝黑玻璃，
+   仅以「」引号、字距与入场动画表现内心独白 —— 弃用旧的深紫粉色调，
+   多会话气泡栈里状态气泡与碎碎念气泡颜色保持统一，不再出现色差。
+   规则顺序在 .bubbleStatus 之后，动画与字距声明方可胜出。 */
 .bubbleWhisper {
-  color: #fdf4ff;
   letter-spacing: 0.03em;
-  background: linear-gradient(150deg, rgba(76, 29, 149, 0.9), rgba(112, 26, 117, 0.92));
-  border-color: rgba(240, 171, 252, 0.5);
-  box-shadow:
-    0 4px 12px rgba(46, 16, 101, 0.35),
-    inset 0 1px 0 rgba(250, 245, 255, 0.14),
-    0 0 12px rgba(217, 70, 239, 0.2);
   animation: pet-whisper-in 320ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
@@ -112,7 +108,7 @@
   min-width: 18px;
   height: 18px;
   padding: 0 5px;
-  border: 1px solid rgba(125, 211, 252, 0.5);
+  border: 1px solid rgba(126, 152, 255, 0.55);
   border-radius: 999px;
   display: inline-flex;
   align-items: center;
@@ -120,8 +116,8 @@
   font-size: 10px;
   font-weight: 600;
   line-height: 1;
-  color: #e0f2fe;
-  background: linear-gradient(160deg, rgba(14, 116, 144, 0.95), rgba(8, 74, 110, 0.95));
+  color: #eef2ff;
+  background: linear-gradient(160deg, rgba(74, 104, 245, 0.95), rgba(47, 68, 184, 0.95));
   box-shadow: 0 2px 6px rgba(2, 6, 23, 0.4);
   cursor: pointer;
   transition: filter 120ms ease;
@@ -133,7 +129,7 @@
 
 .bubbleMore:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.85);
+  box-shadow: 0 0 0 2px rgba(126, 152, 255, 0.9);
 }
 
 .bubbleStack .bubble {
@@ -157,8 +153,8 @@
 
 .bubbleClickable:focus-visible {
   outline: none;
-  /* 2px accent ring on the pet's own palette, theme-agnostic. */
-  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.85);
+  /* 2px DeepSeek-blue ring on the pet's own palette, theme-agnostic. */
+  box-shadow: 0 0 0 2px rgba(126, 152, 255, 0.9);
 }
 
 @keyframes pet-bubble-in {
@@ -226,16 +222,16 @@
   position: absolute;
   top: 100%;
   margin-top: 8px;
-  background: linear-gradient(165deg, rgba(30, 41, 59, 0.94), rgba(15, 23, 42, 0.96));
-  border: 1px solid rgba(148, 163, 184, 0.4);
+  background: linear-gradient(165deg, rgba(19, 28, 54, 0.95), rgba(7, 11, 26, 0.97));
+  border: 1px solid rgba(126, 152, 255, 0.3);
   border-radius: 12px;
   padding: 10px 12px;
-  color: #e2e8f0;
+  color: #e6ebf8;
   font-size: 12px;
   box-shadow:
     0 8px 24px rgba(2, 6, 23, 0.45),
-    0 0 0 1px rgba(125, 211, 252, 0.08),
-    inset 0 1px 0 rgba(226, 232, 240, 0.08);
+    0 0 0 1px rgba(77, 107, 254, 0.1),
+    inset 0 1px 0 rgba(226, 232, 255, 0.08);
   backdrop-filter: blur(10px);
   display: flex;
   flex-direction: column;
@@ -280,16 +276,16 @@
 .nameCell {
   font-weight: 600;
   letter-spacing: 0.02em;
-  background: linear-gradient(90deg, #7dd3fc, #38bdf8 60%, #818cf8);
+  background: linear-gradient(90deg, #a9c1ff, #6c8bff 60%, #4d6bfe);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
 }
 
-/* 面板数值的专属配色：称号紫、小鱼干青、亲密度琥珀，
-   让两行数据扫一眼就能分辨。 */
+/* 面板数值的专属配色：称号浅品牌蓝、小鱼干清蓝、亲密度暖金 ——
+   与 DeepSeek 蓝同族，仅留一枚金色点缀，两行数据扫一眼就能分辨。 */
 .statRank {
-  color: #c4b5fd;
+  color: #9db4ff;
   font-weight: 600;
 }
 
@@ -312,19 +308,19 @@
 .nameInput {
   flex: 1;
   min-width: 0;
-  border: 1px solid rgba(125, 211, 252, 0.5);
+  border: 1px solid rgba(126, 152, 255, 0.5);
   border-radius: 6px;
-  background: rgba(30, 41, 59, 0.9);
-  color: #e2e8f0;
+  background: rgba(19, 28, 54, 0.9);
+  color: #e6ebf8;
   font-size: 12px;
   padding: 3px 6px;
   outline: none;
 }
 
 .nameInput:focus {
-  border-color: #38bdf8;
-  /* 2px accent ring (theme-agnostic) replacing the removed default outline. */
-  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.45);
+  border-color: #4d6bfe;
+  /* 2px DeepSeek-blue ring (theme-agnostic) replacing the removed default outline. */
+  box-shadow: 0 0 0 2px rgba(77, 107, 254, 0.45);
 }
 
 .actions {
@@ -338,36 +334,37 @@
   border-radius: 6px;
   padding: 4px 8px;
   font-size: 12px;
+  font-weight: 600;
   cursor: pointer;
-  color: #0f172a;
-  background: linear-gradient(180deg, #7dd3fc, #38bdf8);
-  box-shadow: 0 2px 6px rgba(56, 189, 248, 0.25);
+  color: #fff;
+  background: linear-gradient(180deg, #4a68f5, #3a55e0);
+  box-shadow: 0 2px 6px rgba(77, 107, 254, 0.3);
   transition: filter 120ms ease, box-shadow 120ms ease, transform 120ms ease;
 }
 
 .action:hover {
   filter: brightness(1.08);
   transform: translateY(-1px);
-  box-shadow: 0 4px 10px rgba(56, 189, 248, 0.35);
+  box-shadow: 0 4px 10px rgba(77, 107, 254, 0.4);
 }
 
 .action:active {
   filter: brightness(0.94);
   transform: translateY(0);
-  box-shadow: 0 1px 4px rgba(56, 189, 248, 0.25);
+  box-shadow: 0 1px 4px rgba(77, 107, 254, 0.3);
 }
 
 .action:focus-visible {
   outline: none;
-  /* 2px accent ring on the pet's own palette; stays visible on the dark
-     glass panel regardless of the GUI theme (theme-agnostic). */
-  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.85);
+  /* 2px DeepSeek-blue ring on the pet's own palette; stays visible on the
+     dark glass panel regardless of the GUI theme (theme-agnostic). */
+  box-shadow: 0 0 0 2px rgba(126, 152, 255, 0.9);
 }
 
 .summon {
-  border: 1px dashed rgba(125, 211, 252, 0.6);
-  background: rgba(15, 23, 42, 0.75);
-  color: #7dd3fc;
+  border: 1px dashed rgba(126, 152, 255, 0.6);
+  background: rgba(7, 11, 26, 0.75);
+  color: #8ea6ff;
   border-radius: 999px;
   padding: 2px 10px;
   font-size: 11px;
@@ -377,19 +374,19 @@
 }
 
 .summon:hover {
-  border-color: rgba(125, 211, 252, 0.95);
-  color: #bae6fd;
-  background: rgba(15, 23, 42, 0.9);
+  border-color: rgba(126, 152, 255, 0.95);
+  color: #c3d3ff;
+  background: rgba(7, 11, 26, 0.9);
 }
 
 .summon:active {
-  color: #7dd3fc;
-  border-color: rgba(125, 211, 252, 0.8);
+  color: #8ea6ff;
+  border-color: rgba(126, 152, 255, 0.8);
 }
 
 .summon:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.85);
+  box-shadow: 0 0 0 2px rgba(126, 152, 255, 0.9);
 }
 
 /* Reduced motion: freeze the reaction bubble and kill the overlay transitions
