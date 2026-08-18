@@ -224,6 +224,11 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
     }
   }
 
+  // Clear any pending auto-hide timer on unmount: a stray callback after
+  // teardown reads window through react-dom and failed CI runs with
+  // "window is not defined" (slow-runner timing, PetSprite.test.tsx).
+  useEffect(() => () => clearHideTimer(), [])
+
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>): void => {
     e.preventDefault()
     ;(e.target as HTMLElement).setPointerCapture?.(e.pointerId)
