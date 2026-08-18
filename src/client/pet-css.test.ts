@@ -17,6 +17,20 @@ describe('pet hover panel css', () => {
     expect(bridge).toContain('height: 14px')
   })
 
+  it('styles the whisper bubble as a distinct non-interactive inner voice', () => {
+    const whisper = css.match(/\.bubbleWhisper\s*\{([^}]*)\}/)?.[1] ?? ''
+    expect(whisper).toContain('font-style: italic')
+    expect(whisper).toContain('pointer-events: none')
+    expect(css).toContain('@keyframes pet-whisper-in')
+  })
+
+  it('gives the panel and status bubbles entrance animations', () => {
+    expect(css).toContain('@keyframes pet-panel-in')
+    expect(css).toContain('@keyframes pet-bubble-in')
+    const panel = css.match(/\.panel\s*\{([^}]*)\}/)?.[1] ?? ''
+    expect(panel).toContain('animation: pet-panel-in')
+  })
+
   it('can place the panel above and bridge the lower gap', () => {
     const panel = css.match(/\.panelAbove\s*\{([^}]*)\}/)?.[1] ?? ''
     expect(panel).toContain('bottom: 100%')

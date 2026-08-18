@@ -253,7 +253,11 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
   const statusBubble = feedback === null && sessionBubbles.length === 0
     ? snapshot?.bubble
     : undefined
-  const bubblePresent = feedback !== null || sessionBubbles.length > 0 || statusBubble !== undefined
+  // The display session's inner whisper (碎碎念) — short inner-voice copy
+  // woken by the model's output. Interaction feedback takes over the whole
+  // bubble area while it plays, so whispers yield to it like status copy.
+  const whisper = feedback === null ? snapshot?.whisper : undefined
+  const bubblePresent = feedback !== null || sessionBubbles.length > 0 || statusBubble !== undefined || whisper !== undefined
   const displayName = snapshot?.name ?? definition.displayName
 
   useLayoutEffect(() => {
@@ -338,7 +342,7 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
           {feedback.text}
         </div>
       )}
-      {feedback === null && sessionBubbles.length > 0 && (
+      {feedback === null && (sessionBubbles.length > 0 || statusBubble !== undefined || whisper !== undefined) && (
         <div ref={bubbleRef} className={styles.bubbleStack}>
           {sessionBubbles.map(session => (
             <button
@@ -351,11 +355,17 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
               {session.bubble}
             </button>
           ))}
-        </div>
-      )}
-      {statusBubble !== undefined && (
-        <div ref={bubbleRef} className={clsx(styles.bubble, styles.bubbleStatus)} role="status" aria-live="polite">
-          {statusBubble}
+          {sessionBubbles.length === 0 && statusBubble !== undefined && (
+            <div className={clsx(styles.bubble, styles.bubbleStatus)} role="status" aria-live="polite">
+              {statusBubble}
+            </div>
+          )}
+          {whisper !== undefined && (
+            // key restarts the entrance animation per fresh whisper.
+            <div key={whisper} className={styles.bubbleWhisper}>
+              {whisper}
+            </div>
+          )}
         </div>
       )}
       {hovered && dragRef.current === null && (
@@ -421,11 +431,11 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
             <>
               <div className={styles.rankRow}>
                 <span className={styles.nameCell}>{displayName}</span>
-                <span>{props.t('pet.rank', { rank: snapshot?.affinity.rank ?? '?' })}</span>
+                <span className={styles.statRank}>{props.t('pet.rank', { rank: snapshot?.affinity.rank ?? '?' })}</span>
               </div>
               <div className={styles.rankRow}>
-                <span>{props.t('pet.treats', { n: snapshot?.treats.stocked ?? 0 })}</span>
-                <span>{props.t('pet.points', { points: snapshot?.affinity.points ?? 0 })}</span>
+                <span className={styles.statTreats}>{props.t('pet.treats', { n: snapshot?.treats.stocked ?? 0 })}</span>
+                <span className={styles.statPoints}>{props.t('pet.points', { points: snapshot?.affinity.points ?? 0 })}</span>
               </div>
               <div className={styles.actions}>
                 <button type="button" className={styles.action} onClick={props.onFeed}>

@@ -252,8 +252,8 @@ describe('PetSprite hover panel placement', () => {
     // the panel covered the bubble. The panel must now ride above it.
     Object.defineProperty(window, 'innerHeight', { configurable: true, value: 900 })
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
-      if (this.getAttribute('role') === 'status') {
-        // The status bubble: 40px tall.
+      if (this.className.includes('bubbleStack')) {
+        // The bubble area (stack wrapping the status bubble): 40px tall.
         return { top: 650, right: 1200, bottom: 690, left: 1120, width: 80, height: 40, x: 1120, y: 650, toJSON: () => ({}) }
       }
       // Sprite (bottom 974 of a 900px viewport) and panel (86px tall).
@@ -342,6 +342,36 @@ describe('PetSprite status bubble', () => {
     // single bubble is not rendered on top of the session list.
     expect(screen.getAllByText('正在思考')).toHaveLength(1)
     expect(screen.queryByText('正在使用 grep')).not.toBeNull()
+  })
+
+  it('renders the inner whisper beneath the status bubble', () => {
+    renderPet({ snapshot: { ...workingSnapshot, whisper: '哼哧哼哧，大脑转得飞快～' } })
+    // The whisper shows alongside (not instead of) the status copy.
+    expect(screen.queryByText('哼哧哼哧，大脑转得飞快～')).not.toBeNull()
+    expect(screen.queryByText('正在思考')).not.toBeNull()
+  })
+
+  it('renders the whisper alongside the session bubble stack', () => {
+    renderPet({
+      snapshot: {
+        ...workingSnapshot,
+        whisper: '我在这儿陪着你呢，别急别急',
+        sessions: [
+          { sessionId: 's-a', animation: 'running', phase: 'thinking', bubble: '正在思考' },
+        ],
+      },
+    })
+    expect(screen.queryByText('我在这儿陪着你呢，别急别急')).not.toBeNull()
+    expect(screen.queryByText('正在思考')).not.toBeNull()
+  })
+
+  it('lets transient interaction feedback take over the whisper too', () => {
+    renderPet({
+      snapshot: { ...workingSnapshot, whisper: '哼哧哼哧，大脑转得飞快～' },
+      feedback: { text: '摸摸成功', kind: 'pet', at: 1 },
+    })
+    expect(screen.queryByText('摸摸成功')).not.toBeNull()
+    expect(screen.queryByText('哼哧哼哧，大脑转得飞快～')).toBeNull()
   })
 
   it('lets feedback replace the whole session bubble stack', () => {
