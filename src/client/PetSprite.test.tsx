@@ -240,7 +240,68 @@ describe('PetSprite hover panel placement', () => {
     renderPet({ display: { ...snapshot.display, bottom: 20 } })
     fireEvent.pointerOver(screen.getByRole('button', { name: '鲸鱼娘' }))
 
-    expect(screen.getByText('改名').closest('[data-placement]')?.getAttribute('data-placement')).toBe('above')
+    const panel = screen.getByText('改名').closest('[data-placement]') as HTMLElement
+    expect(panel.getAttribute('data-placement')).toBe('above')
+    // No bubble above the sprite: the panel keeps its default 8px gap.
+    expect(panel.style.marginBottom).toBe('')
+  })
+
+  it('lifts the above-panel clear of the status bubble instead of overlapping it', () => {
+    // Regression: the fallback above-placement anchored the panel at the
+    // sprite's top edge — the exact region the status bubble occupies — so
+    // the panel covered the bubble. The panel must now ride above it.
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: 900 })
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      if (this.getAttribute('role') === 'status') {
+        // The status bubble: 40px tall.
+        return { top: 650, right: 1200, bottom: 690, left: 1120, width: 80, height: 40, x: 1120, y: 650, toJSON: () => ({}) }
+      }
+      // Sprite (bottom 974 of a 900px viewport) and panel (86px tall).
+      return { top: 888, right: 1259, bottom: 974, left: 1105, width: 154, height: 86, x: 1105, y: 888, toJSON: () => ({}) }
+    })
+
+    renderPet({
+      snapshot: { ...snapshot, bubble: '正在思考' },
+      display: { ...snapshot.display, bottom: 20 },
+    })
+    fireEvent.pointerOver(screen.getByRole('button', { name: '鲸鱼娘' }))
+
+    const panel = screen.getByText('改名').closest('[data-placement]') as HTMLElement
+    expect(panel.getAttribute('data-placement')).toBe('above')
+    // 40px bubble height + 14px (8px base gap + 6px clearance).
+    expect(panel.style.marginBottom).toBe('54px')
+    // The bubble stays rendered while the lifted panel is open.
+    expect(screen.queryByText('正在思考')).not.toBeNull()
+  })
+
+  it('lifts the above-panel clear of the session bubble stack', () => {
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: 900 })
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      // The bubble stack contains buttons, not role=status; spot it by the
+      // session bubble text content being present among its descendants.
+      if (this.textContent === '正在思考正在使用 grep') {
+        // Two stacked bubbles: 88px tall.
+        return { top: 600, right: 1200, bottom: 688, left: 1100, width: 100, height: 88, x: 1100, y: 600, toJSON: () => ({}) }
+      }
+      return { top: 888, right: 1259, bottom: 974, left: 1105, width: 154, height: 86, x: 1105, y: 888, toJSON: () => ({}) }
+    })
+
+    renderPet({
+      snapshot: {
+        ...snapshot,
+        sessions: [
+          { sessionId: 's-a', animation: 'running', phase: 'thinking', bubble: '正在思考' },
+          { sessionId: 's-b', animation: 'running-right', phase: 'tool', bubble: '正在使用 grep' },
+        ],
+      },
+      display: { ...snapshot.display, bottom: 20 },
+    })
+    fireEvent.pointerOver(screen.getByRole('button', { name: '鲸鱼娘' }))
+
+    const panel = screen.getByText('改名').closest('[data-placement]') as HTMLElement
+    expect(panel.getAttribute('data-placement')).toBe('above')
+    // 88px stack height + 14px clearance.
+    expect(panel.style.marginBottom).toBe('102px')
   })
 })
 

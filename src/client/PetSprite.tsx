@@ -10,7 +10,7 @@
  */
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import type { PointerEvent as ReactPointerEvent, ReactPortal } from 'react'
+import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactPortal } from 'react'
 import { createPortal } from 'react-dom'
 import clsx from 'clsx'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
@@ -68,10 +68,16 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
   const spriteRef = useRef<HTMLDivElement | null>(null)
   const floatRef = useRef<HTMLDivElement | null>(null)
   const panelRef = useRef<HTMLDivElement | null>(null)
+  // Whichever bubble surface is currently rendered (feedback, the session
+  // stack, or the legacy status bubble) — only one exists at a time.
+  const bubbleRef = useRef<HTMLDivElement | null>(null)
   const [imageReady, setImageReady] = useState(false)
   const [hovered, setHovered] = useState(false)
   const [renaming, setRenaming] = useState(false)
   const [panelAbove, setPanelAbove] = useState(false)
+  // Extra margin-bottom for the above-panel so it stacks clear of the
+  // bubbles instead of overlapping them (both anchor at the sprite's top).
+  const [panelLift, setPanelLift] = useState(0)
   const [nameDraft, setNameDraft] = useState('')
   // Explicit IME composition tracking: some input methods (WeChat IME on
   // Windows) report keydowns with isComposing === false mid-composition, so
@@ -239,23 +245,6 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
   const spriteWidth = Math.round(cell.width * spriteScale)
   const spriteHeight = Math.round(cell.height * spriteScale)
 
-  useLayoutEffect(() => {
-    if (!hovered) {
-      setPanelAbove(false)
-      return
-    }
-    const updatePanelPlacement = (): void => {
-      const sprite = spriteRef.current
-      const panel = panelRef.current
-      if (sprite === null || panel === null) return
-      const availableBelow = window.innerHeight - sprite.getBoundingClientRect().bottom
-      setPanelAbove(availableBelow < panel.getBoundingClientRect().height + 8)
-    }
-    updatePanelPlacement()
-    window.addEventListener('resize', updatePanelPlacement)
-    return () => window.removeEventListener('resize', updatePanelPlacement)
-  }, [hovered, renaming, pos.right, pos.bottom, display.size])
-
   // Concurrent sessions each render their own bubble (stacked above the
   // sprite); the legacy single 'bubble' is the fallback when the host serves
   // no per-session list. The hover panel normally sits below the sprite, so
@@ -264,7 +253,32 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
   const statusBubble = feedback === null && sessionBubbles.length === 0
     ? snapshot?.bubble
     : undefined
+  const bubblePresent = feedback !== null || sessionBubbles.length > 0 || statusBubble !== undefined
   const displayName = snapshot?.name ?? definition.displayName
+
+  useLayoutEffect(() => {
+    if (!hovered) {
+      setPanelAbove(false)
+      setPanelLift(0)
+      return
+    }
+    const updatePanelPlacement = (): void => {
+      const sprite = spriteRef.current
+      const panel = panelRef.current
+      if (sprite === null || panel === null) return
+      const availableBelow = window.innerHeight - sprite.getBoundingClientRect().bottom
+      const above = availableBelow < panel.getBoundingClientRect().height + 8
+      setPanelAbove(above)
+      // The fallback above-placement shares the sprite's top edge with the
+      // bubble(s); lift the panel by the bubble area's height so the two
+      // never overlap (8px base gap + 6px clearance above the top bubble).
+      const bubbleHeight = above ? bubbleRef.current?.getBoundingClientRect().height ?? 0 : 0
+      setPanelLift(bubbleHeight > 0 ? Math.ceil(bubbleHeight) + 14 : 0)
+    }
+    updatePanelPlacement()
+    window.addEventListener('resize', updatePanelPlacement)
+    return () => window.removeEventListener('resize', updatePanelPlacement)
+  }, [hovered, renaming, pos.right, pos.bottom, display.size, bubblePresent, sessionBubbles.length, feedback])
 
   const float = (
     <div
@@ -320,12 +334,12 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
         aria-label={definition.displayName}
       />
       {feedback !== null && (
-        <div key={feedback.at} className={clsx(styles.bubble, feedback.kind === 'feed' ? styles.bubbleFeed : styles.bubblePet)}>
+        <div key={feedback.at} ref={bubbleRef} className={clsx(styles.bubble, feedback.kind === 'feed' ? styles.bubbleFeed : styles.bubblePet)}>
           {feedback.text}
         </div>
       )}
       {feedback === null && sessionBubbles.length > 0 && (
-        <div className={styles.bubbleStack}>
+        <div ref={bubbleRef} className={styles.bubbleStack}>
           {sessionBubbles.map(session => (
             <button
               key={session.sessionId}
@@ -340,7 +354,7 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
         </div>
       )}
       {statusBubble !== undefined && (
-        <div className={clsx(styles.bubble, styles.bubbleStatus)} role="status" aria-live="polite">
+        <div ref={bubbleRef} className={clsx(styles.bubble, styles.bubbleStatus)} role="status" aria-live="polite">
           {statusBubble}
         </div>
       )}
@@ -349,6 +363,9 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
           ref={panelRef}
           className={clsx(styles.panel, panelAbove && styles.panelAbove)}
           data-placement={panelAbove ? 'above' : 'below'}
+          style={panelAbove && panelLift > 0
+            ? ({ marginBottom: panelLift } as CSSProperties)
+            : undefined}
           onPointerEnter={() => {
             // Reaching the panel (or its bridge) must cancel any hide timer
             // the container's pointerleave may have armed while the pointer
