@@ -410,10 +410,18 @@ export function loadPetRegistry(options: PetRegistryOptions): PetRegistry {
   }
 
   for (const manifest of options.extra ?? []) {
-    const dir = manifest.spritesheetPath === undefined || isAbsolute(manifest.spritesheetPath)
+    const raw = manifest.spritesheetPath
+    const dir = raw === undefined || isAbsolute(raw)
       ? join(packageRoot, 'assets', 'extra')
-      : dirname(resolve(packageRoot, manifest.spritesheetPath))
-    const entry = resolvePetManifest(manifest, dir, { assetPrefix, warnings })
+      : dirname(resolve(packageRoot, raw))
+    // petAtlasFile joins entry.dir (already the spritesheet's parent when the
+    // path is package-relative) with entry.spritesheetPath, so the stored path
+    // must be the basename only — otherwise the directory segment is applied
+    // twice and the atlas 404s.
+    const source = raw === undefined || isAbsolute(raw)
+      ? manifest
+      : { ...manifest, spritesheetPath: basename(raw) }
+    const entry = resolvePetManifest(source, dir, { assetPrefix, warnings })
     if (entry === undefined) continue
     if (byId.has(entry.id)) warnings.push('composed pet ' + entry.id + ' overrides an earlier registration')
     byId.set(entry.id, entry)
