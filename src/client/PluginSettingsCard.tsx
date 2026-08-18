@@ -271,13 +271,15 @@ interface SelectOption {
 const SELECT_CLOSE_MS = 100
 
 /**
- * The shared staged select control. While an appearance skin is active it
+ * The shared dual-mode select control. While an appearance skin is active it
  * renders the legacy native `<select>` untouched, so element-level skin
  * selectors keep working; under the default appearance it renders a
  * self-drawn `role="listbox"` popup whose open/close is transition-animated.
+ * Staged cards reach it through BooleanField/ChoiceField; immediate-apply
+ * editors (the side-card prefs) bind it directly through onEdit.
  * 双模式下拉框：皮肤激活时用原生 select，默认外观用自绘动画弹层。
  */
-function SelectField(props: {
+export function SelectField(props: {
   id: string
   options: ReadonlyArray<SelectOption>
   value: string
