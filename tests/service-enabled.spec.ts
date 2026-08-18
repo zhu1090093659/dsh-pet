@@ -262,13 +262,13 @@ describe('PetService (rc.6 session events)', () => {
       }, 1))
       const view = await service.state()
       expect(view.bubble).toBe('正在思考')
-      expect(view.whisper).toBe('哎呀，好像踩到小石子了')
+      expect(view.whisper).toBe('哎呀，踩到小石子了')
 
       // The cooldown keeps a second keyword hit quiet right after.
       ctx.emit('session/event', session, assistantChunk(1, 1, {
         type: 'reasoning-delta', index: 0, text: '又一个错误',
       }, 2))
-      expect((await service.state()).whisper).toBe('哎呀，好像踩到小石子了')
+      expect((await service.state()).whisper).toBe('哎呀，踩到小石子了')
 
       // Past the TTL the whisper leaves the view.
       const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 8100)
