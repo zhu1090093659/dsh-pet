@@ -292,6 +292,7 @@ export function apply(ctx: ClientContext): void {
       // when visible, and the hidden-state summon button is fixed-positioned.
       const container = document.createElement('div')
       container.dataset.dshPetRoot = ''
+      container.dataset.dshPlugin = 'pet'
       document.body.appendChild(container)
       const petRoot = createRoot(container)
       petRoot.render(createElement(PetDockEntry, { ...injected(), t }))

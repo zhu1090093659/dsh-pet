@@ -106,6 +106,7 @@ export function PetDockEntry(props: PetDockEntryProps): ReactElement {
       }}
       onClick={props.summon}
       data-testid="pet-summon"
+      data-dsh-part="summon-button"
     >
       {props.t('pet.summon', { name: snapshot?.name ?? '' })}
     </button>
