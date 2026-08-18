@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -7,6 +7,7 @@ import {
   DEFAULT_PET_CELL,
   codexPetsDir,
   loadPetRegistry,
+  petAtlasFile,
   resolvePetManifest,
 } from './registry.ts'
 
@@ -175,6 +176,33 @@ describe('loadPetRegistry', () => {
         extra: [{ id: 'whale-girl', displayName: '替换鲸', spritesheetPath: 'spritesheet.webp' }],
       })
       expect(overridden.byId('whale-girl')!.displayName).toBe('替换鲸')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('resolves a composed extra atlas to the real file (no doubled directory)', () => {
+    const root = tempDir()
+    try {
+      // The atlas sits at <root>/pets/otter/spritesheet.webp.
+      mkdirSync(join(root, 'pets', 'otter'), { recursive: true })
+      writeFileSync(join(root, 'pets', 'otter', 'spritesheet.webp'), 'png', 'utf8')
+
+      const registry = loadPetRegistry({
+        packageRoot: root,
+        petsDir: '',
+        extra: [{ id: 'otter', displayName: '水獭', spritesheetPath: 'pets/otter/spritesheet.webp' }],
+      })
+      const entry = registry.byId('otter')
+      expect(entry).toBeDefined()
+      // dir is the spritesheet's parent; the stored path is its basename, so
+      // joining them resolves to the real file instead of applying the
+      // directory twice.
+      expect(entry!.dir).toBe(join(root, 'pets', 'otter'))
+      expect(entry!.spritesheetPath).toBe('spritesheet.webp')
+      const atlas = petAtlasFile(entry!)
+      expect(atlas).toBe(join(root, 'pets', 'otter', 'spritesheet.webp'))
+      expect(existsSync(atlas)).toBe(true)
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
