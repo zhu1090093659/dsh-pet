@@ -338,7 +338,7 @@
   padding: 4px;
   opacity: 0;
   transform: translateY(-4px);
-  transition: opacity 0.16s ease, transform 0.16s ease;
+  transition: opacity 0.1s ease, transform 0.1s ease;
   display: flex;
 }
 
