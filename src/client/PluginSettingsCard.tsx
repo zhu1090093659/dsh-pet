@@ -256,16 +256,11 @@ export function ValueField(props: FieldProps & {
 }
 
 const NON_SKIN_BODY_MARKERS = new Set(['dshSkinCenter', 'dshSidebarCollapsed'])
-
-/**
- * True while an appearance skin is active: every appearance skin scopes its
- * stylesheet on one `data-dsh-<id>` body attribute, set on apply and removed
- * on dispose. Skin-center marks the body too, but only to scope its own card
- * styles, and the shell marks a collapsed sidebar — both are excluded.
- */
+// 检测使用使用皮肤，用了皮肤退回原生select样式，防止样式冲突。默认外观下使用优化后的select样式。
 function isSkinActive(): boolean {
-  if (typeof document === 'undefined') return false
-  return Object.keys(document.body.dataset).some(key => key.startsWith('dsh') && !NON_SKIN_BODY_MARKERS.has(key))
+  const datasetList = Object.keys(document.body.dataset)
+  const isActive = datasetList.some(key => key.startsWith('dsh') && !NON_SKIN_BODY_MARKERS.has(key))
+  return isActive
 }
 
 interface SelectOption {
@@ -273,15 +268,14 @@ interface SelectOption {
   label: string
 }
 
-/** Popup close-transition duration; must match the popup transition in settings-card.module.css. */
-const SELECT_CLOSE_MS = 160
+const SELECT_CLOSE_MS = 100
 
 /**
  * The shared staged select control. While an appearance skin is active it
  * renders the legacy native `<select>` untouched, so element-level skin
  * selectors keep working; under the default appearance it renders a
- * self-drawn `role="listbox"` popup whose open/close is transition-animated
- * (the native popup lives outside the DOM and cannot be animated).
+ * self-drawn `role="listbox"` popup whose open/close is transition-animated.
+ * 双模式下拉框：皮肤激活时用原生 select，默认外观用自绘动画弹层。
  */
 function SelectField(props: {
   id: string
@@ -294,9 +288,6 @@ function SelectField(props: {
   const { id, options, value } = props
   const [open, setOpen] = useState(false)
   const [closing, setClosing] = useState(false)
-  // 'initial' mounts the popup in its hidden starting style; the layout
-  // effect below flips it to 'open' once the browser has computed that
-  // style, so the mount transition actually plays.
   const [phase, setPhase] = useState<'initial' | 'open'>('initial')
   const [activeIndex, setActiveIndex] = useState(0)
   const closeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
@@ -354,18 +345,6 @@ function SelectField(props: {
           else commit(activeIndex)
         }
         break
-      case 'Home':
-        if (open && !closing) {
-          event.preventDefault()
-          setActiveIndex(0)
-        }
-        break
-      case 'End':
-        if (open && !closing) {
-          event.preventDefault()
-          setActiveIndex(count - 1)
-        }
-        break
       case 'Escape':
         if (open) {
           event.preventDefault()
@@ -382,9 +361,6 @@ function SelectField(props: {
   useEffect(() => () => {
     if (closeTimer.current !== undefined) clearTimeout(closeTimer.current)
   }, [])
-
-  // Flip the freshly mounted popup to its visible state after the hidden
-  // starting style is computed, so the transition plays on open.
   useLayoutEffect(() => {
     if (open && !closing && phase === 'initial') {
       void popupRef.current?.offsetHeight
@@ -406,8 +382,7 @@ function SelectField(props: {
     if (props.disabled && open) close()
   }, [props.disabled, open, close])
 
-  // Appearance skins style the native select by element selector (miku,
-  // minecraft, …): while one is active, keep the exact legacy control.
+  // 使用了皮肤则退回原生select样式防止样式冲突。
   if (isSkinActive()) {
     return (
       <select
