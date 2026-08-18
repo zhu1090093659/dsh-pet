@@ -73,6 +73,13 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
   const bubbleRef = useRef<HTMLDivElement | null>(null)
   const [imageReady, setImageReady] = useState(false)
   const [hovered, setHovered] = useState(false)
+  // Multi-session bubble stack: collapsed by default (only the display
+  // session's bubble + a '+N' badge), expanded on stack hover (peek) or by
+  // tapping the badge (pinned, for touch). The display session's bubble
+  // anchors the bottom of the stack and never moves when extras open above
+  // it, so the pointer target cannot flicker.
+  const [stackPeek, setStackPeek] = useState(false)
+  const [stackPinned, setStackPinned] = useState(false)
   const [renaming, setRenaming] = useState(false)
   const [panelAbove, setPanelAbove] = useState(false)
   // Extra margin-bottom for the above-panel so it stacks clear of the
@@ -245,20 +252,32 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
   const spriteWidth = Math.round(cell.width * spriteScale)
   const spriteHeight = Math.round(cell.height * spriteScale)
 
-  // Concurrent sessions each render their own bubble (stacked above the
-  // sprite); the legacy single 'bubble' is the fallback when the host serves
-  // no per-session list. The hover panel normally sits below the sprite, so
-  // the bubbles stay visible and clickable while hovering — no region swap.
+  // Concurrent sessions share one bubble slot: only the display session
+  // speaks by default, and the rest hide behind a '+N' badge until the stack
+  // is hovered/pinned open. The legacy single 'bubble' is the fallback when
+  // the host serves no per-session list. The hover panel normally sits below
+  // the sprite, so the bubbles stay visible and clickable — no region swap.
   const sessionBubbles = snapshot?.sessions ?? []
+  const stackOpen = stackPeek || stackPinned
+  const collapsed = !stackOpen && sessionBubbles.length > 1
+  const visibleSessions = collapsed ? sessionBubbles.slice(0, 1) : sessionBubbles
   const statusBubble = feedback === null && sessionBubbles.length === 0
     ? snapshot?.bubble
     : undefined
   // The display session's inner whisper (碎碎念) — short inner-voice copy
-  // woken by the model's output. Interaction feedback takes over the whole
-  // bubble area while it plays, so whispers yield to it like status copy.
+  // woken by the model's output. Instead of a second bubble of its own, a
+  // fresh whisper takes over the display session's bubble (the stack top, or
+  // the single status bubble) and re-tints it, so the pet never wears two
+  // voices at once. Interaction feedback takes over the whole bubble area
+  // while it plays, so whispers yield to it like status copy.
   const whisper = feedback === null ? snapshot?.whisper : undefined
   const bubblePresent = feedback !== null || sessionBubbles.length > 0 || statusBubble !== undefined || whisper !== undefined
   const displayName = snapshot?.name ?? definition.displayName
+
+  // A settled session list can no longer stay pinned open.
+  useEffect(() => {
+    if (sessionBubbles.length <= 1) setStackPinned(false)
+  }, [sessionBubbles.length])
 
   useLayoutEffect(() => {
     if (!hovered) {
@@ -282,7 +301,7 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
     updatePanelPlacement()
     window.addEventListener('resize', updatePanelPlacement)
     return () => window.removeEventListener('resize', updatePanelPlacement)
-  }, [hovered, renaming, pos.right, pos.bottom, display.size, bubblePresent, sessionBubbles.length, feedback])
+  }, [hovered, renaming, pos.right, pos.bottom, display.size, bubblePresent, sessionBubbles.length, stackOpen, feedback])
 
   const float = (
     <div
@@ -343,27 +362,71 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
         </div>
       )}
       {feedback === null && (sessionBubbles.length > 0 || statusBubble !== undefined || whisper !== undefined) && (
-        <div ref={bubbleRef} className={styles.bubbleStack}>
-          {sessionBubbles.map(session => (
-            <button
-              key={session.sessionId}
-              type="button"
-              className={clsx(styles.bubble, styles.bubbleStatus, styles.bubbleClickable)}
-              title={props.t('pet.openSessionHint')}
-              onClick={() => { props.onOpenSession(session.sessionId) }}
+        <div
+          ref={bubbleRef}
+          className={styles.bubbleStack}
+          onPointerEnter={() => setStackPeek(true)}
+          onPointerLeave={() => setStackPeek(false)}
+        >
+          {visibleSessions.map((session, index) => {
+            // The whisper rides the display session's bubble — the stack's
+            // primary entry (DOM-first, rendered bottom-most by the reversed
+            // column so it stays glued to the sprite when extras open above).
+            // The key swap restarts the entrance animation so the mood change
+            // reads as the bubble re-speaking.
+            const speaksWhisper = index === 0 && whisper !== undefined
+            const bubble = (
+              <button
+                key={speaksWhisper ? 'whisper:' + whisper : session.sessionId}
+                type="button"
+                className={clsx(
+                  styles.bubble,
+                  styles.bubbleStatus,
+                  styles.bubbleClickable,
+                  speaksWhisper && styles.bubbleWhisper,
+                )}
+                title={props.t('pet.openSessionHint')}
+                onClick={() => { props.onOpenSession(session.sessionId) }}
+              >
+                {speaksWhisper ? whisper : session.bubble}
+              </button>
+            )
+            // The primary bubble carries the '+N' badge while other sessions
+            // hide behind it; the badge toggles the pinned (touch) expansion.
+            if (index !== 0 || sessionBubbles.length <= 1) return bubble
+            return (
+              <span key="primary" className={styles.bubbleAnchor}>
+                {bubble}
+                <button
+                  type="button"
+                  className={styles.bubbleMore}
+                  title={stackOpen
+                    ? props.t('pet.collapseSessions')
+                    : props.t('pet.moreSessions', { n: sessionBubbles.length - 1 })}
+                  aria-label={stackOpen
+                    ? props.t('pet.collapseSessions')
+                    : props.t('pet.moreSessions', { n: sessionBubbles.length - 1 })}
+                  aria-expanded={stackOpen}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setStackPinned(open => !open)
+                  }}
+                >
+                  {stackOpen ? '×' : '+' + String(sessionBubbles.length - 1)}
+                </button>
+              </span>
+            )
+          })}
+          {sessionBubbles.length === 0 && (statusBubble !== undefined || whisper !== undefined) && (
+            // The key swap (status copy <-> whisper) restarts the entrance
+            // animation on every mood change.
+            <div
+              key={whisper === undefined ? 'status' : 'whisper:' + whisper}
+              className={clsx(styles.bubble, styles.bubbleStatus, whisper !== undefined && styles.bubbleWhisper)}
+              role="status"
+              aria-live="polite"
             >
-              {session.bubble}
-            </button>
-          ))}
-          {sessionBubbles.length === 0 && statusBubble !== undefined && (
-            <div className={clsx(styles.bubble, styles.bubbleStatus)} role="status" aria-live="polite">
-              {statusBubble}
-            </div>
-          )}
-          {whisper !== undefined && (
-            // key restarts the entrance animation per fresh whisper.
-            <div key={whisper} className={styles.bubbleWhisper}>
-              {whisper}
+              {whisper ?? statusBubble}
             </div>
           )}
         </div>

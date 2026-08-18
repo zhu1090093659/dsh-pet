@@ -37,71 +37,103 @@
   background: rgba(56, 189, 248, 0.92);
 }
 
-/* 状态气泡：深色渐变玻璃 + 青色描边辉光 + 进场浮现，
-   让工作汇报从“标签”升级为“会呼吸的状态条”。 */
+/* 状态气泡：深色渐变玻璃 + 青色描边微光 + 进场浮现。碎碎念不再单独
+   渲染第二只气泡，而是以 .bubbleWhisper 色调变体接管这同一只气泡。 */
 .bubbleStatus {
   max-width: min(280px, calc(100vw - 24px));
   overflow: hidden;
   text-overflow: ellipsis;
+  padding: 5px 12px;
   background: linear-gradient(160deg, rgba(30, 41, 59, 0.88), rgba(15, 23, 42, 0.92));
-  border: 1px solid rgba(125, 211, 252, 0.55);
+  border: 1px solid rgba(125, 211, 252, 0.45);
   box-shadow:
-    0 4px 14px rgba(2, 6, 23, 0.4),
-    0 0 0 1px rgba(125, 211, 252, 0.12),
-    0 0 18px rgba(56, 189, 248, 0.18);
+    0 4px 12px rgba(2, 6, 23, 0.35),
+    inset 0 1px 0 rgba(226, 232, 240, 0.1),
+    0 0 12px rgba(56, 189, 248, 0.14);
   backdrop-filter: blur(8px);
   letter-spacing: 0.02em;
   animation: pet-bubble-in 240ms ease-out;
 }
 
-/* 碎碎念气泡：宠物的内心悄悄话。紫粉渐变玻璃、虚线描边与斜体，
-   配合「」引号，与青色的工作状态气泡一眼区分；不可点击、自动消散。 */
+/* 碎碎念色调（与 .bubbleStatus 叠加使用）：同一只气泡切换为深紫粉玻璃 +
+   「」引号，表现宠物的内心独白。深底白字保证对比度（弃用旧的浅粉斜体 +
+   虚线描边）；叠在会话气泡上时保持可点击，跳转语义不变。规则顺序在
+   .bubbleStatus 之后，色调声明方可胜出。 */
 .bubbleWhisper {
-  position: relative;
-  max-width: min(260px, calc(100vw - 24px));
-  padding: 4px 12px;
-  border-radius: 999px;
-  font-size: 11.5px;
-  font-style: italic;
-  line-height: 1.45;
+  color: #fdf4ff;
   letter-spacing: 0.03em;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  color: #f5d0fe;
-  background: linear-gradient(150deg, rgba(88, 28, 135, 0.52), rgba(157, 23, 77, 0.44));
-  border: 1px dashed rgba(240, 171, 252, 0.55);
+  background: linear-gradient(150deg, rgba(76, 29, 149, 0.9), rgba(112, 26, 117, 0.92));
+  border-color: rgba(240, 171, 252, 0.5);
   box-shadow:
-    0 3px 12px rgba(46, 16, 101, 0.4),
-    0 0 14px rgba(217, 70, 239, 0.16);
-  backdrop-filter: blur(8px);
-  pointer-events: none;
+    0 4px 12px rgba(46, 16, 101, 0.35),
+    inset 0 1px 0 rgba(250, 245, 255, 0.14),
+    0 0 12px rgba(217, 70, 239, 0.2);
   animation: pet-whisper-in 320ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .bubbleWhisper::before {
   content: '「';
   margin-right: 2px;
-  opacity: 0.75;
+  opacity: 0.7;
 }
 
 .bubbleWhisper::after {
   content: '」';
   margin-left: 2px;
-  opacity: 0.75;
+  opacity: 0.7;
 }
 
-/* 多会话气泡栈：并行会话各自一个气泡，自精灵头顶向上堆叠，
-   最近更新的会话在最上。栈内气泡改流入列布局，不再绝对定位
-   互相覆盖。气泡可点击：点击跳转到对应会话。 */
+/* 多会话气泡栈：默认收起为「主会话一只气泡 + 右上角 +N 角标」，
+   悬停或点按角标才展开整栈。反向列布局让 DOM 首位的主气泡钉在栈底
+   （紧贴精灵），展开时其余气泡从它上方向上生长，主气泡与角标原地
+   不动，悬停目标不会抖动。气泡可点击：点击跳转到对应会话。 */
 .bubbleStack {
   position: absolute;
   bottom: 100%;
   display: flex;
-  flex-direction: column;
+  flex-direction: column-reverse;
   align-items: center;
   gap: 4px;
   pointer-events: auto;
+}
+
+/* 主气泡的定位锚：+N 角标相对它定位，展开整栈时随之固定不动。 */
+.bubbleAnchor {
+  position: relative;
+  display: inline-flex;
+}
+
+/* +N 角标：收起态提示其余在忙会话数，点击/轻触展开或收起整栈。 */
+.bubbleMore {
+  position: absolute;
+  top: -9px;
+  right: -10px;
+  z-index: 1;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border: 1px solid rgba(125, 211, 252, 0.5);
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  color: #e0f2fe;
+  background: linear-gradient(160deg, rgba(14, 116, 144, 0.95), rgba(8, 74, 110, 0.95));
+  box-shadow: 0 2px 6px rgba(2, 6, 23, 0.4);
+  cursor: pointer;
+  transition: filter 120ms ease;
+}
+
+.bubbleMore:hover {
+  filter: brightness(1.15);
+}
+
+.bubbleMore:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.85);
 }
 
 .bubbleStack .bubble {
@@ -372,7 +404,8 @@
   }
 
   .action,
-  .summon {
+  .summon,
+  .bubbleMore {
     transition: none;
   }
 }
