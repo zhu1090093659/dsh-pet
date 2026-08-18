@@ -131,7 +131,7 @@ dsh-pet/
 
 ```sh
 ### 从 npm 安装（推荐）
-dsh plugin --profile web add @linxin666/dsh-pet
+dsh plugin --profile web add @linxin666/dsh-pet@latest
 
 ### 从仓库安装（开发调试）
 git clone https://github.com/zhu1090093659/dsh-web-ui.git
