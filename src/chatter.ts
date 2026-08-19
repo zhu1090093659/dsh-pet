@@ -198,6 +198,18 @@ export type ToolCategory =
   | 'ask'
   | 'generic'
 
+/** Every status scene key, in declaration order (voice-pack key allow-list). */
+export const STATUS_SCENES: readonly StatusScene[] = [
+  'prepare', 'waiting', 'thinking', 'review', 'toolResult', 'done',
+  'failed', 'toolFailed', 'maxTokens', 'interrupted', 'blocked',
+]
+
+/** Every tool-family key, in declaration order (voice-pack key allow-list). */
+export const TOOL_CATEGORIES: readonly ToolCategory[] = [
+  'read', 'write', 'edit', 'shell', 'grep', 'find', 'ls', 'webSearch',
+  'webFetch', 'mcp', 'memory', 'subagent', 'todo', 'browser', 'git', 'ask', 'generic',
+]
+
 /** Map a raw tool name onto its copy family (working-activity style regexes). */
 export function toolCategory(toolName: string): ToolCategory {
   const name = toolName.toLowerCase()
@@ -438,15 +450,19 @@ export function toolArgHint(toolName: string, argumentsJson: string): string | u
  * stretch keeps changing its wording.
  */
 export class StatusVoice {
+  private readonly pools: VoicePoolsProvider
+  private readonly rotateMs: number
   private readonly counters = new Map<string, number>()
   private lastScene = ''
   private lastLine = ''
   private lastLineAt = Number.NEGATIVE_INFINITY
 
-  constructor(
-    private readonly pools: VoicePoolsProvider = () => BUILTIN_VOICE_PACK,
-    private readonly rotateMs: number = STATUS_ROTATE_MS,
-  ) {}
+  constructor(pools: VoicePoolsProvider = () => BUILTIN_VOICE_PACK, rotateMs: number = STATUS_ROTATE_MS) {
+    // Plain property assignment, not parameter properties: this module is
+    // imported by scripts/ under node's strip-only mode (pet-center M4).
+    this.pools = pools
+    this.rotateMs = rotateMs
+  }
 
   /** Draw the next line of one pool, advancing its round-robin cursor. */
   private draw(poolKey: string, pool: readonly string[]): string {
@@ -807,16 +823,23 @@ export const BUILTIN_VOICE_PACK: VoicePackOverrides = {
  * pools at draw time, so a pet switch re-voices live engines in place.
  */
 export class WhisperEngine {
+  private readonly pools: VoicePoolsProvider
+  private readonly cooldownMs: number
+  private readonly charBudget: number
   private readonly counters = new Map<number, number>()
   private genericCursor = 0
   private lastWhisperAt = Number.NEGATIVE_INFINITY
   private charsSinceWhisper = 0
 
   constructor(
-    private readonly pools: VoicePoolsProvider = () => BUILTIN_VOICE_PACK,
-    private readonly cooldownMs: number = WHISPER_COOLDOWN_MS,
-    private readonly charBudget: number = WHISPER_CHAR_BUDGET,
-  ) {}
+    pools: VoicePoolsProvider = () => BUILTIN_VOICE_PACK,
+    cooldownMs: number = WHISPER_COOLDOWN_MS,
+    charBudget: number = WHISPER_CHAR_BUDGET,
+  ) {
+    this.pools = pools
+    this.cooldownMs = cooldownMs
+    this.charBudget = charBudget
+  }
 
   /**
    * Effective keyword rules: an override replaces the built-in rules as a
