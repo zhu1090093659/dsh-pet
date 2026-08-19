@@ -46,6 +46,8 @@ describe('safeManifestPath', () => {
     expect(safeManifestPath('a\\b.png')).toBeUndefined()
     expect(safeManifestPath('https://evil.example/x.png')).toBeUndefined()
     expect(safeManifestPath('a/bad name.png')).toBeUndefined()
+    expect(safeManifestPath('.')).toBeUndefined()
+    expect(safeManifestPath('a/./b.png')).toBeUndefined()
     expect(safeManifestPath('')).toBeUndefined()
     expect(safeManifestPath(42)).toBeUndefined()
   })

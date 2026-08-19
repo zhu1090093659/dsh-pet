@@ -134,7 +134,7 @@ export function safeManifestPath(raw: unknown): string | undefined {
   if (isAbsolute(value) || value.includes('\\') || /^[a-z][a-z0-9+.-]*:/i.test(value)) return undefined
   const segments = value.split('/').filter(segment => segment !== '')
   if (segments.length === 0) return undefined
-  if (segments.some(segment => segment === '..' || !PATH_SEGMENT_PATTERN.test(segment))) return undefined
+  if (segments.some(segment => segment === '.' || segment === '..' || !PATH_SEGMENT_PATTERN.test(segment))) return undefined
   return segments.join('/')
 }
 
