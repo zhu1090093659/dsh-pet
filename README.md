@@ -89,13 +89,38 @@ Invalid entries never override a working pet: they are skipped with a diagnostic
 
 ## Live2D pets (renderer: live2d)
 
-Live2D pets render through PixiJS/WebGL. **The Cubism Core runtime is never bundled or downloaded by this plugin** — Live2D's proprietary license forbids redistributing it. To enable a Live2D pet:
+Live2D pets render through PixiJS/WebGL: the MIT pixi.js + untitled-pixi-live2d-engine stack ships inside this plugin as a lazily loaded vendor bundle, so sprite-only installations never download or parse it. **The Cubism Core runtime is never bundled or downloaded by this plugin** — Live2D's proprietary license forbids redistributing it. To enable a Live2D pet:
 
 1. Obtain the official Live2D Cubism SDK for Web yourself (you accept Live2D's license) and take `live2dcubismcore.min.js` from it.
-2. Place it at `$DSH_HOME/pets/.runtime/live2dcubismcore.min.js`.
+2. Place it at `$DSH_HOME/pets/.runtime/live2dcubismcore.min.js` — the plugin serves it to the page from there, alongside its own vendor bundle.
 3. Install a Live2D pet (a directory with `pet.json` v2, `renderer: "live2d"`, and the model files).
 
-If the core is absent, Live2D pets stay unavailable with a clear diagnostic; sprite2d pets are unaffected. Legal note: this plugin is an "extensible application" in Live2D's terms — works you publish with user-loadable models may require a Live2D release license regardless of scale; evaluate your obligations before publishing derivative works.
+If the core is absent, a Live2D pet shows an install-guidance card where the model would render; sprite2d pets are unaffected. Legal note: this plugin is an "extensible application" in Live2D's terms — works you publish with user-loadable models may require a Live2D release license regardless of scale; evaluate your obligations before publishing derivative works.
+
+A Live2D manifest maps the seven activity phases onto the model's motion groups:
+
+```json
+{
+  "petManifestVersion": 2,
+  "id": "my-live2d-pet",
+  "displayName": "My Live2D Pet",
+  "license": "CC0-1.0",
+  "renderer": "live2d",
+  "live2d": {
+    "model": "model/my-pet.model3.json",
+    "motions": { "idle": "Idle", "thinking": "Think", "failed": "TapBody" },
+    "hitAreas": ["Body"]
+  }
+}
+```
+
+- `model`: the `.model3.json` path relative to the pet directory. Every file the model references (moc, textures, motions, physics, pose, expressions) must live inside the directory — the host serves exactly that reference closure.
+- `motions` (required, `idle` mandatory): phase → motion group. Unmapped phases and groups the model lacks fall back to `idle`; a group holding several motions plays a random one. The official Cubism sample models ship only `Idle` and `TapBody` groups.
+- `expressions` (optional): phase → expression name, layered over the motion.
+- `hitAreas` (optional): a tap landing on a listed hit area plays the model's `TapBody` group, then returns to the phase's group. Every tap still counts as petting — the chrome owns interactions exactly like sprite2d.
+- `scale` / `translate` (optional): the model auto-fits the display box; `scale` multiplies the fit (default 1, range (0, 10]) and `translate` offsets it in px from the center.
+
+Model licensing: the official Live2D sample models (Hiyori, Haru, and friends) are evaluation-only and must not be redistributed — ship only models you have rights to (original creations or permissively licensed ones).
 
 ## Built-in pets
 

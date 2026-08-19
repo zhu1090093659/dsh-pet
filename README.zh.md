@@ -89,13 +89,38 @@ node scripts/dsh-pet install <dir> --force    # 覆盖同名已安装宠物
 
 ## Live2D 宠物（renderer: live2d）
 
-Live2D 宠物经 PixiJS/WebGL 渲染。**本插件永不内置、永不代下 Cubism Core 运行时**——Live2D 专有许可不允许再分发。启用 Live2D 宠物：
+Live2D 宠物经 PixiJS/WebGL 渲染：MIT 许可的 pixi.js + untitled-pixi-live2d-engine 栈以按需加载的 vendor 分包随插件内置，纯 sprite 用户永不下载、永不解析它。**本插件永不内置、永不代下 Cubism Core 运行时**——Live2D 专有许可不允许再分发。启用 Live2D 宠物：
 
 1. 自行从 Live2D 官方渠道获取 Cubism SDK for Web（你自行同意其许可），取得 `live2dcubismcore.min.js`；
-2. 放到 `$DSH_HOME/pets/.runtime/live2dcubismcore.min.js`；
+2. 放到 `$DSH_HOME/pets/.runtime/live2dcubismcore.min.js`——插件把它连同自带的 vendor 分包一起提供给页面；
 3. 安装 Live2D 宠物（含 `pet.json` v2、`renderer: "live2d"` 与模型文件的目录）。
 
-core 缺失时 Live2D 宠物不可用并给出明确诊断，sprite2d 宠物不受影响。法律提示：本插件属 Live2D 术语下的「可扩展性 APP」——你公开发布基于可加载用户模型的衍生作品时，可能不论规模都须与 Live2D 签订发行许可；发布前请自行评估义务。
+core 缺失时，Live2D 宠物在渲染位置给出安装指引卡；sprite2d 宠物不受影响。法律提示：本插件属 Live2D 术语下的「可扩展性 APP」——你公开发布基于可加载用户模型的衍生作品时，可能不论规模都须与 Live2D 签订发行许可；发布前请自行评估义务。
+
+Live2D 清单把七个活动相位映射到模型的动作组：
+
+```json
+{
+  "petManifestVersion": 2,
+  "id": "my-live2d-pet",
+  "displayName": "My Live2D Pet",
+  "license": "CC0-1.0",
+  "renderer": "live2d",
+  "live2d": {
+    "model": "model/my-pet.model3.json",
+    "motions": { "idle": "Idle", "thinking": "Think", "failed": "TapBody" },
+    "hitAreas": ["Body"]
+  }
+}
+```
+
+- `model`：相对宠物目录的 `.model3.json` 路径。模型引用的一切文件（moc、贴图、动作、物理、姿态、表情）都必须放在目录内——宿主恰好只服务这个引用闭包。
+- `motions`（必填，且必须含 `idle`）：相位 → 动作组。未映射的相位与模型缺失的组一律回退 `idle`；组内有多条动作时随机播放一条。官方 Cubism 示例模型只带 `Idle` 与 `TapBody` 两个组。
+- `expressions`（可选）：相位 → 表情名，叠加在动作之上。
+- `hitAreas`（可选）：点击落在列出的命中区时播放模型的 `TapBody` 组，播完回到当前相位的动作组。任何点击仍计入摸头——交互经济与 sprite2d 一样由 chrome 掌管。
+- `scale` / `translate`（可选）：模型自动适配显示盒；`scale` 在适配结果上乘算（默认 1，范围 (0, 10]），`translate` 以中心为基准做像素偏移。
+
+模型授权：Live2D 官方示例模型（Hiyori、Haru 等）仅供评估、禁止再分发——只发布你有权的模型（原创作品或宽松授权的模型）。
 
 ## 内置宠物
 
