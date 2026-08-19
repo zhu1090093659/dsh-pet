@@ -18,5 +18,5 @@
     ]
   },
   "description": "基于鲸鱼娘形象进行 AI 辅助二次创作、修复与细节精修的内置变体。",
-  "license": "BSD-3-Clause"
+  "license": "MIT"
 }

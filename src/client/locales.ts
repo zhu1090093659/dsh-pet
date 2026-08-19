@@ -25,6 +25,7 @@ export const zh = {
   'pet.collapseSessions': '收起会话气泡',
   // 一级设置页（settings.section 席位）。
   'settings.title': '宠物',
+  'settings.diagnosticsTitle': '宠物目录诊断',
   'settings.description': '选择宠物并调整它的显示布局。',
   'settings.pet': '宠物',
   'settings.petHint': '选择显示哪只宠物；每只宠物独立命名，可在宠物悬浮面板改名。',
@@ -74,6 +75,7 @@ export const en = {
   'pet.collapseSessions': 'Collapse session bubbles',
   // First-level settings section (the `settings.section` seat).
   'settings.title': 'Pet',
+  'settings.diagnosticsTitle': 'Pet directory diagnostics',
   'settings.description': 'Pick a pet and tune its display layout.',
   'settings.pet': 'Pet',
   'settings.petHint': 'Choose which pet shows. Names are stored per pet; rename from the pet hover panel.',

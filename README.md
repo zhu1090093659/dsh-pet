@@ -59,13 +59,43 @@ A pet is a directory holding one `pet.json` manifest and one atlas image. Nothin
 - `frames` counts the used columns per row (defaults to the hatch-pet contract table `[6, 8, 8, 4, 5, 8, 6, 6, 6]`); `tracks` overrides per-frame durations (cycled to the row's frame count), `loop`, and `fallback` per animation (defaults: everything loops; `jumping` and `failed` hold their last frame, then fall back to `idle`).
 - `sequences` optionally maps activity scenes (`idle` / `waiting` / `thinking` / `tool` / `review` / `done` / `failed`) to at least 5 animation tracks. Each item plays every frame for the durations in `tracks`, then the next item starts; the complete sequence loops. An omitted scene keeps its canonical single-track playback.
 
+### Manifest v2 (pet center, #623)
+
+A pet directory's `pet.json` declares its renderer explicitly in v2:
+
+- `petManifestVersion: 2` (absent = v1, compat-read as `sprite2d` with a migration hint);
+- `renderer`: `"sprite2d"` (the atlas contract above) or `"live2d"`;
+- `license` (required in v2): asset license identifier — community pets carry provenance;
+- a renderer block: `sprite2d` (spritesheetPath/cell/columns/atlasRows/frames/tracks) or `live2d` (model/motions/expressions/hitAreas/scale/translate).
+
+Validation is fail-closed on structure (unknown fields or renderer kinds reject the entry with a diagnostic) and warn-and-drop on sequence/remark content. The machine-readable schema lives at `contracts/pet-manifest-v2.schema.json`; the authoritative validator is `src/manifest-v2.ts`. Migrate v1 manifests with `node scripts/dsh-pet-migrate-v2.mjs <dir> --write` (dry-run by default; keeps `pet.json.v1.bak`).
+
 Where pets come from (later sources override earlier ones on id collision):
 
 1. **Built-in**: `assets/<dir>/pet.json` in this package.
-2. **Custom pets**: `${CODEX_HOME:-~/.codex}/pets/<pet>/pet.json` — the hatch-pet pipeline stages its output there, so a hatched pet appears in the selector with no further wiring.
-3. **Composed**: `PetConfig.pets` manifest entries passed to the plugin by the embedding application.
+2. **Legacy custom pets**: `${CODEX_HOME:-~/.codex}/pets/<pet>/pet.json` — the hatch-pet pipeline stages its output there, so a hatched pet appears in the selector with no further wiring.
+3. **Pet-center user directory**: `$DSH_HOME/pets/<id>/` — the recommended home for your pets (see the CLI below).
+4. **Composed**: `PetConfig.pets` manifest entries passed to the plugin by the embedding application.
 
-The registry is built once at host startup; add or change a pet, then restart `dsh web`.
+Validate and install a pet directory with the CLI (no build step, no npm publish):
+
+```sh
+node scripts/dsh-pet validate <dir>           # manifest + assets + Live2D reference closure
+node scripts/dsh-pet install <dir>            # validate, then copy into $DSH_HOME/pets/<id>/
+node scripts/dsh-pet install <dir> --force    # overwrite an existing same-id install
+```
+
+Invalid entries never override a working pet: they are skipped with a diagnostic listed in the settings (Pet section). The registry is built once at host startup; add or change a pet, then restart `dsh web`.
+
+## Live2D pets (renderer: live2d)
+
+Live2D pets render through PixiJS/WebGL. **The Cubism Core runtime is never bundled or downloaded by this plugin** — Live2D's proprietary license forbids redistributing it. To enable a Live2D pet:
+
+1. Obtain the official Live2D Cubism SDK for Web yourself (you accept Live2D's license) and take `live2dcubismcore.min.js` from it.
+2. Place it at `$DSH_HOME/pets/.runtime/live2dcubismcore.min.js`.
+3. Install a Live2D pet (a directory with `pet.json` v2, `renderer: "live2d"`, and the model files).
+
+If the core is absent, Live2D pets stay unavailable with a clear diagnostic; sprite2d pets are unaffected. Legal note: this plugin is an "extensible application" in Live2D's terms — works you publish with user-loadable models may require a Live2D release license regardless of scale; evaluate your obligations before publishing derivative works.
 
 ## Built-in pets
 
@@ -135,10 +165,6 @@ global React root (createRoot → document.body) <-- polling 2s -- pet-client (b
 - **Rendering**: CSS sprite (background-position) per-frame animation; frame durations and optional scene sequences come from the served definition. The hover panel is anchored below the pet with a pointer bridge across the gap; when the viewport leaves no room below, it flips above the pet and is lifted clear of the status bubble stack so the two never overlap.
 - **Communication**: browser ↔ host over the same-origin `/api/pet/*` JSON endpoints (state/pets/interact/set-visible/set-config/set-name/set-pet); each pet's atlas loads from `/pet/<id>/<spritesheetPath>` — the plugin self-sufficiently provides its own API and assets (the same pattern as dsh-remote-web-ui's `/api/pair`).
 
-## Security model
-
-- Every `/api/pet/*` and `/pet/<id>/*` route is loopback-only by default (the shared plugin-family fence: loopback socket + Host header + browser same-origin markers): unpaired LAN clients get `403 forbidden: loopback-only` before any pet state or atlas is served. When `dsh-remote-web-ui` is also loaded, a live paired-device cookie is an additional allow path (the same cookie `api/gate` already checks); unpaired and revoked devices stay 403. The pet does not depend on the remote plugin.
-
 ## Install
 
 Install the family aggregate package `@linxin666/dsh-web-ui-all` (all plugins and skins in one) or this plugin alone:
@@ -171,6 +197,14 @@ The browser bundle rides the `window.__ModuleLoader__.load` contract; React/cord
 ## Sprites and animation-track calibration
 
 The two built-in whale-girl atlases use the same 9-state × 8-column contract: `assets/whale/` is the original and `assets/whale-refined/` is the refined variant. Each atlas is 1536×1872 (8 columns × 9 rows of 192×208 cells). Frame counts, rhythm, and scene rotation live in each directory's `pet.json`; pets without overrides follow the hatch-pet contract rhythm and canonical single-track scene mapping (row order: 0 idle / 1 running-right / 2 running-left / 3 waving / 4 jumping / 5 failed / 6 waiting / 7 running / 8 review).
+
+## Security model
+
+- Every `/api/pet/*` and `/pet/<id>/*` route is loopback-only by default (the shared plugin-family fence: loopback socket + Host header + browser same-origin markers): unpaired LAN clients get `403 forbidden: loopback-only` before any pet state or atlas is served. When `dsh-remote-web-ui` is also loaded, a live paired-device cookie is an additional allow path (the same cookie `api/gate` already checks); unpaired and revoked devices stay 403. The pet does not depend on the remote plugin.
+- Asset serving resolves both the pet directory and the candidate file through `realpath`; symlink escapes are refused (403). Files are size-capped before being read into memory (manifest 64 KB, imagery 20 MB; over-cap answers 413).
+- Live2D models are served by closure: only the manifest, the declared primary assets, and the files the `.model3.json` references (each screened against traversal, absolute and URL forms).
+- The plugin never downloads executables and never bundles the Live2D Cubism Core.
+- Manifests are fail-closed on structure: unknown fields or renderers reject the entry with a diagnostic shown in settings.
 
 ## License
 
