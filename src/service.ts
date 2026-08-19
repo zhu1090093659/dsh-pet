@@ -42,6 +42,7 @@ import {
   type PetDefinition,
   type PetManifest,
   type PetRegistry,
+  type PetRegistryDiagnostic,
 } from './registry.ts'
 import { WHISPER_TTL_MS } from './chatter.ts'
 import {
@@ -263,6 +264,11 @@ export class PetService extends Service {
   /** The loaded registry (the asset routes serve its entries). */
   registrySnapshot(): PetRegistry {
     return this.registry
+  }
+
+  /** RPC: structured registry diagnostics (pet-center M2, issue #623). */
+  async diagnostics(): Promise<{ diagnostics: PetRegistryDiagnostic[] }> {
+    return { diagnostics: this.registry.diagnostics }
   }
 
   /** The selected pet's registry entry. */

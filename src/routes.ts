@@ -254,6 +254,7 @@ export function makePetRoutes(deps: { service: PetService }): WebRoute[] {
   const apiRoutes: WebRoute[] = [
     getRoute(PET_API_PREFIX + '/state', () => service.state()),
     getRoute(PET_API_PREFIX + '/pets', () => service.pets()),
+    getRoute(PET_API_PREFIX + '/diagnostics', () => service.diagnostics()),
     postRoute(PET_API_PREFIX + '/interact', (body) => {
       const kind = body.kind as PetInteraction | undefined
       if (kind !== 'pet' && kind !== 'feed') return Promise.reject(new Error('invalid-kind'))
