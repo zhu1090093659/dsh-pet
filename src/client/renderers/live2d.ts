@@ -60,6 +60,15 @@ export interface Live2dRendererHandle extends PetRendererHandle {
 /** The de-facto tap-motion group of Cubism sample models. */
 const TAP_GROUP = 'TapBody'
 
+/**
+ * Keep one screen-appropriate atlas LOD instead of asking Pixi for the
+ * engine's default full mip chain. A user model can legitimately carry an
+ * 8192px texture while the pet itself is only a few hundred pixels tall;
+ * `single-auto` preserves the source for larger renders and generates one
+ * downsampled atlas only when the effective on-screen scale warrants it.
+ */
+const TEXTURE_OPTIONS = { lod: 'single-auto' } as const
+
 let vendorConfigured = false
 
 /** Configure pixi extensions + the Cubism SDK once per page. */
@@ -150,7 +159,11 @@ export const live2dRenderer: PetRenderer<PetLive2dConfig> = {
       pixiApp.canvas.style.width = '100%'
       pixiApp.canvas.style.height = '100%'
       ctx.container.appendChild(pixiApp.canvas)
-      const loaded = await vendor.Live2DModel.from(config.modelUrl, { autoHitTest: false, autoFocus: false })
+      const loaded = await vendor.Live2DModel.from(config.modelUrl, {
+        autoHitTest: false,
+        autoFocus: false,
+        textureOptions: TEXTURE_OPTIONS,
+      })
       if (disposed) {
         pixiApp.destroy(true, { children: true })
         return
