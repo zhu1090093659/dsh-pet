@@ -33,6 +33,20 @@ beforeAll(async () => {
     id: 'otter', displayName: '水獭', spritesheetPath: 'spritesheet.webp',
   }), 'utf8')
   writeFileSync(join(assets, 'otter', 'spritesheet.webp'), WEBP_BYTES)
+  // Built-in status decoration (M5, #567).
+  mkdirSync(join(assets, 'decorations', 'whale'), { recursive: true })
+  writeFileSync(join(assets, 'decorations', 'whale', 'decoration.json'), JSON.stringify({
+    decorationManifestVersion: 1,
+    id: 'whale',
+    displayName: '喷水鲸鱼',
+    license: 'MIT',
+    entry: 'whale-frames.png',
+    cell: { width: 64, height: 48 },
+    columns: 4,
+    frameMs: 140,
+    phases: { idle: 'hide', waiting: { from: 0, to: 1 }, thinking: { from: 0, to: 3 } },
+  }), 'utf8')
+  writeFileSync(join(assets, 'decorations', 'whale', 'whale-frames.png'), WEBP_BYTES)
 
   const ctx = new Context()
   const registry = loadPetRegistry({ packageRoot: dir, petsDir: '', dshPetsDir: '' })
@@ -174,5 +188,35 @@ describe('pet routes', () => {
     assetRoute!.handler({ ...lanRequest, url: '/pet/whale-girl/pet.json' } as never, asset.res as never)
     expect(asset.status()).toBe(403)
     expect(asset.body()).toContain('loopback-only')
+  })
+})
+describe('decoration routes (pet-center M5, #567)', () => {
+  it('serves the strip and descriptor from the declaration allow-list', async () => {
+    const strip = await fetch(`http://127.0.0.1:${port}/api/pet/decoration/whale/whale-frames.png`)
+    expect(strip.status).toBe(200)
+    expect(await strip.arrayBuffer()).toHaveProperty('byteLength', 12)
+    const manifest = await fetch(`http://127.0.0.1:${port}/api/pet/decoration/whale/decoration.json`)
+    expect(manifest.status).toBe(200)
+    expect((await manifest.json()).id).toBe('whale')
+  })
+
+  it('refuses files outside the declaration closure', async () => {
+    const extra = await fetch(`http://127.0.0.1:${port}/api/pet/decoration/whale/secret.png`)
+    expect(extra.status).toBe(404)
+    const crafted = await fetch(`http://127.0.0.1:${port}/api/pet/decoration/whale/%2e%2e/whale-frames.png`)
+    expect(crafted.status).toBe(404)
+  })
+
+  it('404s unknown decoration ids', async () => {
+    const missing = await fetch(`http://127.0.0.1:${port}/api/pet/decoration/nope/whale-frames.png`)
+    expect(missing.status).toBe(404)
+  })
+
+  it('serves the decoration block in the state view', async () => {
+    const state = await fetch(`http://127.0.0.1:${port}/api/pet/state`)
+    const body = await state.json()
+    expect(body.decoration.id).toBe('whale')
+    expect(body.decoration.entryUrl).toBe('/api/pet/decoration/whale/whale-frames.png')
+    expect(body.decoration.phases.thinking).toEqual({ from: 0, to: 3 })
   })
 })

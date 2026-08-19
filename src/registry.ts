@@ -34,6 +34,8 @@ import { fileURLToPath } from 'node:url'
 import type { ActivityPhase, PetAnimation } from './state.ts'
 import { normalizePetRemarks, type PetRemarks, type PetRemarksManifest } from './remarks.ts'
 import { normalizeVoicePack, type PetPanelView, type VoicePack } from './voice-pack.ts'
+import { parseDecorationManifest } from './decoration.ts'
+import type { DecorationView } from './contracts/status-decoration.ts'
 import { dshHome } from './dsh-home.ts'
 import { parsePetManifest, type PetManifestLive2d, type PetManifestV2, type PetRendererKind } from './manifest-v2.ts'
 import { collectModel3References } from './model3.ts'
@@ -252,6 +254,27 @@ export interface PetRegistry {
    * layers under every per-pet pack and over the built-in pools (M4, #677).
    */
   globalVoice?: VoicePack
+  /**
+   * Status decorations (pet-center M5, #567): built-in 'assets/decorations'
+   * entries overridden by same-id user entries under
+   * '$DSH_HOME/pets/decorations'. Independent of the pet entries. Optional
+   * so prebuilt test registries without decorations keep compiling.
+   */
+  decorations?: DecorationEntry[]
+  /** Look up one decoration by id. */
+  decorationById?(id: string): DecorationEntry | undefined
+}
+
+/** One resolved status decoration plus its host-side file location. */
+export interface DecorationEntry extends DecorationView {
+  /** Absolute directory holding the descriptor and strip. */
+  dir: string
+  /** Strip path relative to 'dir' (declared by the descriptor). */
+  entryPath: string
+  /** Descriptor-relative files the decoration asset route may serve. */
+  servable: readonly string[]
+  /** Asset license identifier (required by the descriptor). */
+  license: string
 }
 
 /** One structured registry diagnostic (manifest-v2 era). */
@@ -619,6 +642,62 @@ function loadVoicePackFile(
   return normalizeVoicePack(raw, warn)
 }
 
+/** Decoration asset URL prefix (served by the decoration route, M5). */
+export const DECORATION_ASSET_PREFIX = '/api/pet/decoration'
+
+/**
+ * Scan one directory of decoration folders ('decoration.json' + strip).
+ * Later scans override earlier ones on id collision; a bad descriptor warns
+ * and skips — the never-throw philosophy holds for decorations too (M5).
+ */
+function scanDecorationDir(dir: string, options: { warnings?: string[]; diagnostics?: PetRegistryDiagnostic[] }): DecorationEntry[] {
+  if (!existsSync(dir)) return []
+  let names: string[] = []
+  try {
+    names = readdirSync(dir).filter(name => !name.startsWith('.'))
+  } catch {
+    return []
+  }
+  names.sort()
+  const entries: DecorationEntry[] = []
+  for (const name of names) {
+    const entryDir = join(dir, name)
+    const manifestFile = join(entryDir, 'decoration.json')
+    if (!existsSync(manifestFile)) continue
+    let raw: unknown
+    try {
+      raw = JSON.parse(readFileSync(manifestFile, 'utf8'))
+    } catch (error) {
+      const message = 'skipping ' + manifestFile + ': ' + (error instanceof Error ? error.message : String(error))
+      options.warnings?.push(message)
+      options.diagnostics?.push({ level: 'error', source: entryDir, message })
+      continue
+    }
+    const verdict = parseDecorationManifest(raw, manifestFile)
+    for (const diagnostic of verdict.diagnostics) {
+      options.diagnostics?.push({ level: diagnostic.level, source: entryDir, message: diagnostic.message })
+      options.warnings?.push(diagnostic.message)
+    }
+    if (!verdict.ok) continue
+    const manifest = verdict.manifest
+    entries.push({
+      id: manifest.id,
+      dir: entryDir,
+      entryPath: manifest.entry,
+      servable: ['decoration.json', manifest.entry],
+      license: manifest.license,
+      assetBase: DECORATION_ASSET_PREFIX + '/' + encodeURIComponent(manifest.id),
+      entryUrl: DECORATION_ASSET_PREFIX + '/' + encodeURIComponent(manifest.id) + '/' + manifest.entry,
+      cell: manifest.cell,
+      columns: manifest.columns,
+      durations: manifest.durations,
+      loop: manifest.loop,
+      phases: manifest.phases,
+    })
+  }
+  return entries
+}
+
 /**
  * Load the pet registry: built-in 'assets/*' first, then the hatch-pet
  * custom pets directory, then composed 'extra' manifests (each later source
@@ -679,7 +758,23 @@ export function loadPetRegistry(options: PetRegistryOptions): PetRegistry {
     byId.set(entry.id, entry)
   }
 
+  // Status decorations (pet-center M5, #567): built-in entries first,
+  // then same-id user entries under '$DSH_HOME/pets/decorations' override.
+  const decorationById = new Map<string, DecorationEntry>()
+  for (const entry of scanDecorationDir(join(packageRoot, 'assets', 'decorations'), { warnings, diagnostics })) {
+    decorationById.set(entry.id, entry)
+  }
+  if (dshPetsDir !== '') {
+    for (const entry of scanDecorationDir(join(dshPetsDir, 'decorations'), { warnings, diagnostics })) {
+      if (decorationById.has(entry.id)) {
+        warnings.push('user decoration ' + entry.id + ' overrides the built-in one')
+      }
+      decorationById.set(entry.id, entry)
+    }
+  }
+
   const entries = [...byId.values()]
+  const decorations = [...decorationById.values()]
   return {
     entries,
     warnings,
@@ -687,6 +782,25 @@ export function loadPetRegistry(options: PetRegistryOptions): PetRegistry {
     byId: (id: string) => byId.get(id),
     defaultEntry: () => entries.find(entry => builtinIds.has(entry.id)) ?? entries[0]!,
     ...(globalVoice === undefined ? {} : { globalVoice }),
+    decorations,
+    decorationById: (id: string) => decorationById.get(id),
+  }
+}
+
+/** The built-in default decoration id (M5): the first reference ornament. */
+export const DEFAULT_DECORATION_ID = 'whale'
+
+/** Strip host-only fields, leaving the browser-visible decoration view. */
+export function decorationView(entry: DecorationEntry): DecorationView {
+  return {
+    id: entry.id,
+    assetBase: entry.assetBase,
+    entryUrl: entry.entryUrl,
+    cell: entry.cell,
+    columns: entry.columns,
+    durations: entry.durations,
+    loop: entry.loop,
+    phases: entry.phases,
   }
 }
 

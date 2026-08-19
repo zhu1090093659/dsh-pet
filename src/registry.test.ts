@@ -538,3 +538,67 @@ describe('voice packs (pet-center M4, issue #677)', () => {
     }
   })
 })
+describe('status decorations (pet-center M5, #567)', () => {
+  function writeDecoration(dir: string, name: string, manifest: Record<string, unknown>, strip = 'whale-frames.png'): void {
+    mkdirSync(join(dir, name), { recursive: true })
+    writeFileSync(join(dir, name, 'decoration.json'), JSON.stringify(manifest), 'utf8')
+    writeFileSync(join(dir, name, strip), 'png', 'utf8')
+  }
+
+  const baseManifest = () => ({
+    decorationManifestVersion: 1,
+    id: 'whale',
+    displayName: '喷水鲸鱼',
+    license: 'MIT',
+    entry: 'whale-frames.png',
+    cell: { width: 64, height: 48 },
+    columns: 4,
+    phases: { idle: 'hide', thinking: { from: 0, to: 3 } },
+  })
+
+  it('scans built-in decorations and exposes the browser view fields', () => {
+    const root = tempDir()
+    try {
+      const assets = join(root, 'assets')
+      writeDecoration(join(assets, 'decorations'), 'whale', baseManifest())
+      const registry = loadPetRegistry({ packageRoot: root, petsDir: '', dshPetsDir: '' })
+      const entry = registry.decorationById?.('whale')
+      expect(entry).toBeDefined()
+      expect(entry!.entryUrl).toBe('/api/pet/decoration/whale/whale-frames.png')
+      expect(entry!.servable).toEqual(['decoration.json', 'whale-frames.png'])
+      expect(entry!.phases.thinking).toEqual({ from: 0, to: 3 })
+      // The pet entries list is untouched by decorations.
+      expect(registry.entries).toEqual([])
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('lets a user decoration override the built-in by id', () => {
+    const root = tempDir()
+    try {
+      writeDecoration(join(root, 'assets', 'decorations'), 'whale', baseManifest())
+      const dsh = join(root, 'dsh')
+      writeDecoration(join(dsh, 'decorations'), 'whale', { ...baseManifest(), displayName: '家用鲸鱼' })
+      const registry = loadPetRegistry({ packageRoot: root, petsDir: '', dshPetsDir: dsh })
+      expect(registry.decorationById?.('whale')?.id).toBe('whale')
+      expect(registry.warnings.some(w => w.includes('user decoration whale overrides'))).toBe(true)
+      expect(registry.decorationById?.('whale')?.entryUrl).toBe('/api/pet/decoration/whale/whale-frames.png')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('warns and skips a broken descriptor without disturbing pets', () => {
+    const root = tempDir()
+    try {
+      mkdirSync(join(root, 'assets', 'decorations', 'broken'), { recursive: true })
+      writeFileSync(join(root, 'assets', 'decorations', 'broken', 'decoration.json'), '{ not json', 'utf8')
+      const registry = loadPetRegistry({ packageRoot: root, petsDir: '', dshPetsDir: '' })
+      expect(registry.decorations).toEqual([])
+      expect(registry.diagnostics.some(d => d.level === 'error' && d.message.includes('broken'))).toBe(true)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+})

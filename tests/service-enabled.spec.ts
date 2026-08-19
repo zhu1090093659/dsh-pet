@@ -6,8 +6,9 @@ import { Context } from '@deepseek-ai/cordis'
 import type { Session, SessionEvent, TurnEndReason } from '@deepseek-ai/dsh-session'
 import { loadPetPersist } from '../src/persist.ts'
 import { PetService } from '../src/service.ts'
-import { resolvePetManifest, type PetRegistry } from '../src/registry.ts'
+import { resolvePetManifest, type DecorationEntry, type PetRegistry } from '../src/registry.ts'
 import { normalizeVoicePack } from '../src/voice-pack.ts'
+import { parseDecorationManifest } from '../src/decoration.ts'
 
 /** Two-pet registry fixture (whale-girl + otter) for selection/name tests. */
 function fixtureRegistry(): PetRegistry {
@@ -1012,6 +1013,104 @@ describe('voice packs in PetService (pet-center M4, issue #677)', () => {
         type: 'reasoning-delta', index: 0, text: '测试通过',
       }, 1))
       expect((await service.state()).whisper).toBe('自定义全绿')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
+describe('status decorations in PetService (pet-center M5, #567)', () => {
+  function decorationRegistry(): PetRegistry {
+    const warnings: string[] = []
+    const whale = resolvePetManifest({
+      id: 'whale-girl',
+      displayName: '鲸鱼娘',
+      spritesheetPath: 'spritesheet.webp',
+    }, join(tmpdir(), 'whale'), { warnings })
+    const verdict = parseDecorationManifest({
+      decorationManifestVersion: 1,
+      id: 'whale',
+      license: 'MIT',
+      entry: 'whale-frames.png',
+      cell: { width: 64, height: 48 },
+      columns: 4,
+      phases: { idle: 'hide', thinking: { from: 0, to: 3 } },
+    }, 'whale/decoration.json')
+    if (!verdict.ok) throw new Error('fixture decoration must parse')
+    const manifest = verdict.manifest
+    const entry: DecorationEntry = {
+      id: manifest.id,
+      dir: join(tmpdir(), 'whale'),
+      entryPath: manifest.entry,
+      servable: ['decoration.json', manifest.entry],
+      license: manifest.license,
+      assetBase: '/api/pet/decoration/whale',
+      entryUrl: '/api/pet/decoration/whale/whale-frames.png',
+      cell: manifest.cell,
+      columns: manifest.columns,
+      durations: manifest.durations,
+      loop: manifest.loop,
+      phases: manifest.phases,
+    }
+    const entries = [whale!]
+    return {
+      entries,
+      warnings,
+      diagnostics: [],
+      byId: id => entries.find(e => e.id === id),
+      defaultEntry: () => entries[0]!,
+      decorations: [entry],
+      decorationById: id => (id === 'whale' ? entry : undefined),
+    }
+  }
+
+  it('serves the active decoration block by default', async () => {
+    const ctx = new Context()
+    const dir = tempDir()
+    try {
+      const service = new PetService(ctx, { persistDir: dir, registry: decorationRegistry() })
+      const view = await service.state()
+      expect(view.decoration?.id).toBe('whale')
+      expect(view.decoration?.entryUrl).toBe('/api/pet/decoration/whale/whale-frames.png')
+      expect(view.decoration?.phases.thinking).toEqual({ from: 0, to: 3 })
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('hides the decoration when the config switch is off', async () => {
+    const ctx = new Context()
+    const dir = tempDir()
+    try {
+      const service = new PetService(ctx, { persistDir: dir, registry: decorationRegistry(), decorationEnabled: false })
+      expect((await service.state()).decoration).toBeUndefined()
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('mirrors the settings-section switch', async () => {
+    const ctx = new Context()
+    const dir = tempDir()
+    try {
+      const service = new PetService(ctx, { persistDir: dir, registry: decorationRegistry() })
+      service.applySettingsSection({
+        visible: true,
+        size: 160,
+        right: 24,
+        bottom: 120,
+        petId: 'whale-girl',
+        decorationEnabled: false,
+      })
+      expect((await service.state()).decoration).toBeUndefined()
+      service.applySettingsSection({
+        visible: true,
+        size: 160,
+        right: 24,
+        bottom: 120,
+        petId: 'whale-girl',
+        decorationEnabled: true,
+      })
+      expect((await service.state()).decoration?.id).toBe('whale')
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
