@@ -9,9 +9,9 @@
  * @module @linxin666/dsh-pet/routes
  */
 
-import { existsSync } from 'node:fs'
+import { existsSync, realpathSync, statSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { join, sep } from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import type { PetService } from './service.ts'
@@ -28,6 +28,41 @@ export const PET_ASSET_PREFIX = '/pet'
 const MANIFEST_FILE = 'pet.json'
 const PREVIEW_DIR = 'previews'
 const PREVIEW_PATTERN = /^[A-Za-z0-9._-]+$/
+
+/**
+ * Per-class size ceilings for served pet assets, in bytes (pet-center M2 P3,
+ * issue #623). Constants are tested directly; makePetRoutes accepts an
+ * override so tests can exercise the 413 path with tiny caps.
+ */
+export const PET_ASSET_CAPS = {
+  /** pet.json manifest. */
+  manifest: 64 * 1024,
+  /** Atlas and preview imagery. */
+  image: 20 * 1024 * 1024,
+} as const
+
+/** Size-cap profile the asset route enforces (test seam). */
+export interface PetAssetCaps {
+  manifest: number
+  image: number
+}
+
+/**
+ * realpath containment: resolve both sides and require the candidate to stay
+ * inside the base directory. A pet directory (or an atlas/preview inside it)
+ * that is a symlink escaping its root is rejected, never followed.
+ */
+export function containedRealpath(base: string, candidate: string): string | undefined {
+  try {
+    const realBase = realpathSync(base)
+    const realCandidate = realpathSync(candidate)
+    return realCandidate === realBase || realCandidate.startsWith(realBase + sep)
+      ? realCandidate
+      : undefined
+  } catch {
+    return undefined
+  }
+}
 
 const MIME_BY_EXT: Readonly<Record<string, string>> = {
   '.webp': 'image/webp',
@@ -148,7 +183,7 @@ function dirAliases(registry: PetRegistry): Map<string, PetEntry> {
  * pet.json, the declared spritesheet path, and optional 'previews/<name>'
  * media. Composed pets without a manifest file get a synthesized pet.json.
  */
-function assetHandler(registry: PetRegistry): WebRoute['handler'] {
+function assetHandler(registry: PetRegistry, caps: PetAssetCaps): WebRoute['handler'] {
   const aliases = dirAliases(registry)
   return (req: IncomingMessage, res: ServerResponse): void => {
     if (!guard(req, res)) return
@@ -229,7 +264,26 @@ function assetHandler(registry: PetRegistry): WebRoute['handler'] {
       res.end()
       return
     }
-    const resolved = file
+    // realpath containment: a symlink escaping the pet directory is refused.
+    const resolved = containedRealpath(entry.dir, file)
+    if (resolved === undefined) {
+      res.writeHead(403)
+      res.end()
+      return
+    }
+    // Enforce the size ceiling before the file is read into memory.
+    const cap = rest[0] === MANIFEST_FILE ? caps.manifest : caps.image
+    try {
+      if (statSync(resolved).size > cap) {
+        res.writeHead(413)
+        res.end()
+        return
+      }
+    } catch {
+      res.writeHead(404)
+      res.end()
+      return
+    }
     readFile(resolved).then((body) => {
       res.writeHead(200, {
         'content-type': mimeFor(resolved),
@@ -249,7 +303,7 @@ function assetHandler(registry: PetRegistry): WebRoute['handler'] {
 }
 
 /** Build the full route family (API + assets) for one service. */
-export function makePetRoutes(deps: { service: PetService }): WebRoute[] {
+export function makePetRoutes(deps: { service: PetService; assetCaps?: PetAssetCaps }): WebRoute[] {
   const { service } = deps
   const apiRoutes: WebRoute[] = [
     getRoute(PET_API_PREFIX + '/state', () => service.state()),
@@ -286,7 +340,7 @@ export function makePetRoutes(deps: { service: PetService }): WebRoute[] {
   const assetRoute: WebRoute = {
     kind: 'prefix',
     path: PET_ASSET_PREFIX,
-    handler: assetHandler(service.registrySnapshot()),
+    handler: assetHandler(service.registrySnapshot(), deps.assetCaps ?? PET_ASSET_CAPS),
   }
 
   return [...apiRoutes, assetRoute]
