@@ -11,6 +11,7 @@ import { t } from './locales.ts'
 import type { PetStateView } from '../service.ts'
 import type { PetDefinition, PetTrackDef } from '../registry.ts'
 import type { PetAnimation } from '../state.ts'
+import type { DecorationView } from '../contracts/status-decoration.ts'
 
 /** A minimal pet definition (geometry + tracks) as served by the host. */
 function petDefinition(): PetDefinition {
@@ -614,5 +615,61 @@ describe('PetSprite panel chrome from the voice pack (pet-center M4)', () => {
     expect(screen.getByText('改名')).toBeDefined()
     expect(screen.getByText('隐藏')).toBeDefined()
     expect(screen.getByText('亲密度 幼鲸')).toBeDefined()
+  })
+})
+describe('PetSprite status decoration (pet-center M5, #567)', () => {
+  const decoration: DecorationView = {
+    id: 'whale',
+    assetBase: '/api/pet/decoration/whale',
+    entryUrl: '/api/pet/decoration/whale/whale-frames.png',
+    cell: { width: 64, height: 48 },
+    columns: 4,
+    durations: [160, 160, 160, 160],
+    loop: true,
+    phases: {
+      idle: 'hide',
+      waiting: { from: 0, to: 1 },
+      thinking: { from: 0, to: 3 },
+      done: { from: 2, to: 3 },
+    },
+  }
+
+  const ornament = (): HTMLElement | null => document.body.querySelector('[data-dsh-pet-decoration="whale"]')
+
+  it('renders an aria-hidden ornament inside the status bubble for a bound phase', () => {
+    renderPet({ snapshot: { ...snapshot, bubble: '正在思考', phase: 'thinking', decoration } })
+    const el = ornament()
+    expect(el).not.toBeNull()
+    expect(el!.getAttribute('aria-hidden')).toBe('true')
+    expect(el!.style.backgroundImage).toContain('whale-frames.png')
+    // The bubble keeps its semantics beside the ornament.
+    const bubble = document.body.querySelector('[role="status"][aria-live="polite"]')
+    expect(bubble).not.toBeNull()
+    expect(bubble!.textContent).toContain('正在思考')
+  })
+
+  it('hides the ornament for phases bound to hide and for the idle default', () => {
+    renderPet({ snapshot: { ...snapshot, bubble: '等待', phase: 'idle', decoration } })
+    expect(ornament()).toBeNull()
+  })
+
+  it('holds the segment first frame under prefers-reduced-motion', () => {
+    renderPet({ snapshot: { ...snapshot, bubble: '完成', phase: 'done', decoration } })
+    const el = ornament()
+    expect(el).not.toBeNull()
+    // The harness matchMedia mock reports reduced motion, so the ornament
+    // rests on the segment's first frame (column 2 of a 24px-wide frame).
+    expect(el!.style.backgroundPosition).toBe('-48px 0px')
+  })
+
+  it('yields the bubble to the whisper (voice moment hides the ornament)', () => {
+    renderPet({ snapshot: { ...snapshot, phase: 'thinking', whisper: '冲了冲了', decoration } })
+    expect(ornament()).toBeNull()
+    expect(document.body.textContent).toContain('冲了冲了')
+  })
+
+  it('renders no ornament when the host serves no decoration', () => {
+    renderPet({ snapshot: { ...snapshot, bubble: '正在思考', phase: 'thinking' } })
+    expect(ornament()).toBeNull()
   })
 })
