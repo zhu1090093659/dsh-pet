@@ -94,7 +94,11 @@ export class PetSettingsCardController {
       choiceField('petId', this.petChoices),
     ])
     this.store = this.form.bind(() => this.projection())
-    void this.loadPets()
+    // Client plugins are applied synchronously during shell startup. Defer
+    // the first registry request until that pass completes so transport
+    // plugins (notably remote-web-ui on a paired non-loopback origin) can
+    // install their fetch channel before /api/pet/pets is issued.
+    window.setTimeout(() => { void this.loadPets() }, 0)
   }
 
   /** Resolve the registry choices once (retried a few times on failure). */
