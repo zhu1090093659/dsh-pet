@@ -6,8 +6,8 @@
  * switch renders as an Inherit/On/Off select without any expansion interaction.
  */
 
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { useSyncExternalStore, type ComponentProps } from 'react'
 import type { SettingsScope, SettingsScopeSnapshot } from '@deepseek-ai/dsh-client-runtime/client'
 // The npm SDK's client half is a closure-factory bundle for the GUI's
@@ -28,7 +28,20 @@ vi.mock('@deepseek-ai/dsh-client-runtime/client', () => ({
 import { PetSettingsSection, PetSettingsCardController, type PetSettingsSectionProps, type PetSettings } from '../src/client/PetSettingsCard.tsx'
 import { en } from '../src/client/locales.ts'
 
-afterEach(cleanup)
+beforeEach(() => {
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify([
+    { id: 'whale-girl', displayName: '鲸鱼娘（原版）' },
+    { id: 'whale-girl-refined', displayName: '鲸鱼娘（精致版）' },
+  ]), {
+    status: 200,
+    headers: { 'content-type': 'application/json' },
+  })))
+})
+
+afterEach(() => {
+  cleanup()
+  vi.unstubAllGlobals()
+})
 
 /** English translate stub (same shape the sibling settings-card tests use). */
 const t: PetSettingsSectionProps['t'] = (key) => {
@@ -96,5 +109,19 @@ describe('PetSettingsSection', () => {
     fireEvent.click(enabled)
     const options = screen.getAllByRole('option').map(option => option.textContent)
     expect(options).toEqual(['Inherit', 'On', 'Off'])
+  })
+
+  it('renders every live registry entry in the existing pet selector', async () => {
+    render(<PetSettingsSection {...sectionProps(new FakeScope({ petId: 'whale-girl' }))} />)
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Pet').textContent).toContain('鲸鱼娘（原版）')
+    })
+    fireEvent.click(screen.getByLabelText('Pet'))
+    expect(screen.getAllByRole('option').map(option => option.textContent)).toEqual([
+      'Inherit',
+      '鲸鱼娘（原版）',
+      '鲸鱼娘（精致版）',
+    ])
   })
 })
