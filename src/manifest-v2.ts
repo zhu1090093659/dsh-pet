@@ -16,6 +16,10 @@
  * The JSON Schema twin lives at contracts/pet-manifest-v2.schema.json for
  * documentation, the CLI, and external tooling; the hand-rolled validator
  * here is authoritative (the repository ships no schema-validator runtime).
+ *
+ * This file is imported directly by scripts/ (dsh-pet-migrate-v2) under
+ * node's strip-only TypeScript mode: keep it erasable-syntax-only (no
+ * parameter properties, enums, or namespaces).
  * @module @linxin666/dsh-pet/manifest-v2
  */
 
@@ -117,7 +121,8 @@ export const KNOWN_LIVE2D = new Set(['model', 'scale', 'translate', 'motions', '
 
 class Diagnostics {
   readonly list: PetManifestDiagnostic[] = []
-  constructor(private readonly source: string) {}
+  private readonly source: string
+  constructor(source: string) { this.source = source }
   error(message: string): void { this.list.push({ level: 'error', message: this.source + ': ' + message }) }
   warn(message: string): void { this.list.push({ level: 'warning', message: this.source + ': ' + message }) }
   get hasErrors(): boolean { return this.list.some(d => d.level === 'error') }
