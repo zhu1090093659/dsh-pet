@@ -143,6 +143,16 @@ function fireComposingKeydown(target: Element, key: string): void {
   fireEvent.compositionEnd(target)
 }
 
+describe('PetSprite custom visual (pet-center M3)', () => {
+  it('renders the visual inside the sprite box and skips the atlas background', () => {
+    renderPet({ visual: <canvas data-testid="custom-visual" /> })
+    const spriteEl = screen.getByRole('button', { name: '鲸鱼娘' })
+    expect(spriteEl.querySelector('[data-testid="custom-visual"]')).toBeTruthy()
+    // The atlas background never applies while a renderer visual owns the box.
+    expect(spriteEl.style.backgroundImage).toBe('')
+  })
+})
+
 describe('PetSprite rename input', () => {
   it('submits the draft on Enter outside composition', () => {
     const { onRename } = renderPet()

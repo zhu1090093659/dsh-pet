@@ -10,7 +10,7 @@
  */
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactPortal } from 'react'
+import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactNode, ReactPortal } from 'react'
 import { createPortal } from 'react-dom'
 import clsx from 'clsx'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
@@ -48,6 +48,12 @@ export interface PetSpriteProps {
   onOpenSession: (sessionId: string) => void
   /** Clear the reaction bubble (after its CSS animation). */
   onFeedbackDone: () => void
+  /**
+   * Custom visual replacing the sprite2d atlas animation (pet-center M3).
+   * The chrome (drag, bubbles, panel, tap economy) is untouched: the visual
+   * renders inside the sprite box, and the atlas load + frame loop skip.
+   */
+  visual?: ReactNode
   /** Locale translate seat (namespace-bound). */
   t: TranslateNS<typeof NS>
 }
@@ -106,8 +112,10 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
   const sequences = definition.sequences
 
   // Load the atlas once; the definition carries the authoritative per-row
-  // frame counts and per-track durations, so nothing else is fetched.
+  // frame counts and per-track durations, so nothing else is fetched. A
+  // custom visual (pet-center M3) replaces the atlas entirely.
   useEffect(() => {
+    if (props.visual !== undefined) return
     let cancelled = false
     const img = new Image()
     img.onload = () => {
@@ -118,7 +126,7 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
       cancelled = true
       img.onload = null
     }
-  }, [definition.atlasUrl])
+  }, [definition.atlasUrl, props.visual])
 
   // Frame loop: advance the current track and write background-position.
   // Offsets must be in SCALED coordinates (background-position applies to the
@@ -132,6 +140,7 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
   const scaleRef = useRef(spriteScale)
   scaleRef.current = spriteScale
   useEffect(() => {
+    if (props.visual !== undefined) return
     const reduceMotion = typeof window !== 'undefined'
       && window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches === true
     const sequence = animation === animationForPhase(phase) ? sequences?.[phase] : undefined
@@ -200,7 +209,7 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
     }
     raf = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(raf)
-  }, [animation, phase, cell, columns, rows, tracks, sequences])
+  }, [animation, phase, cell, columns, rows, tracks, sequences, props.visual])
 
   // Auto-clear the feedback bubble after its CSS animation. The callback
   // rides a ref so re-renders never reset the timer: the 2s poll rebuilds
@@ -343,10 +352,14 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
         style={{
           width: spriteWidth,
           height: spriteHeight,
-          backgroundImage: imageReady ? 'url(' + definition.atlasUrl + ')' : undefined,
-          backgroundSize: (cell.width * columns * spriteScale) + 'px ' + (cell.height * (definition.atlasRows ?? rows.length) * spriteScale) + 'px',
-          backgroundRepeat: 'no-repeat',
-          backgroundPosition: '0 0',
+          ...(props.visual === undefined
+            ? {
+                backgroundImage: imageReady ? 'url(' + definition.atlasUrl + ')' : undefined,
+                backgroundSize: (cell.width * columns * spriteScale) + 'px ' + (cell.height * (definition.atlasRows ?? rows.length) * spriteScale) + 'px',
+                backgroundRepeat: 'no-repeat',
+                backgroundPosition: '0 0',
+              }
+            : {}),
           cursor: dragRef.current === null ? 'grab' : 'grabbing',
         }}
         onPointerDown={onPointerDown}
@@ -360,7 +373,9 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
         }}
         role="button"
         aria-label={definition.displayName}
-      />
+      >
+        {props.visual}
+      </div>
       {feedback !== null && (
         <div key={feedback.at} ref={bubbleRef} className={clsx(styles.bubble, feedback.kind === 'feed' ? styles.bubbleFeed : styles.bubblePet)}>
           {feedback.text}
