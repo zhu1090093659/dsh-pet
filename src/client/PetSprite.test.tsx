@@ -755,6 +755,46 @@ describe('PetSprite status decoration (pet-center M5, #567)', () => {
     expect(el.style.backgroundPosition).toBe('-72px 0px')
   })
 
+  it('does not schedule a frame loop for a single-frame segment even when looping', () => {
+    vi.spyOn(window, 'matchMedia').mockReturnValue({
+      matches: false,
+      media: '(prefers-reduced-motion: reduce)',
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+    })
+    vi.spyOn(performance, 'now').mockReturnValue(0)
+    const frames: FrameRequestCallback[] = []
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => {
+      frames.push(callback)
+      return frames.length
+    })
+    vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {})
+    // failed binds the single frame 3 of a 24px-wide frame; loop stays true.
+    renderPet({
+      snapshot: {
+        ...snapshot,
+        bubble: '失败',
+        phase: 'failed',
+        decoration: { ...decoration, phases: { ...decoration.phases, failed: { from: 3, to: 3 } } },
+      },
+    })
+    const el = ornament()!
+    // The ornament settles on its only frame, exactly like the reduced-motion
+    // hold — no rAF loop may start, so only the sprite's idle loop is pending.
+    expect(el.style.backgroundPosition).toBe('-72px 0px')
+    expect(frames).toHaveLength(1)
+    const step = (ts: number): void => { for (const callback of frames.splice(0)) callback(ts) }
+    act(() => { step(161) })
+    act(() => { step(322) })
+    // The frame never moves and the ornament never reschedules itself.
+    expect(el.style.backgroundPosition).toBe('-72px 0px')
+    expect(frames).toHaveLength(1)
+  })
+
   it('does not restart the frame loop when an equal-content decoration re-renders', () => {
     vi.spyOn(window, 'matchMedia').mockReturnValue({
       matches: false,

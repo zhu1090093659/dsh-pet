@@ -93,7 +93,11 @@ function StatusOrnament(props: { decoration: DecorationView; phase: ActivityPhas
     const position = (index: number): string => (-index * frameWidth) + 'px 0px'
     const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches === true
     el.style.backgroundPosition = position(segment.from)
-    if (reduceMotion) return
+    // A single-frame segment (from === to) has nothing to animate: with
+    // loop=true the wrap branch would reset index to the same frame and the
+    // tick would keep rescheduling a no-op rAF forever. Settle on the one
+    // frame instead — same as the reduced-motion static hold.
+    if (reduceMotion || segment.from === segment.to) return
     let raf = 0
     let index = segment.from
     let elapsed = 0
