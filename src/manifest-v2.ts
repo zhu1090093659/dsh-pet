@@ -101,12 +101,19 @@ export type PetManifestParse =
 const PET_ID_PATTERN = /^[a-z0-9][a-z0-9-]*$/
 const PATH_SEGMENT_PATTERN = /^[A-Za-z0-9._-]+$/
 const SEMVER_PATTERN = /^\d+\.\d+\.\d+$/
-const KNOWN_TOP_LEVEL = new Set([
+/**
+ * Field allow-lists mirroring contracts/pet-manifest-v2.schema.json. Exported
+ * so the drift test can lock the schema file and this validator together;
+ * the CLI reuses parsePetManifest instead of these.
+ */
+export const KNOWN_TOP_LEVEL = new Set([
   '$schema', 'petManifestVersion', 'id', 'displayName', 'description', 'version',
   'author', 'license', 'homepage', 'renderer', 'sprite2d', 'live2d', 'sequences', 'remarks',
 ])
-const KNOWN_SPRITE2D = new Set(['spritesheetPath', 'cell', 'columns', 'atlasRows', 'frames', 'tracks'])
-const KNOWN_LIVE2D = new Set(['model', 'scale', 'translate', 'motions', 'expressions', 'hitAreas', 'lipSync'])
+/** sprite2d block field allow-list (drift-locked to the schema file). */
+export const KNOWN_SPRITE2D = new Set(['spritesheetPath', 'cell', 'columns', 'atlasRows', 'frames', 'tracks'])
+/** live2d block field allow-list (drift-locked to the schema file). */
+export const KNOWN_LIVE2D = new Set(['model', 'scale', 'translate', 'motions', 'expressions', 'hitAreas', 'lipSync'])
 
 class Diagnostics {
   readonly list: PetManifestDiagnostic[] = []

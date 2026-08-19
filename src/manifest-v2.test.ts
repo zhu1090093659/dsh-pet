@@ -1,10 +1,16 @@
 import { describe, expect, it } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import {
+  KNOWN_LIVE2D,
+  KNOWN_SPRITE2D,
+  KNOWN_TOP_LEVEL,
   PET_MANIFEST_V2,
   PET_RENDERER_KINDS,
   parsePetManifest,
   safeManifestPath,
 } from './manifest-v2.ts'
+import { petPackageRoot } from './registry.ts'
 
 /** Minimal valid v2 sprite2d manifest. */
 function v2Sprite(overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -212,5 +218,34 @@ describe('constants', () => {
   it('locks the manifest version and renderer kinds', () => {
     expect(PET_MANIFEST_V2).toBe(2)
     expect(PET_RENDERER_KINDS).toEqual(['sprite2d', 'live2d'])
+  })
+})
+
+describe('schema file drift lock', () => {
+  const schema = JSON.parse(readFileSync(
+    join(petPackageRoot(import.meta.url), 'contracts', 'pet-manifest-v2.schema.json'),
+    'utf8',
+  )) as {
+    required: string[]
+    properties: Record<string, { enum?: string[]; properties?: Record<string, unknown> }>
+  }
+
+  it('locks the schema file top-level fields to the validator allow-list', () => {
+    expect(new Set(Object.keys(schema.properties))).toEqual(KNOWN_TOP_LEVEL)
+  })
+
+  it('locks the required set and the renderer enum', () => {
+    expect([...schema.required].sort()).toEqual(['displayName', 'id', 'license', 'petManifestVersion'])
+    expect(schema.properties.renderer?.enum).toEqual([...PET_RENDERER_KINDS])
+  })
+
+  it('locks the renderer block allow-lists', () => {
+    expect(new Set(Object.keys(schema.properties.sprite2d?.properties ?? {}))).toEqual(KNOWN_SPRITE2D)
+    expect(new Set(Object.keys(schema.properties.live2d?.properties ?? {}))).toEqual(KNOWN_LIVE2D)
+  })
+
+  it('keeps the schema version const in sync', () => {
+    const version = (schema.properties.petManifestVersion as { const: number }).const
+    expect(version).toBe(PET_MANIFEST_V2)
   })
 })
