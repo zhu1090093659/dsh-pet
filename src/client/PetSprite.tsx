@@ -111,8 +111,12 @@ function StatusOrnament(props: { decoration: DecorationView; phase: ActivityPhas
         elapsed = 0
         if (index < segment.to) index += 1
         else if (decoration.loop) index = segment.from
+        // Only advance the background when the frame actually changes:
+        // the segment's frame rate (duration ms, typically 90-160) is far
+        // below the rAF cadence, so writing the same position every frame
+        // would churn style recalculations for no visual change.
+        el.style.backgroundPosition = position(index)
       }
-      el.style.backgroundPosition = position(index)
       // A non-looping segment settles on its last frame; stop scheduling
       // instead of repainting the same position every frame.
       if (!decoration.loop && index === segment.to) return

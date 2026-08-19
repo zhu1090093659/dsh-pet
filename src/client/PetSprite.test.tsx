@@ -795,6 +795,37 @@ describe('PetSprite status decoration (pet-center M5, #567)', () => {
     expect(frames).toHaveLength(1)
   })
 
+  it('does not advance the background while a frame is still in play', () => {
+    vi.spyOn(window, 'matchMedia').mockReturnValue({
+      matches: false,
+      media: '(prefers-reduced-motion: reduce)',
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+    })
+    vi.spyOn(performance, 'now').mockReturnValue(0)
+    const frames: FrameRequestCallback[] = []
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => {
+      frames.push(callback)
+      return frames.length
+    })
+    vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {})
+    renderPet({ snapshot: { ...snapshot, bubble: '正在思考', phase: 'thinking', decoration } })
+    const el = ornament()!
+    const step = (ts: number): void => { for (const callback of frames.splice(0)) callback(ts) }
+    // thinking binds frames 0..3 at 160 ms/frame. The effect holds frame 0;
+    // a step at 80 ms — inside the first frame — must not move the ornament,
+    // and only crossing the 160 ms boundary advances to the next frame.
+    expect(el.style.backgroundPosition).toBe('0px 0px')
+    act(() => { step(80) })
+    expect(el.style.backgroundPosition).toBe('0px 0px')
+    act(() => { step(161) })
+    expect(el.style.backgroundPosition).toBe('-24px 0px')
+  })
+
   it('does not restart the frame loop when an equal-content decoration re-renders', () => {
     vi.spyOn(window, 'matchMedia').mockReturnValue({
       matches: false,
