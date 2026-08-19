@@ -59,13 +59,43 @@
 - `frames` 记录每行用到的列数（缺省按 hatch-pet 契约表 `[6, 8, 8, 4, 5, 8, 6, 6, 6]`）；`tracks` 按动画覆盖每帧时长（按该行帧数循环补足）、`loop` 与 `fallback`（默认：全部循环；`jumping` 与 `failed` 停在最后一帧后回到 `idle`）。
 - `sequences` 可选地把活动场景（`idle` / `waiting` / `thinking` / `tool` / `review` / `done` / `failed`）映射到至少 5 条动画轨道。每项按 `tracks` 中的时长播完所有帧后进入下一项，整条序列循环；未声明的场景保持标准单轨播放。
 
+### 清单 v2（宠物中心，#623）
+
+宠物目录的 `pet.json` 在 v2 中显式声明渲染器：
+
+- `petManifestVersion: 2`（缺省 = v1，按 `sprite2d` 兼容读并给出迁移提示）；
+- `renderer`：`"sprite2d"`（上文图集契约）或 `"live2d"`；
+- `license`（v2 必填）：资产授权标识——社区宠物必须携带来源声明；
+- 渲染器专属块：`sprite2d`（spritesheetPath/cell/columns/atlasRows/frames/tracks）或 `live2d`（model/motions/expressions/hitAreas/scale/translate）。
+
+校验纪律：结构 fail-closed（未知字段或未知渲染器直接拒载并给出诊断），sequences/remarks 内容维持 warn-and-drop。机器可读 schema 见 `contracts/pet-manifest-v2.schema.json`，权威校验器为 `src/manifest-v2.ts`。迁移 v1 清单：`node scripts/dsh-pet-migrate-v2.mjs <dir> --write`（默认 dry-run；保留 `pet.json.v1.bak`）。
+
 宠物的来源（后注册的来源在同 id 冲突时覆盖前者）：
 
 1. **内置**：本包 `assets/<dir>/pet.json`。
-2. **自定义宠物**：`${CODEX_HOME:-~/.codex}/pets/<pet>/pet.json` —— hatch-pet 流水线把产物放在这里，孵化的宠物无需任何接线即可出现在选择器里。
-3. **组合注入**：嵌入应用通过 `PetConfig.pets` 传入的 manifest 条目。
+2. **legacy 自定义宠物**：`${CODEX_HOME:-~/.codex}/pets/<pet>/pet.json` —— hatch-pet 流水线把产物放在这里，孵化的宠物无需任何接线即可出现在选择器里。
+3. **宠物中心用户目录**：`$DSH_HOME/pets/<id>/`——推荐安放位（见下方 CLI）。
+4. **组合注入**：嵌入应用通过 `PetConfig.pets` 传入的 manifest 条目。
 
-注册表在宿主启动时构建一次；新增或修改宠物后重启 `dsh web` 生效。
+用 CLI 校验并安装宠物目录（零构建、零发布）：
+
+```sh
+node scripts/dsh-pet validate <dir>           # 清单 + 资产 + Live2D 引用闭包
+node scripts/dsh-pet install <dir>            # 校验通过后拷入 $DSH_HOME/pets/<id>/
+node scripts/dsh-pet install <dir> --force    # 覆盖同名已安装宠物
+```
+
+非法条目永不覆盖可用宠物：它们被跳过并在设置（宠物栏目）给出诊断。注册表在宿主启动时构建一次；新增或修改宠物后重启 `dsh web` 生效。
+
+## Live2D 宠物（renderer: live2d）
+
+Live2D 宠物经 PixiJS/WebGL 渲染。**本插件永不内置、永不代下 Cubism Core 运行时**——Live2D 专有许可不允许再分发。启用 Live2D 宠物：
+
+1. 自行从 Live2D 官方渠道获取 Cubism SDK for Web（你自行同意其许可），取得 `live2dcubismcore.min.js`；
+2. 放到 `$DSH_HOME/pets/.runtime/live2dcubismcore.min.js`；
+3. 安装 Live2D 宠物（含 `pet.json` v2、`renderer: "live2d"` 与模型文件的目录）。
+
+core 缺失时 Live2D 宠物不可用并给出明确诊断，sprite2d 宠物不受影响。法律提示：本插件属 Live2D 术语下的「可扩展性 APP」——你公开发布基于可加载用户模型的衍生作品时，可能不论规模都须与 Live2D 签订发行许可；发布前请自行评估义务。
 
 ## 内置宠物
 
@@ -167,6 +197,14 @@ pnpm typecheck    # 仅类型检查
 ## 精灵图与动画轨道校准
 
 两套内置鲸鱼娘图集使用同一份 9 态 × 8 列契约：`assets/whale/` 是原版，`assets/whale-refined/` 是精致版。每张图集均为 1536×1872（8 列 × 9 行，192×208 单元格）。每行帧数、节奏与场景轮换写在各目录的 `pet.json` 中；未覆盖的宠物沿用 hatch-pet 契约节奏和标准单轨场景映射（行序：0 idle / 1 running-right / 2 running-left / 3 waving / 4 jumping / 5 failed / 6 waiting / 7 running / 8 review）。
+
+## 安全模型
+
+- 全部宠物 API 与资产路由仅服务回环客户端。
+- 资产服务对宠物目录与目标文件双双做 `realpath` 解析；symlink 越界一律拒绝（403）。文件读入内存前按类限大小（清单 64 KB、图像 20 MB；超限 413）。
+- Live2D 模型按闭包放行：仅清单、声明的主资产与 `.model3.json` 引用到的文件（引用先经穿越/绝对路径/URL 形态筛查）。
+- 插件从不下载可执行文件，也从不内置 Live2D Cubism Core。
+- 清单结构 fail-closed：未知字段或未知渲染器直接拒载，并在设置中给出诊断。
 
 ## 许可证
 
