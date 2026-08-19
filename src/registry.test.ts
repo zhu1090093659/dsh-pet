@@ -8,6 +8,7 @@ import {
   codexPetsDir,
   loadPetRegistry,
   petAtlasFile,
+  petEntryView,
   petPackageRoot,
   resolvePetManifest,
 } from './registry.ts'
@@ -314,7 +315,81 @@ describe('loadPetRegistry pet-center v2 (issue #623)', () => {
     }
   })
 
-  it('accepts live2d manifests into diagnostics without listing them renderable', () => {
+  it('lists live2d pets with the render block and the servable closure (M3)', () => {
+    const root = tempDir()
+    try {
+      const petsDir = join(root, 'pets')
+      mkdirSync(join(petsDir, 'haru', 'motions'), { recursive: true })
+      mkdirSync(join(petsDir, 'haru', 'textures'), { recursive: true })
+      writeFileSync(join(petsDir, 'haru', 'pet.json'), JSON.stringify({
+        petManifestVersion: 2, id: 'haru', displayName: 'Haru', license: 'Live2D-Sample',
+        renderer: 'live2d',
+        live2d: {
+          model: 'haru.model3.json',
+          scale: 1.2,
+          motions: { idle: 'Idle', thinking: 'TapBody' },
+          hitAreas: ['Head'],
+        },
+      }), 'utf8')
+      writeFileSync(join(petsDir, 'haru', 'haru.model3.json'), JSON.stringify({
+        Version: 3,
+        FileReferences: {
+          Moc: 'haru.moc3',
+          Textures: ['textures/texture_00.png'],
+          Motions: { Idle: [{ File: 'motions/idle_00.motion3.json' }] },
+        },
+        HitAreas: [{ Name: 'Head', Id: 'HitAreaHead' }],
+      }), 'utf8')
+      writeFileSync(join(petsDir, 'haru', 'haru.moc3'), 'moc', 'utf8')
+      writeFileSync(join(petsDir, 'haru', 'textures', 'texture_00.png'), 'png', 'utf8')
+      writeFileSync(join(petsDir, 'haru', 'motions', 'idle_00.motion3.json'), '{}', 'utf8')
+      const registry = loadPetRegistry({ packageRoot: join(root, 'none'), petsDir, dshPetsDir: '' })
+      const entry = registry.byId('haru')
+      expect(entry).toBeDefined()
+      expect(entry!.renderer).toBe('live2d')
+      expect(entry!.live2d).toBeDefined()
+      expect(entry!.live2d!.modelUrl).toBe('/pet/haru/haru.model3.json')
+      expect(entry!.live2d!.modelPath).toBe('haru.model3.json')
+      expect(entry!.live2d!.scale).toBe(1.2)
+      expect(entry!.live2d!.motions).toEqual({ idle: 'Idle', thinking: 'TapBody' })
+      expect(entry!.live2d!.hitAreas).toEqual(['Head'])
+      // The servable closure covers the model plus every referenced file.
+      expect(entry!.servable).toEqual([
+        'haru.model3.json', 'haru.moc3', 'motions/idle_00.motion3.json', 'textures/texture_00.png',
+      ])
+      // Sprite fields carry harmless contract defaults (chrome sizing only).
+      expect(entry!.cell).toEqual(DEFAULT_PET_CELL)
+      expect(entry!.rows).toEqual([...DEFAULT_FRAME_COUNTS])
+      expect(entry!.tracks.idle.frames.length).toBe(entry!.rows[0])
+      // The client-visible view keeps the live2d block, drops host paths.
+      const view = petEntryView(entry!)
+      expect(view.live2d!.modelPath).toBe('haru.model3.json')
+      expect('servable' in view).toBe(false)
+      expect('dir' in view).toBe(false)
+      // A healthy live2d entry records no diagnostics.
+      expect(registry.diagnostics.filter(d => d.message.includes('haru'))).toEqual([])
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects live2d pets whose model3.json is unreadable', () => {
+    const root = tempDir()
+    try {
+      const petsDir = join(root, 'pets')
+      writePet(petsDir, 'haru', {
+        petManifestVersion: 2, id: 'haru', displayName: 'Haru', license: 'Live2D-Sample',
+        renderer: 'live2d', live2d: { model: 'haru.model3.json', motions: { idle: 'Idle' } },
+      })
+      const registry = loadPetRegistry({ packageRoot: join(root, 'none'), petsDir, dshPetsDir: '' })
+      expect(registry.byId('haru')).toBeUndefined()
+      expect(registry.diagnostics.some(d => d.level === 'error' && d.message.includes('not readable'))).toBe(true)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects live2d pets whose model3.json declares unsafe references', () => {
     const root = tempDir()
     try {
       const petsDir = join(root, 'pets')
@@ -323,10 +398,35 @@ describe('loadPetRegistry pet-center v2 (issue #623)', () => {
         petManifestVersion: 2, id: 'haru', displayName: 'Haru', license: 'Live2D-Sample',
         renderer: 'live2d', live2d: { model: 'haru.model3.json', motions: { idle: 'Idle' } },
       }), 'utf8')
-      writeFileSync(join(petsDir, 'haru', 'haru.model3.json'), '{}', 'utf8')
+      writeFileSync(join(petsDir, 'haru', 'haru.model3.json'), JSON.stringify({
+        Version: 3,
+        FileReferences: { Moc: '../escape.moc3' },
+      }), 'utf8')
       const registry = loadPetRegistry({ packageRoot: join(root, 'none'), petsDir, dshPetsDir: '' })
       expect(registry.byId('haru')).toBeUndefined()
-      expect(registry.diagnostics.some(d => d.message.includes('live2d') && d.message.includes('M3'))).toBe(true)
+      expect(registry.diagnostics.some(d => d.level === 'error' && d.message.includes('not a safe relative path'))).toBe(true)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('warns on closure files missing on disk but keeps the live2d pet listed', () => {
+    const root = tempDir()
+    try {
+      const petsDir = join(root, 'pets')
+      mkdirSync(join(petsDir, 'haru'), { recursive: true })
+      writeFileSync(join(petsDir, 'haru', 'pet.json'), JSON.stringify({
+        petManifestVersion: 2, id: 'haru', displayName: 'Haru', license: 'Live2D-Sample',
+        renderer: 'live2d', live2d: { model: 'haru.model3.json', motions: { idle: 'Idle' } },
+      }), 'utf8')
+      writeFileSync(join(petsDir, 'haru', 'haru.model3.json'), JSON.stringify({
+        Version: 3,
+        FileReferences: { Moc: 'haru.moc3', Textures: ['missing.png'] },
+      }), 'utf8')
+      writeFileSync(join(petsDir, 'haru', 'haru.moc3'), 'moc', 'utf8')
+      const registry = loadPetRegistry({ packageRoot: join(root, 'none'), petsDir, dshPetsDir: '' })
+      expect(registry.byId('haru')).toBeDefined()
+      expect(registry.diagnostics.some(d => d.level === 'warning' && d.message.includes('closure file missing: missing.png'))).toBe(true)
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

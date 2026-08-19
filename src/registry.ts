@@ -13,9 +13,11 @@
  *
  * Manifests are parsed through manifest-v2 (pet-center M2, issue #623): v1
  * manifests are compat-read as sprite2d, v2 manifests validate fail-closed,
- * and structured diagnostics ride alongside the legacy warnings. Valid
- * live2d entries are accepted by the contract but stay off the renderable
- * list until the renderer dispatch lands (M3); they surface as diagnostics.
+ * and structured diagnostics ride alongside the legacy warnings. Live2d
+ * entries (pet-center M3) list like any other pet: the entry carries the
+ * validated live2d block plus the model's reference closure (the servable
+ * set the asset route allows), and a model3.json that is unreadable or
+ * declares unsafe references rejects the entry with an error diagnostic.
  *
  * The manifest follows the Codex/hatch-pet contract (8 columns x 9 rows of
  * 192x208 cells, the 9-state row order below). Legacy whale-girl manifests
@@ -32,7 +34,8 @@ import { fileURLToPath } from 'node:url'
 import type { ActivityPhase, PetAnimation } from './state.ts'
 import { normalizePetRemarks, type PetRemarks, type PetRemarksManifest } from './remarks.ts'
 import { dshHome } from './dsh-home.ts'
-import { parsePetManifest, type PetManifestV2, type PetRendererKind } from './manifest-v2.ts'
+import { parsePetManifest, type PetManifestLive2d, type PetManifestV2, type PetRendererKind } from './manifest-v2.ts'
+import { collectModel3References } from './model3.ts'
 
 /** Fixed row order of the 9-state animation contract. */
 export const PET_ROW_ORDER: readonly PetAnimation[] = [
@@ -166,13 +169,33 @@ export interface PetTrackOverride {
   fallback?: PetAnimation
 }
 
+/** The live2d renderer block as served to the browser half (pet-center M3). */
+export interface PetLive2dDefinition {
+  /** Browser URL of the .model3.json (served by the host asset route). */
+  modelUrl: string
+  /** Manifest-relative model path (host route allow-list key). */
+  modelPath: string
+  /** Scale multiplier over the canvas auto-fit, (0, 10]. */
+  scale?: number
+  /** Model offset in canvas px from the center-bottom anchor. */
+  translate?: { x?: number; y?: number }
+  /** ActivityPhase -> motion group; unmapped phases fall back to idle. */
+  motions: Partial<Record<ActivityPhase, string>> & { idle: string }
+  /** Optional ActivityPhase -> expression name layered over the motion. */
+  expressions?: Partial<Record<ActivityPhase, string>>
+  /** Hit area names triggering the tap motion; defaults to every model HitArea. */
+  hitAreas?: string[]
+}
+
 /** A normalized pet as served to the browser half. */
 export interface PetDefinition {
   id: string
   displayName: string
   description: string
-  /** The renderer this entry mounts with (pet-center M2; sprite2d today). */
+  /** The renderer this entry mounts with (pet-center M2). */
   renderer: PetRendererKind
+  /** Live2d render block; present exactly when renderer is 'live2d' (M3). */
+  live2d?: PetLive2dDefinition
   /** Atlas cell size in px. */
   cell: PetCell
   /** Columns per row. */
@@ -197,6 +220,12 @@ export interface PetEntry extends PetDefinition {
   dir: string
   /** Atlas path relative to 'dir' (declared by the manifest). */
   spritesheetPath: string
+  /**
+   * Manifest-relative files the asset route may serve beyond pet.json and
+   * 'previews/*' (pet-center M3): the sprite2d atlas, or the live2d model
+   * plus its model3.json reference closure.
+   */
+  servable: readonly string[]
   /** Normalized per-pet remark pools (manifest 'remarks'), when declared. */
   remarks?: PetRemarks
 }
@@ -274,6 +303,47 @@ function normalizeSequences(
 }
 
 /**
+ * Build the fully resolved animation tracks from the contract defaults plus
+ * optional per-track overrides. Shared by the sprite2d resolver and the
+ * live2d entry builder (which fills the sprite fields with contract
+ * defaults so the flat PetDefinition shape holds for every renderer).
+ */
+function buildTracks(
+  rows: readonly number[],
+  columns: number,
+  trackOverrides: Partial<Record<PetAnimation, PetTrackOverride>>,
+  warn: (message: string) => void,
+): Record<PetAnimation, PetTrackDef> | undefined {
+  const tracks = {} as Record<PetAnimation, PetTrackDef>
+  for (const [row, animation] of PET_ROW_ORDER.entries()) {
+    const pattern = DEFAULT_TRACK_PATTERNS[animation]
+    const override = trackOverrides[animation]
+    const durations = Array.isArray(override?.durations) && override.durations.length > 0
+      ? override.durations.filter((value): value is number => typeof value === 'number' && Number.isFinite(value) && value > 0)
+      : pattern.durations
+    if (durations.length === 0) {
+      warn('track ' + animation + ' carries no usable durations')
+      return undefined
+    }
+    const frameCount = Math.max(1, Math.min(rows[row]!, columns))
+    const sized = durations.length >= frameCount
+      ? durations.slice(0, frameCount)
+      : Array.from({ length: frameCount }, (_, index) => durations[index % durations.length]!)
+    tracks[animation] = {
+      frames: Array.from({ length: frameCount }, (_, index) => index),
+      durations: sized,
+      loop: typeof override?.loop === 'boolean' ? override.loop : pattern.loop,
+      ...(override?.fallback === undefined
+        ? pattern.fallback === undefined ? {} : { fallback: pattern.fallback }
+        : PET_ROW_ORDER.includes(override.fallback)
+          ? { fallback: override.fallback }
+          : pattern.fallback === undefined ? {} : { fallback: pattern.fallback }),
+    }
+  }
+  return tracks
+}
+
+/**
  * Normalize one parsed manifest into a renderable pet entry, or undefined
  * (with a warning recorded) when the manifest violates the contract.
  */
@@ -328,32 +398,9 @@ export function resolvePetManifest(
   const remarks = normalizePetRemarks(source.remarks, message => warn('manifest ' + id + ': ' + message))
   const sequences = normalizeSequences(source.sequences, id, warn)
   const trackOverrides = (typeof source.tracks === 'object' && source.tracks !== null ? source.tracks : {}) as Partial<Record<PetAnimation, PetTrackOverride>>
-  const tracks = {} as Record<PetAnimation, PetTrackDef>
-  for (const [row, animation] of PET_ROW_ORDER.entries()) {
-    const pattern = DEFAULT_TRACK_PATTERNS[animation]
-    const override = trackOverrides[animation]
-    const durations = Array.isArray(override?.durations) && override.durations.length > 0
-      ? override.durations.filter((value): value is number => typeof value === 'number' && Number.isFinite(value) && value > 0)
-      : pattern.durations
-    if (durations.length === 0) {
-      warn('manifest ' + id + ': track ' + animation + ' carries no usable durations')
-      return undefined
-    }
-    const frameCount = Math.max(1, Math.min(rows[row]!, columns))
-    const sized = durations.length >= frameCount
-      ? durations.slice(0, frameCount)
-      : Array.from({ length: frameCount }, (_, index) => durations[index % durations.length]!)
-    tracks[animation] = {
-      frames: Array.from({ length: frameCount }, (_, index) => index),
-      durations: sized,
-      loop: typeof override?.loop === 'boolean' ? override.loop : pattern.loop,
-      ...(override?.fallback === undefined
-        ? pattern.fallback === undefined ? {} : { fallback: pattern.fallback }
-        : PET_ROW_ORDER.includes(override.fallback)
-          ? { fallback: override.fallback }
-          : pattern.fallback === undefined ? {} : { fallback: pattern.fallback }),
-    }
-  }
+  const tracks = buildTracks(rows, columns, trackOverrides, message => warn('manifest ' + id + ': ' + message))
+  if (tracks === undefined) return undefined
+  const sheet = spritesheetPath.join('/')
   return {
     id,
     displayName,
@@ -368,7 +415,8 @@ export function resolvePetManifest(
     atlasUrl: assetUrl(assetPrefix, id, spritesheet),
     manifestUrl: assetUrl(assetPrefix, id, 'pet.json'),
     dir,
-    spritesheetPath: spritesheetPath.join('/'),
+    spritesheetPath: sheet,
+    servable: [sheet],
     ...(remarks === undefined ? {} : { remarks }),
   }
 }
@@ -401,6 +449,85 @@ function flattenV2Sprite2d(manifest: PetManifestV2): Record<string, unknown> | u
   return legacy
 }
 
+/**
+ * Resolve a validated live2d manifest into a renderable entry (pet-center
+ * M3). The model3.json is read at scan time: its reference closure becomes
+ * the entry's servable set (the asset route's allow-list), and a model that
+ * is unreadable or declares unsafe references rejects the entry fail-closed
+ * with an error diagnostic. Closure files missing on disk warn but keep the
+ * entry listed — the client renderer's diagnostic card reports the broken
+ * render, matching the registry's never-throw philosophy (install-time
+ * strictness belongs to the CLI validator). The sprite fields carry contract
+ * defaults: the chrome sizes live2d pets off 'display.size', not the atlas.
+ */
+function resolveLive2dEntry(
+  manifest: PetManifestV2,
+  dir: string,
+  options: { assetPrefix?: string; warnings?: string[]; diagnostics?: PetRegistryDiagnostic[] },
+): PetEntry | undefined {
+  const assetPrefix = options.assetPrefix ?? '/pet'
+  const record = (level: 'error' | 'warning', message: string): void => {
+    options.diagnostics?.push({ level, source: dir, message })
+    options.warnings?.push(message)
+  }
+  const block = manifest.live2d as PetManifestLive2d | undefined
+  if (block === undefined) {
+    record('error', 'pet ' + manifest.id + ': renderer live2d requires a live2d block')
+    return undefined
+  }
+  let model3: unknown
+  try {
+    model3 = JSON.parse(readFileSync(join(dir, block.model), 'utf8'))
+  } catch (error) {
+    record('error', 'pet ' + manifest.id + ': live2d model ' + block.model + ' is not readable: '
+      + (error instanceof Error ? error.message : String(error)))
+    return undefined
+  }
+  const { references, errors } = collectModel3References(model3)
+  if (errors.length > 0) {
+    for (const message of errors) {
+      record('error', 'pet ' + manifest.id + ': live2d model ' + block.model + ': ' + message)
+    }
+    return undefined
+  }
+  for (const reference of references) {
+    if (!existsSync(join(dir, reference))) {
+      record('warning', 'pet ' + manifest.id + ': live2d closure file missing: ' + reference)
+    }
+  }
+  const tracks = buildTracks(DEFAULT_FRAME_COUNTS, DEFAULT_PET_COLUMNS, {}, message => record('warning', 'pet ' + manifest.id + ': ' + message))
+  if (tracks === undefined) return undefined
+  const remarks = normalizePetRemarks(manifest.remarks, message => record('warning', 'pet ' + manifest.id + ': ' + message))
+  const modelUrl = assetUrl(assetPrefix, manifest.id, block.model)
+  const live2d: PetLive2dDefinition = {
+    modelUrl,
+    modelPath: block.model,
+    ...(block.scale === undefined ? {} : { scale: block.scale }),
+    ...(block.translate === undefined ? {} : { translate: block.translate }),
+    motions: block.motions,
+    ...(block.expressions === undefined ? {} : { expressions: block.expressions }),
+    ...(block.hitAreas === undefined ? {} : { hitAreas: block.hitAreas }),
+  }
+  return {
+    id: manifest.id,
+    displayName: manifest.displayName,
+    description: manifest.description ?? '',
+    renderer: 'live2d' as const,
+    live2d,
+    cell: { ...DEFAULT_PET_CELL },
+    columns: DEFAULT_PET_COLUMNS,
+    rows: [...DEFAULT_FRAME_COUNTS],
+    atlasRows: DEFAULT_PET_ROW_COUNT,
+    tracks,
+    atlasUrl: modelUrl,
+    manifestUrl: assetUrl(assetPrefix, manifest.id, 'pet.json'),
+    dir,
+    spritesheetPath: block.model,
+    servable: [block.model, ...references],
+    ...(remarks === undefined ? {} : { remarks }),
+  }
+}
+
 /** Scan one directory of pet folders; entries come back in name order. */
 function scanPetDir(dir: string, options: { assetPrefix?: string; warnings?: string[]; diagnostics?: PetRegistryDiagnostic[] }): PetEntry[] {
   if (!existsSync(dir)) return []
@@ -425,11 +552,8 @@ function scanPetDir(dir: string, options: { assetPrefix?: string; warnings?: str
     }
     if (!verdict.ok) continue
     if (verdict.manifest.renderer === 'live2d') {
-      // Valid live2d pet: accepted by the contract, but the renderer dispatch
-      // lands with M3 — keep it off the renderable list until then.
-      const note = 'pet ' + verdict.manifest.id + ' uses renderer live2d (supported from M3); hidden from the list for now'
-      options.diagnostics?.push({ level: 'warning', source: entryDir, message: note })
-      options.warnings?.push(note)
+      const entry = resolveLive2dEntry(verdict.manifest, entryDir, options)
+      if (entry !== undefined) entries.push(entry)
       continue
     }
     const legacy = flattenV2Sprite2d(verdict.manifest)
@@ -529,6 +653,7 @@ export function petEntryView(entry: PetEntry): PetDefinition {
     displayName: entry.displayName,
     description: entry.description,
     renderer: entry.renderer,
+    ...(entry.live2d === undefined ? {} : { live2d: entry.live2d }),
     cell: entry.cell,
     columns: entry.columns,
     rows: entry.rows,
