@@ -26,6 +26,7 @@
 | 状态气泡 | 默认只有最近活动的顶层会话说话——多会话并行时，其余会话收进主气泡右上角的 +N 角标，不再叠出一长列；悬停气泡（触屏点按角标）即可向上展开所有会话的气泡，点击任一气泡跳转到对应会话；子代理会话借由其发起会话体现，不占用独立气泡；瞬时互动反馈临时优先。气泡文案按场景准备了大量轮换词库（等待 / 思考 / 整理 / 完成 / 失败……），工具调用按工具族映射俏皮文案并带上真实参数（如 跑跑 npm test），同一场景持续数秒会自动换一种说法 |
 | 碎碎念 | 模型流式输出期间，宠物会偶尔借自己的气泡说出内心独白——新鲜的碎碎念会接管展示会话的气泡并以「」引号标记——与状态气泡共用同一片 DeepSeek 蓝黑玻璃，气泡栈内颜色统一不再色差——不再叠出第二只气泡——由模型输出里的关键词触发对应心境（报错、测试全绿、做计划、打胜仗……），输出量累积也会换来日常碎碎念；有冷却节制，数秒后气泡恢复状态文案 |
 | 多会话活动 | 宠物是宿主全局的：最近一次有意义事件驱动精灵动画，同时每个活动的顶层会话用自己的气泡报告各自状态；每个会话（含子代理）完成的轮次都计入亲密度与小鱼干 |
+| 语音包与面板 DIY | 宠物目录 voice.json + 全局 $DSH_HOME/pets/.voice.json 覆盖气泡全部文案与悬浮面板（按钮标签/统计格式/按钮显隐）；合并优先级 宠物自带 > 全局 > 内置，坏包警告不拒载 |
 
 ## 宠物契约
 
@@ -80,22 +81,81 @@
 用 CLI 校验并安装宠物目录（零构建、零发布）：
 
 ```sh
-node scripts/dsh-pet validate <dir>           # 清单 + 资产 + Live2D 引用闭包
+node scripts/dsh-pet validate <dir>           # 清单 + 资产 + Live2D 引用闭包 + voice.json
 node scripts/dsh-pet install <dir>            # 校验通过后拷入 $DSH_HOME/pets/<id>/
 node scripts/dsh-pet install <dir> --force    # 覆盖同名已安装宠物
 ```
 
 非法条目永不覆盖可用宠物：它们被跳过并在设置（宠物栏目）给出诊断。注册表在宿主启动时构建一次；新增或修改宠物后重启 `dsh web` 生效。
 
+## 语音包与面板定制（voice.json，宠物中心 M4，#677）
+
+气泡里的状态/工具/碎碎念文案与悬浮面板的按钮/统计文案，都可以被一只宠物（或你本人）整体替换——宠物不再只能换图，还能换「话」与「面板」。载体是宠物目录内的可选 voice.json（随宠物分发），以及全局覆盖文件 $DSH_HOME/pets/.voice.json（不改宠物目录即可换词）。
+
+```jsonc
+{
+  "voicePackVersion": 1,              // 可选；缺省视为 1
+  "status": {                          // 状态池：键 = 场景 id，逐键覆盖内置池
+    "done": ["搞定收工～", "交差！下一位"]
+  },
+  "tools": {                           // 工具池：键 = 工具族；允许 {tool} / {hint}
+    "shell": ["跑跑 {hint}", "敲回车！{hint}"]
+  },
+  "toolRemaining": ["后台还有 {n} 位小助手"],   // 允许 {n}
+  "whispers": {                        // 碎碎念：按节替换（非逐条合并）
+    "generic": ["冲了冲了", "稳"],      // 环境池；显式空数组 = 静音
+    "rules": [                         // 关键词规则（有序；给出即整体替换内置规则）
+      { "keywords": ["测试通过"], "pool": ["全绿！"] }
+    ]
+  },
+  "panel": {                           // 悬浮面板（每槽未声明时回落插件 i18n 文案）
+    "labels": { "feed": "投喂", "hide": "藏起来", "rename": "起名字", "confirm": "好的" },
+    "stats": { "rank": "好感 {rank}", "treats": "鱼干 ×{n}", "points": "{points} 分" },
+    "actions": ["feed", "rename", "hide"]  // 子集（按规范顺序）；省略 = 全部；[] = 只显示统计行
+  }
+}
+```
+
+- 合并优先级（逐槽）：宠物自带 voice.json > 全局 .voice.json > 内置文案。status/tools 逐键合并、whispers 按节替换、panel 逐槽合并，任何层缺失的槽位回落下一层。
+- 占位符白名单：tools 允许 {tool} / {hint}；toolRemaining 允许 {n}；panel.stats 允许 {rank} / {n} / {points}；status、碎碎念与面板标签不允许任何占位符（含非法占位符的行被警告丢弃）。
+- 上限（warn-and-drop）：每池 64 行以内、每行 160 字符以内；规则 32 条以内、每规则关键词 16 条以内（40 字符以内）；面板标签 40 以内、统计 80 字符以内。
+- 坏包不影响宠物：voice.json 不是合法 JSON 或根不是对象 → 警告并整体忽略；其余问题逐槽警告丢弃。诊断显示在设置 → 宠物目录诊断。node scripts/dsh-pet validate <dir> 会把结构错误判为安装失败、内容问题列为警告。
+- 语义细节：status/tools 的空池回落内置文案（场景行始终有话说）；whispers 的显式空数组是静音（关掉该通道）；面板 actions 为空数组 = 三个按钮全部隐藏；未覆盖的按钮/统计继续使用插件双语字典。
+
 ## Live2D 宠物（renderer: live2d）
 
-Live2D 宠物经 PixiJS/WebGL 渲染。**本插件永不内置、永不代下 Cubism Core 运行时**——Live2D 专有许可不允许再分发。启用 Live2D 宠物：
+Live2D 宠物经 PixiJS/WebGL 渲染：MIT 许可的 pixi.js + untitled-pixi-live2d-engine 栈以按需加载的 vendor 分包随插件内置，纯 sprite 用户永不下载、永不解析它。**本插件永不内置、永不代下 Cubism Core 运行时**——Live2D 专有许可不允许再分发。启用 Live2D 宠物：
 
 1. 自行从 Live2D 官方渠道获取 Cubism SDK for Web（你自行同意其许可），取得 `live2dcubismcore.min.js`；
-2. 放到 `$DSH_HOME/pets/.runtime/live2dcubismcore.min.js`；
+2. 放到 `$DSH_HOME/pets/.runtime/live2dcubismcore.min.js`——插件把它连同自带的 vendor 分包一起提供给页面；
 3. 安装 Live2D 宠物（含 `pet.json` v2、`renderer: "live2d"` 与模型文件的目录）。
 
-core 缺失时 Live2D 宠物不可用并给出明确诊断，sprite2d 宠物不受影响。法律提示：本插件属 Live2D 术语下的「可扩展性 APP」——你公开发布基于可加载用户模型的衍生作品时，可能不论规模都须与 Live2D 签订发行许可；发布前请自行评估义务。
+core 缺失时，Live2D 宠物在渲染位置给出安装指引卡；sprite2d 宠物不受影响。法律提示：本插件属 Live2D 术语下的「可扩展性 APP」——你公开发布基于可加载用户模型的衍生作品时，可能不论规模都须与 Live2D 签订发行许可；发布前请自行评估义务。
+
+Live2D 清单把七个活动相位映射到模型的动作组：
+
+```json
+{
+  "petManifestVersion": 2,
+  "id": "my-live2d-pet",
+  "displayName": "My Live2D Pet",
+  "license": "CC0-1.0",
+  "renderer": "live2d",
+  "live2d": {
+    "model": "model/my-pet.model3.json",
+    "motions": { "idle": "Idle", "thinking": "Think", "failed": "TapBody" },
+    "hitAreas": ["Body"]
+  }
+}
+```
+
+- `model`：相对宠物目录的 `.model3.json` 路径。模型引用的一切文件（moc、贴图、动作、物理、姿态、表情）都必须放在目录内——宿主恰好只服务这个引用闭包。
+- `motions`（必填，且必须含 `idle`）：相位 → 动作组。未映射的相位与模型缺失的组一律回退 `idle`；组内有多条动作时随机播放一条。官方 Cubism 示例模型只带 `Idle` 与 `TapBody` 两个组。
+- `expressions`（可选）：相位 → 表情名，叠加在动作之上。
+- `hitAreas`（可选）：点击落在列出的命中区时播放模型的 `TapBody` 组，播完回到当前相位的动作组。任何点击仍计入摸头——交互经济与 sprite2d 一样由 chrome 掌管。
+- `scale` / `translate`（可选）：模型自动适配显示盒；`scale` 在适配结果上乘算（默认 1，范围 (0, 10]），`translate` 以中心为基准做像素偏移。
+
+模型授权：Live2D 官方示例模型（Hiyori、Haru 等）仅供评估、禁止再分发——只发布你有权的模型（原创作品或宽松授权的模型）。
 
 ## 内置宠物
 

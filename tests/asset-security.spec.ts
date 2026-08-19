@@ -23,7 +23,7 @@ let server: Server
 let port: number
 
 /** Caps small enough that the 12-byte fixture atlas trips them when lowered. */
-const TEST_CAPS: PetAssetCaps = { manifest: 64 * 1024, image: 20 * 1024 * 1024 }
+const TEST_CAPS: PetAssetCaps = { manifest: 64 * 1024, image: 20 * 1024 * 1024, model: 32 * 1024 * 1024 }
 
 beforeAll(async () => {
   dir = mkdtempSync(join(tmpdir(), 'dsh-pet-sec-'))
@@ -109,7 +109,7 @@ describe('asset route security', () => {
     const ctx = new Context()
     const registry = loadPetRegistry({ packageRoot: dir, petsDir: '' })
     const service = new PetService(ctx, { persistDir: join(dir, 'home2'), registry })
-    const tight = makePetRoutes({ service, ctx, assetCaps: { manifest: 64 * 1024, image: 4 } })
+    const tight = makePetRoutes({ service, ctx, assetCaps: { manifest: 64 * 1024, image: 4, model: 32 * 1024 * 1024 } })
     const tightServer = createServer((req, res) => {
       const pathname = (req.url ?? '').split('?')[0]!
       for (const route of tight) {
@@ -137,5 +137,6 @@ describe('asset route security', () => {
   it('locks the default caps to the documented constants', () => {
     expect(PET_ASSET_CAPS.manifest).toBe(64 * 1024)
     expect(PET_ASSET_CAPS.image).toBe(20 * 1024 * 1024)
+    expect(PET_ASSET_CAPS.model).toBe(32 * 1024 * 1024)
   })
 })

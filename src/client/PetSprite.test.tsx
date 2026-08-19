@@ -143,6 +143,16 @@ function fireComposingKeydown(target: Element, key: string): void {
   fireEvent.compositionEnd(target)
 }
 
+describe('PetSprite custom visual (pet-center M3)', () => {
+  it('renders the visual inside the sprite box and skips the atlas background', () => {
+    renderPet({ visual: <canvas data-testid="custom-visual" /> })
+    const spriteEl = screen.getByRole('button', { name: '鲸鱼娘' })
+    expect(spriteEl.querySelector('[data-testid="custom-visual"]')).toBeTruthy()
+    // The atlas background never applies while a renderer visual owns the box.
+    expect(spriteEl.style.backgroundImage).toBe('')
+  })
+})
+
 describe('PetSprite rename input', () => {
   it('submits the draft on Enter outside composition', () => {
     const { onRename } = renderPet()
@@ -543,5 +553,66 @@ describe('PetSprite definition-driven render', () => {
     expect(sprite.style.backgroundPosition).toBe('0px -1120px')
     act(() => { nextFrame?.(1_500) })
     expect(sprite.style.backgroundPosition).toBe('0px -960px')
+  })
+})
+
+describe('PetSprite panel chrome from the voice pack (pet-center M4)', () => {
+  const voicedDefinition = (): PetDefinition => ({
+    ...petDefinition(),
+    panel: {
+      labels: { feed: '投喂', rename: '起名字', hide: '藏起来', confirm: '好的' },
+      stats: { rank: '好感 {rank}', treats: '鱼干 {n}', points: '{points} 分' },
+    },
+  })
+
+  it('renders pack labels and stat formats, falling back per slot', () => {
+    renderPet({ definition: voicedDefinition() })
+    fireEvent.pointerOver(screen.getByRole('button', { name: '鲸鱼娘' }))
+    expect(screen.getByText('投喂')).toBeDefined()
+    expect(screen.getByText('起名字')).toBeDefined()
+    expect(screen.getByText('藏起来')).toBeDefined()
+    expect(screen.getByText('好感 幼鲸')).toBeDefined()
+    expect(screen.getByText('鱼干 3')).toBeDefined()
+    expect(screen.getByText('0 分')).toBeDefined()
+  })
+
+  it('uses the pack confirm label inside the rename row', () => {
+    renderPet({ definition: voicedDefinition() })
+    fireEvent.pointerOver(screen.getByRole('button', { name: '鲸鱼娘' }))
+    fireEvent.click(screen.getByText('起名字'))
+    expect(screen.getByText('好的')).toBeDefined()
+  })
+
+  it('hides actions the pack omits', () => {
+    renderPet({
+      definition: {
+        ...petDefinition(),
+        panel: { labels: { feed: '投喂' }, actions: ['feed'] },
+      },
+    })
+    fireEvent.pointerOver(screen.getByRole('button', { name: '鲸鱼娘' }))
+    expect(screen.getByText('投喂')).toBeDefined()
+    expect(screen.queryByText('改名')).toBeNull()
+    expect(screen.queryByText('隐藏')).toBeNull()
+  })
+
+  it('renders no action buttons when the pack hides them all', () => {
+    renderPet({ definition: { ...petDefinition(), panel: { actions: [] } } })
+    fireEvent.pointerOver(screen.getByRole('button', { name: '鲸鱼娘' }))
+    expect(screen.queryByText('喂食')).toBeNull()
+    expect(screen.queryByText('改名')).toBeNull()
+    expect(screen.queryByText('隐藏')).toBeNull()
+    // The stat rows keep rendering.
+    expect(screen.getByText('亲密度 幼鲸')).toBeDefined()
+    expect(screen.getByText('小鱼干 ×3')).toBeDefined()
+  })
+
+  it('keeps the i18n copy when the pet carries no panel', () => {
+    renderPet()
+    fireEvent.pointerOver(screen.getByRole('button', { name: '鲸鱼娘' }))
+    expect(screen.getByText('喂食')).toBeDefined()
+    expect(screen.getByText('改名')).toBeDefined()
+    expect(screen.getByText('隐藏')).toBeDefined()
+    expect(screen.getByText('亲密度 幼鲸')).toBeDefined()
   })
 })

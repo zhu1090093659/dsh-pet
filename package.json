@@ -1,7 +1,7 @@
 {
   "name": "@linxin666/dsh-pet",
   "description": "Multi-pet companion plugin for the dsh web GUI: a registry-driven floating pet that reacts to model activity, with per-pet naming, petting/feeding interactions and an affinity score",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "type": "module",
   "packageManager": "pnpm@11.7.0",
   "engines": {
@@ -79,10 +79,12 @@
     "@types/react": "~18.3.1",
     "@types/react-dom": "~18.3.0",
     "jsdom": "29.1.1",
+    "pixi.js": "^8.19.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "tsdown": "^0.22.2",
     "typescript": "^6.0.3",
+    "untitled-pixi-live2d-engine": "1.3.5",
     "vite-tsconfig-paths": "^6.1.1",
     "vitest": "^4.1.8"
   },

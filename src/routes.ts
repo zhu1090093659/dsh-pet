@@ -6,8 +6,9 @@
  * the same pattern as dsh-remote-web-ui's '/api/pair' family. The asset route
  * is one prefix registration serving every registry entry (manifest, atlas,
  * optional previews), so adding a pet never touches route wiring. Both the
- * JSON API and the asset prefix are loopback-only by default; a live
- * paired-device cookie is an extra allow path when remote-web-ui is loaded.
+ * JSON API, the asset prefix, and the Live2D runtime prefix are loopback-only
+ * by default; a live paired-device cookie is an extra allow path when
+ * remote-web-ui is loaded.
  * @module @linxin666/dsh-pet/routes
  */
 
@@ -19,8 +20,9 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import type { PetService } from './service.ts'
 import type { PetInteraction } from './affinity.ts'
-import { petEntryView, type PetEntry, type PetRegistry } from './registry.ts'
+import { petEntryView, petPackageRoot, type PetEntry, type PetRegistry } from './registry.ts'
 import { isPetAllowed } from './access.ts'
+import { dshHome } from './dsh-home.ts'
 
 /** Browser-facing base path of the pet API. */
 export const PET_API_PREFIX = '/api/pet'
@@ -40,14 +42,26 @@ const PREVIEW_PATTERN = /^[A-Za-z0-9._-]+$/
 export const PET_ASSET_CAPS = {
   /** pet.json manifest. */
   manifest: 64 * 1024,
-  /** Atlas and preview imagery. */
+  /** Atlas, preview and Live2D texture imagery. */
   image: 20 * 1024 * 1024,
+  /** Live2D model closure files (.moc3, motion/physics/expression JSON; M3). */
+  model: 32 * 1024 * 1024,
 } as const
 
 /** Size-cap profile the asset route enforces (test seam). */
 export interface PetAssetCaps {
   manifest: number
   image: number
+  model: number
+}
+
+/** Imagery extensions classify into the image cap; everything else served from a closure is model-class. */
+const IMAGE_EXTENSIONS: ReadonlySet<string> = new Set(['.webp', '.png', '.gif', '.jpg', '.jpeg'])
+
+/** Lowercased file extension ('' when none). */
+function extensionOf(file: string): string {
+  const dot = file.lastIndexOf('.')
+  return dot < 0 ? '' : file.slice(dot).toLowerCase()
 }
 
 /**
@@ -137,10 +151,10 @@ function getRoute(ctx: Context, path: string, run: () => Promise<unknown>): WebR
   return {
     kind: 'exact',
     path,
-    handler: (req: IncomingMessage, res: ServerResponse): void | Promise<void> => {
+    handler: (req: IncomingMessage, res: ServerResponse): void => {
       if (!guard(ctx, req, res)) return
       if (!requireMethod(req, res, 'GET')) return
-      return run().then((value) => json(res, 200, value), (error) => {
+      run().then((value) => json(res, 200, value), (error) => {
         json(res, 500, { ok: false, error: error instanceof Error ? error.message : String(error) })
       })
     },
@@ -183,12 +197,16 @@ function dirAliases(registry: PetRegistry): Map<string, PetEntry> {
 /**
  * The one asset handler behind the '/pet' prefix. Resolves the pet by id (or
  * legacy directory alias), then serves exactly the files a manifest declares:
- * pet.json, the declared spritesheet path, and optional 'previews/<name>'
- * media. Composed pets without a manifest file get a synthesized pet.json.
+ * pet.json, the entry's servable set (the sprite2d atlas, or the live2d
+ * model3.json plus its reference closure — pet-center M3), and optional
+ * 'previews/<name>' media. The servable match is an exact string comparison
+ * against scan-time normalized paths, so crafted '..' or '.' segments never
+ * match; containedRealpath stays as the second layer. Composed pets without
+ * a manifest file get a synthesized pet.json.
  */
 function assetHandler(ctx: Context, registry: PetRegistry, caps: PetAssetCaps): WebRoute['handler'] {
   const aliases = dirAliases(registry)
-  return (req: IncomingMessage, res: ServerResponse): void | Promise<void> => {
+  return ((req: IncomingMessage, res: ServerResponse) => {
     if (!guard(ctx, req, res)) return
     if (req.method !== 'GET' && req.method !== 'HEAD') {
       res.writeHead(405)
@@ -242,8 +260,8 @@ function assetHandler(ctx: Context, registry: PetRegistry, caps: PetAssetCaps): 
       const manifestFile = join(entry.dir, MANIFEST_FILE)
       file = existsSync(manifestFile) ? manifestFile : undefined
       if (file === undefined) synthesized = true
-    } else if (rest.length > 0 && rel === entry.spritesheetPath) {
-      file = join(entry.dir, entry.spritesheetPath)
+    } else if (rest.length > 0 && entry.servable.includes(rel)) {
+      file = join(entry.dir, rel)
     } else if (rest.length === 2 && rest[0] === PREVIEW_DIR && PREVIEW_PATTERN.test(rest[1]!)) {
       const preview = join(entry.dir, PREVIEW_DIR, rest[1]!)
       file = existsSync(preview) ? preview : undefined
@@ -275,7 +293,9 @@ function assetHandler(ctx: Context, registry: PetRegistry, caps: PetAssetCaps): 
       return
     }
     // Enforce the size ceiling before the file is read into memory.
-    const cap = rest[0] === MANIFEST_FILE ? caps.manifest : caps.image
+    const cap = rest.length === 1 && rest[0] === MANIFEST_FILE
+      ? caps.manifest
+      : IMAGE_EXTENSIONS.has(extensionOf(rel)) ? caps.image : caps.model
     try {
       if (statSync(resolved).size > cap) {
         res.writeHead(413)
@@ -302,11 +322,117 @@ function assetHandler(ctx: Context, registry: PetRegistry, caps: PetAssetCaps): 
       res.writeHead(404)
       res.end()
     })
-  }
+  }) as WebRoute['handler']
 }
 
-/** Build the full route family (API + assets) for one service. */
-export function makePetRoutes(deps: { service: PetService; ctx: Context; assetCaps?: PetAssetCaps }): WebRoute[] {
+/** Browser-facing base path of the plugin runtime files (pet-center M3). */
+export const PET_RUNTIME_PREFIX = PET_API_PREFIX + '/runtime'
+
+/**
+ * The runtime files the route may serve, by exact name (no slashes, no
+ * user-controlled path segments, so traversal is structurally impossible):
+ * the user-supplied Cubism Core from the pet runtime directory (the plugin
+ * never bundles or downloads it — issue #623 M1 §0) and the plugin-shipped
+ * MIT vendor bundle from the package lib directory.
+ */
+const RUNTIME_FILES: Readonly<Record<string, { root: 'runtimeDir' | 'vendorDir' }>> = {
+  'live2dcubismcore.min.js': { root: 'runtimeDir' },
+  'live2d-vendor.js': { root: 'vendorDir' },
+  'live2d-vendor.js.map': { root: 'vendorDir' },
+}
+
+/** Size ceiling for one runtime file (the Cubism Core is ~200 KB today). */
+export const PET_RUNTIME_CAP = 16 * 1024 * 1024
+
+/** Runtime file roots (test seam; defaults resolve from the environment). */
+export interface PetRuntimeRoots {
+  /** User-supplied runtime directory (defaults to '$DSH_HOME/pets/.runtime'). */
+  runtimeDir?: string
+  /** Plugin vendor bundle directory (defaults to the package 'lib'). */
+  vendorDir?: string
+}
+
+/**
+ * The runtime handler behind '/api/pet/runtime/<name>'. A missing file
+ * answers 404 with a JSON marker the client renderer turns into install
+ * guidance (the Cubism Core is user-supplied, so its absence is a normal
+ * state, not an error).
+ */
+function runtimeHandler(ctx: Context, roots: { runtimeDir: string; vendorDir: string }): WebRoute['handler'] {
+  return ((req: IncomingMessage, res: ServerResponse) => {
+    if (!guard(ctx, req, res)) return
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      res.writeHead(405)
+      res.end()
+      return
+    }
+    let pathname: string
+    try {
+      pathname = new URL(req.url ?? '/', 'http://pet.local').pathname
+    } catch {
+      res.writeHead(400)
+      res.end()
+      return
+    }
+    const rest = pathname.slice(PET_RUNTIME_PREFIX.length).replace(/^\/+/, '')
+    let name: string
+    try {
+      name = decodeURIComponent(rest)
+    } catch {
+      res.writeHead(400)
+      res.end()
+      return
+    }
+    const spec = RUNTIME_FILES[name]
+    // Exact-name allow-list: anything with a path separator never matches.
+    if (spec === undefined) {
+      res.writeHead(404)
+      res.end()
+      return
+    }
+    const base = spec.root === 'runtimeDir' ? roots.runtimeDir : roots.vendorDir
+    const file = join(base, name)
+    if (!existsSync(file)) {
+      json(res, 404, { ok: false, error: 'runtime-file-missing', file: name })
+      return
+    }
+    const resolved = containedRealpath(base, file)
+    if (resolved === undefined) {
+      res.writeHead(403)
+      res.end()
+      return
+    }
+    try {
+      if (statSync(resolved).size > PET_RUNTIME_CAP) {
+        res.writeHead(413)
+        res.end()
+        return
+      }
+    } catch {
+      res.writeHead(404)
+      res.end()
+      return
+    }
+    return readFile(resolved).then((body) => {
+      res.writeHead(200, {
+        'content-type': name.endsWith('.map') ? 'application/json' : 'application/javascript; charset=utf-8',
+        'content-length': String(body.byteLength),
+        'cache-control': 'no-cache',
+      })
+      if (req.method === 'HEAD') {
+        res.end()
+        return
+      }
+      res.end(body)
+    }, () => {
+      res.writeHead(404)
+      res.end()
+    })
+  }) as WebRoute['handler']
+}
+
+/** Build the full route family (API + assets + runtime) for one service. */
+export function makePetRoutes(deps: { service: PetService; ctx: Context; assetCaps?: PetAssetCaps } & PetRuntimeRoots): WebRoute[] {
   const { service, ctx } = deps
   const apiRoutes: WebRoute[] = [
     getRoute(ctx, PET_API_PREFIX + '/state', () => service.state()),
@@ -346,7 +472,16 @@ export function makePetRoutes(deps: { service: PetService; ctx: Context; assetCa
     handler: assetHandler(ctx, service.registrySnapshot(), deps.assetCaps ?? PET_ASSET_CAPS),
   }
 
-  return [...apiRoutes, assetRoute]
+  const runtimeRoute: WebRoute = {
+    kind: 'prefix',
+    path: PET_RUNTIME_PREFIX,
+    handler: runtimeHandler(ctx, {
+      runtimeDir: deps.runtimeDir ?? join(dshHome(), 'pets', '.runtime'),
+      vendorDir: deps.vendorDir ?? join(petPackageRoot(import.meta.url), 'lib'),
+    }),
+  }
+
+  return [...apiRoutes, assetRoute, runtimeRoute]
 }
 
 // Re-exported for the package surface (the registry owns the definition now).

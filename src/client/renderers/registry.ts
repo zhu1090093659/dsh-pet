@@ -27,6 +27,11 @@ export class RendererRegistry {
     return [...this.renderers.keys()].sort()
   }
 
+  /** Remove every registration (tests; the client index registers once). */
+  clear(): void {
+    this.renderers.clear()
+  }
+
   /**
    * Mount a renderer for one activation. An unknown kind renders a clear
    * diagnostic card into the container instead of failing silently.
@@ -44,3 +49,10 @@ export class RendererRegistry {
     return renderer.mount(ctx, renderer.validateConfig(config))
   }
 }
+
+/**
+ * The plugin-wide renderer registry. The client entry registers the
+ * built-in renderers at apply time; the renderer switch and the live2d
+ * bridge dispatch through this instance.
+ */
+export const defaultPetRendererRegistry = new RendererRegistry()

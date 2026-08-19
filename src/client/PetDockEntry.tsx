@@ -76,7 +76,12 @@ export function PetDockEntry(props: PetDockEntryProps): ReactElement {
         {snapshot === null || definition === null
           ? null
           : (
-            <PetRendererSwitch definition={definition} t={props.t}>
+            <PetRendererSwitch
+              definition={definition}
+              phase={snapshot?.phase ?? 'idle'}
+              onPet={props.pet}
+              t={props.t}
+            >
               <PetSprite
                 snapshot={snapshot}
                 definition={definition}
