@@ -26,6 +26,7 @@ function fixtureRegistry(): PetRegistry {
   return {
     entries,
     warnings,
+    diagnostics: [],
     byId: id => entries.find(entry => entry.id === id),
     defaultEntry: () => entries[0]!,
   }

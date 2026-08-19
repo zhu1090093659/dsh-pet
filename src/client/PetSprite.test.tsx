@@ -24,6 +24,7 @@ function petDefinition(): PetDefinition {
     id: 'whale-girl',
     displayName: '鲸鱼娘',
     description: '测试用鲸鱼娘',
+    renderer: 'sprite2d',
     cell: { width: 192, height: 208 },
     columns: 8,
     rows: [6, 8, 8, 4, 5, 8, 6, 6, 6],

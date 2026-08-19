@@ -36,7 +36,7 @@ beforeAll(async () => {
   writeFileSync(join(assets, 'otter', 'spritesheet.webp'), WEBP_BYTES)
 
   const ctx = new Context()
-  const registry = loadPetRegistry({ packageRoot: dir, petsDir: '' })
+  const registry = loadPetRegistry({ packageRoot: dir, petsDir: '', dshPetsDir: '' })
   service = new PetService(ctx, { persistDir: join(dir, 'home'), registry })
   routes = makePetRoutes({ service, ctx })
   server = createServer((req, res) => {
@@ -79,6 +79,17 @@ describe('pet routes', () => {
     const state = await fetch(url('/api/pet/state')).then(res => res.json()) as { pet: { id: string }; name: string }
     expect(state.pet.id).toBe('whale-girl')
     expect(state.name).toBe('鲸鱼娘')
+  })
+
+  it('serves structured registry diagnostics (#623)', async () => {
+    const res = await fetch(url('/api/pet/diagnostics'))
+    expect(res.status).toBe(200)
+    const body = await res.json() as { diagnostics: Array<{ level: string; source: string; message: string }> }
+    expect(Array.isArray(body.diagnostics)).toBe(true)
+    // The two fixture pets are v1 manifests: each yields one migration hint.
+    const v1Notes = body.diagnostics.filter(d => d.message.includes('treated as renderer'))
+    expect(v1Notes.length).toBe(2)
+    expect(v1Notes[0]!.level).toBe('warning')
   })
 
   it('serves the atlas under the pet id and the legacy directory alias', async () => {

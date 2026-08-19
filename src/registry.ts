@@ -1,13 +1,21 @@
 /**
  * Pet registry — the multi-pet contract. One pet is a directory holding a
  * 'pet.json' manifest plus an atlas image; nothing else is required, and no
- * host or client code changes when a pet is added. The registry scans three
+ * host or client code changes when a pet is added. The registry scans four
  * sources, later sources overriding earlier ones on an id collision:
  *
  *   1. the package's own 'assets' subdirectories (built-in pets);
- *   2. '${CODEX_HOME:-~/.codex}/pets' subdirectories (hatch-pet custom pets);
- *   3. 'PetConfig.pets' manifests composed by the embedding application
+ *   2. '${CODEX_HOME:-~/.codex}/pets' subdirectories (hatch-pet custom pets,
+ *      legacy source kept readable);
+ *   3. '$DSH_HOME/pets' subdirectories (the pet-center user directory);
+ *   4. 'PetConfig.pets' manifests composed by the embedding application
  *      (highest precedence).
+ *
+ * Manifests are parsed through manifest-v2 (pet-center M2, issue #623): v1
+ * manifests are compat-read as sprite2d, v2 manifests validate fail-closed,
+ * and structured diagnostics ride alongside the legacy warnings. Valid
+ * live2d entries are accepted by the contract but stay off the renderable
+ * list until the renderer dispatch lands (M3); they surface as diagnostics.
  *
  * The manifest follows the Codex/hatch-pet contract (8 columns x 9 rows of
  * 192x208 cells, the 9-state row order below). Legacy whale-girl manifests
@@ -23,6 +31,8 @@ import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { ActivityPhase, PetAnimation } from './state.ts'
 import { normalizePetRemarks, type PetRemarks, type PetRemarksManifest } from './remarks.ts'
+import { dshHome } from './dsh-home.ts'
+import { parsePetManifest, type PetManifestV2, type PetRendererKind } from './manifest-v2.ts'
 
 /** Fixed row order of the 9-state animation contract. */
 export const PET_ROW_ORDER: readonly PetAnimation[] = [
@@ -161,6 +171,8 @@ export interface PetDefinition {
   id: string
   displayName: string
   description: string
+  /** The renderer this entry mounts with (pet-center M2; sprite2d today). */
+  renderer: PetRendererKind
   /** Atlas cell size in px. */
   cell: PetCell
   /** Columns per row. */
@@ -193,9 +205,19 @@ export interface PetEntry extends PetDefinition {
 export interface PetRegistry {
   entries: PetEntry[]
   warnings: string[]
+  /** Structured diagnostics from the manifest-v2 parse (superset detail of warnings). */
+  diagnostics: PetRegistryDiagnostic[]
   byId(id: string): PetEntry | undefined
   /** The pet an installation falls back to when the selection is unknown. */
   defaultEntry(): PetEntry
+}
+
+/** One structured registry diagnostic (manifest-v2 era). */
+export interface PetRegistryDiagnostic {
+  level: 'error' | 'warning'
+  /** Where the diagnostic originates (directory or file). */
+  source: string
+  message: string
 }
 
 /** Registry sources. */
@@ -206,6 +228,8 @@ export interface PetRegistryOptions {
   assetPrefix?: string
   /** Custom pet directory (defaults to '${CODEX_HOME:-~/.codex}/pets'). */
   petsDir?: string
+  /** Pet-center user directory (defaults to '$DSH_HOME/pets'; '' disables). */
+  dshPetsDir?: string
   /** Extra manifest entries composed by the embedding application. */
   extra?: readonly PetManifest[]
 }
@@ -334,6 +358,7 @@ export function resolvePetManifest(
     id,
     displayName,
     description,
+    renderer: 'sprite2d' as const,
     cell,
     columns,
     rows,
@@ -348,8 +373,36 @@ export function resolvePetManifest(
   }
 }
 
+/**
+ * Adapt a validated v2 manifest's sprite2d block onto the legacy flat shape
+ * the established resolver consumes (pet-center M2 P2). The legacy resolver
+ * only expresses 9-row (default) and 11-row (spriteVersionNumber 2) atlases,
+ * so other atlasRows values are rejected here with a diagnostic.
+ */
+function flattenV2Sprite2d(manifest: PetManifestV2): Record<string, unknown> | undefined {
+  const block = manifest.sprite2d
+  if (block === undefined) return undefined
+  const legacy: Record<string, unknown> = {
+    id: manifest.id,
+    displayName: manifest.displayName,
+    spritesheetPath: block.spritesheetPath,
+  }
+  if (manifest.description !== undefined) legacy.description = manifest.description
+  if (block.cell !== undefined) legacy.cell = block.cell
+  if (block.columns !== undefined) legacy.columns = block.columns
+  if (block.frames !== undefined) legacy.frames = block.frames
+  if (block.tracks !== undefined) legacy.tracks = block.tracks
+  if (block.atlasRows !== undefined) {
+    if (block.atlasRows === 11) legacy.spriteVersionNumber = 2
+    else if (block.atlasRows !== DEFAULT_PET_ROW_COUNT) return undefined
+  }
+  if (manifest.sequences !== undefined) legacy.sequences = manifest.sequences
+  if (manifest.remarks !== undefined) legacy.remarks = manifest.remarks
+  return legacy
+}
+
 /** Scan one directory of pet folders; entries come back in name order. */
-function scanPetDir(dir: string, options: { assetPrefix?: string; warnings?: string[] }): PetEntry[] {
+function scanPetDir(dir: string, options: { assetPrefix?: string; warnings?: string[]; diagnostics?: PetRegistryDiagnostic[] }): PetEntry[] {
   if (!existsSync(dir)) return []
   let names: string[] = []
   try {
@@ -364,7 +417,29 @@ function scanPetDir(dir: string, options: { assetPrefix?: string; warnings?: str
     if (!existsSync(manifestFile)) continue
     const parsed = readPetJson(manifestFile, options.warnings)
     if (parsed === undefined) continue
-    const entry = resolvePetManifest(parsed, join(dir, name), options)
+    const entryDir = join(dir, name)
+    const verdict = parsePetManifest(parsed, entryDir)
+    for (const diagnostic of verdict.diagnostics) {
+      options.diagnostics?.push({ level: diagnostic.level, source: entryDir, message: diagnostic.message })
+      options.warnings?.push(diagnostic.message)
+    }
+    if (!verdict.ok) continue
+    if (verdict.manifest.renderer === 'live2d') {
+      // Valid live2d pet: accepted by the contract, but the renderer dispatch
+      // lands with M3 — keep it off the renderable list until then.
+      const note = 'pet ' + verdict.manifest.id + ' uses renderer live2d (supported from M3); hidden from the list for now'
+      options.diagnostics?.push({ level: 'warning', source: entryDir, message: note })
+      options.warnings?.push(note)
+      continue
+    }
+    const legacy = flattenV2Sprite2d(verdict.manifest)
+    if (legacy === undefined) {
+      const note = 'pet ' + verdict.manifest.id + ': sprite2d.atlasRows only supports 9 or 11 under the v1 compat resolver'
+      options.diagnostics?.push({ level: 'error', source: entryDir, message: note })
+      options.warnings?.push(note)
+      continue
+    }
+    const entry = resolvePetManifest(legacy, entryDir, options)
     if (entry !== undefined) entries.push(entry)
   }
   return entries
@@ -389,10 +464,11 @@ function readPetJson(file: string, warnings: string[] | undefined): unknown {
 export function loadPetRegistry(options: PetRegistryOptions): PetRegistry {
   const { packageRoot, assetPrefix = '/pet' } = options
   const warnings: string[] = []
+  const diagnostics: PetRegistryDiagnostic[] = []
   const byId = new Map<string, PetEntry>()
   const builtinIds = new Set<string>()
 
-  for (const entry of scanPetDir(join(packageRoot, 'assets'), { assetPrefix, warnings })) {
+  for (const entry of scanPetDir(join(packageRoot, 'assets'), { assetPrefix, warnings, diagnostics })) {
     if (byId.has(entry.id)) {
       warnings.push('duplicate built-in pet id ' + entry.id + '; the first one wins')
       continue
@@ -403,8 +479,17 @@ export function loadPetRegistry(options: PetRegistryOptions): PetRegistry {
 
   const petsDir = options.petsDir ?? codexPetsDir()
   if (petsDir !== '') {
-    for (const entry of scanPetDir(petsDir, { assetPrefix, warnings })) {
+    for (const entry of scanPetDir(petsDir, { assetPrefix, warnings, diagnostics })) {
       if (byId.has(entry.id)) warnings.push('custom pet ' + entry.id + ' overrides the built-in one')
+      byId.set(entry.id, entry)
+    }
+  }
+
+  // The pet-center user directory ranks above the legacy hatch-pet source.
+  const dshPetsDir = options.dshPetsDir ?? join(dshHome(), 'pets')
+  if (dshPetsDir !== '') {
+    for (const entry of scanPetDir(dshPetsDir, { assetPrefix, warnings, diagnostics })) {
+      if (byId.has(entry.id)) warnings.push('user pet ' + entry.id + ' overrides an earlier registration')
       byId.set(entry.id, entry)
     }
   }
@@ -431,6 +516,7 @@ export function loadPetRegistry(options: PetRegistryOptions): PetRegistry {
   return {
     entries,
     warnings,
+    diagnostics,
     byId: (id: string) => byId.get(id),
     defaultEntry: () => entries.find(entry => builtinIds.has(entry.id)) ?? entries[0]!,
   }
@@ -442,6 +528,7 @@ export function petEntryView(entry: PetEntry): PetDefinition {
     id: entry.id,
     displayName: entry.displayName,
     description: entry.description,
+    renderer: entry.renderer,
     cell: entry.cell,
     columns: entry.columns,
     rows: entry.rows,
