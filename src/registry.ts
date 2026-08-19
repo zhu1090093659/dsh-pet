@@ -32,7 +32,7 @@ import { fileURLToPath } from 'node:url'
 import type { ActivityPhase, PetAnimation } from './state.ts'
 import { normalizePetRemarks, type PetRemarks, type PetRemarksManifest } from './remarks.ts'
 import { dshHome } from './dsh-home.ts'
-import { parsePetManifest, type PetManifestV2 } from './manifest-v2.ts'
+import { parsePetManifest, type PetManifestV2, type PetRendererKind } from './manifest-v2.ts'
 
 /** Fixed row order of the 9-state animation contract. */
 export const PET_ROW_ORDER: readonly PetAnimation[] = [
@@ -171,6 +171,8 @@ export interface PetDefinition {
   id: string
   displayName: string
   description: string
+  /** The renderer this entry mounts with (pet-center M2; sprite2d today). */
+  renderer: PetRendererKind
   /** Atlas cell size in px. */
   cell: PetCell
   /** Columns per row. */
@@ -356,6 +358,7 @@ export function resolvePetManifest(
     id,
     displayName,
     description,
+    renderer: 'sprite2d' as const,
     cell,
     columns,
     rows,
@@ -525,6 +528,7 @@ export function petEntryView(entry: PetEntry): PetDefinition {
     id: entry.id,
     displayName: entry.displayName,
     description: entry.description,
+    renderer: entry.renderer,
     cell: entry.cell,
     columns: entry.columns,
     rows: entry.rows,
