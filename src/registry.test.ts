@@ -597,10 +597,26 @@ describe('voice packs (pet-center M4, issue #677)', () => {
   })
 })
 describe('status decorations (pet-center M5, #567)', () => {
-  function writeDecoration(dir: string, name: string, manifest: Record<string, unknown>, strip = 'whale-frames.png'): void {
+  /** A minimal valid PNG header (signature + IHDR) with the given size. */
+  function pngHeader(width: number, height: number): Buffer {
+    const buf = Buffer.alloc(26)
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(buf, 0)
+    buf.writeUInt32BE(13, 8)      // IHDR chunk length
+    buf.write('IHDR', 12)         // chunk type
+    buf.writeUInt32BE(width, 16)  // width
+    buf.writeUInt32BE(height, 20) // height
+    return buf
+  }
+
+  /** A strip whose pixel geometry matches baseManifest() (64x48 cell, 4 cols). */
+  function matchingStrip(): Buffer {
+    return pngHeader(64 * 4, 48)
+  }
+
+  function writeDecoration(dir: string, name: string, manifest: Record<string, unknown>, strip: Buffer | string = 'whale-frames.png'): void {
     mkdirSync(join(dir, name), { recursive: true })
     writeFileSync(join(dir, name, 'decoration.json'), JSON.stringify(manifest), 'utf8')
-    writeFileSync(join(dir, name, strip), 'png', 'utf8')
+    writeFileSync(join(dir, name, manifest.entry as string), strip)
   }
 
   const baseManifest = () => ({
@@ -618,7 +634,7 @@ describe('status decorations (pet-center M5, #567)', () => {
     const root = tempDir()
     try {
       const assets = join(root, 'assets')
-      writeDecoration(join(assets, 'decorations'), 'whale', baseManifest())
+      writeDecoration(join(assets, 'decorations'), 'whale', baseManifest(), matchingStrip())
       const registry = loadPetRegistry({ packageRoot: root, petsDir: '', dshPetsDir: '' })
       const entry = registry.decorationById?.('whale')
       expect(entry).toBeDefined()
@@ -635,9 +651,9 @@ describe('status decorations (pet-center M5, #567)', () => {
   it('lets a user decoration override the built-in by id', () => {
     const root = tempDir()
     try {
-      writeDecoration(join(root, 'assets', 'decorations'), 'whale', baseManifest())
+      writeDecoration(join(root, 'assets', 'decorations'), 'whale', baseManifest(), matchingStrip())
       const dsh = join(root, 'dsh')
-      writeDecoration(join(dsh, 'decorations'), 'whale', { ...baseManifest(), displayName: '家用鲸鱼' })
+      writeDecoration(join(dsh, 'decorations'), 'whale', { ...baseManifest(), displayName: '家用鲸鱼' }, matchingStrip())
       const registry = loadPetRegistry({ packageRoot: root, petsDir: '', dshPetsDir: dsh })
       expect(registry.decorationById?.('whale')?.id).toBe('whale')
       expect(registry.warnings.some(w => w.includes('user decoration whale overrides'))).toBe(true)
@@ -683,6 +699,43 @@ describe('status decorations (pet-center M5, #567)', () => {
       // The entry id comes from the descriptor (the directory name is free).
       expect(registry.decorationById?.('whale')).toBeDefined()
       expect(registry.warnings.some(w => w.includes('strip file missing'))).toBe(true)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('warns and keeps a decoration whose strip geometry mismatches the descriptor', () => {
+    const root = tempDir()
+    try {
+      // Declared 64x48 cell x 4 columns = 256x48; the file is only 128x48
+      // (2 frames worth) — the client would silently render half the frames.
+      const dir = join(root, 'assets', 'decorations', 'short')
+      mkdirSync(dir, { recursive: true })
+      writeFileSync(join(dir, 'decoration.json'), JSON.stringify(baseManifest()), 'utf8')
+      writeFileSync(join(dir, 'whale-frames.png'), pngHeader(128, 48))
+      const registry = loadPetRegistry({ packageRoot: root, petsDir: '', dshPetsDir: '' })
+      // Warn-and-keep: the entry still lists (mirroring the missing-strip
+      // discipline) and the warning names the mismatch.
+      expect(registry.decorationById?.('whale')).toBeDefined()
+      expect(registry.warnings.some(w => w.includes('does not match cell'))).toBe(true)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('does not warn when a matching strip is undecodable (non-image bytes)', () => {
+    const root = tempDir()
+    try {
+      const dir = join(root, 'assets', 'decorations', 'opaque')
+      mkdirSync(dir, { recursive: true })
+      writeFileSync(join(dir, 'decoration.json'), JSON.stringify(baseManifest()), 'utf8')
+      // Unrecognized bytes: the header reader returns undefined, so the scan
+      // stays silent (cannot verify != mismatch). Only the missing-file check
+      // applies.
+      writeFileSync(join(dir, 'whale-frames.png'), Buffer.from('not-an-image'))
+      const registry = loadPetRegistry({ packageRoot: root, petsDir: '', dshPetsDir: '' })
+      expect(registry.decorationById?.('whale')).toBeDefined()
+      expect(registry.warnings.some(w => w.includes('does not match cell'))).toBe(false)
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
