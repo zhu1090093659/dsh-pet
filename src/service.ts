@@ -34,7 +34,6 @@ import {
   petHomeDir,
   savePetPersist,
   type PetDisplayConfig,
-  type PetPersist,
 } from './persist.ts'
 import {
   loadPetRegistry,

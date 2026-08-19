@@ -458,7 +458,3 @@ export function petAtlasFile(entry: PetEntry): string {
   return join(entry.dir, entry.spritesheetPath)
 }
 
-/** The directory basename of one entry (legacy asset URL alias, e.g. whale). */
-export function petDirAlias(entry: PetEntry): string {
-  return basename(entry.dir)
-}

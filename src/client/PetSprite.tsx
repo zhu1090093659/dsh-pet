@@ -141,7 +141,7 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
     // Paint one static sprite frame up front either way, so the pet is never
     // blank while the loop heat-up runs.
     const leadCol = track.frames[0]!
-    const lead = framePosition(cell, columns, row, leadCol, scaleRef.current)
+    const lead = framePosition(cell, row, leadCol, scaleRef.current)
     if (spriteRef.current !== null) {
       spriteRef.current.style.backgroundPosition = lead.x + 'px ' + lead.y + 'px'
     }
@@ -161,7 +161,7 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
           rows[currentRow] ?? tracks[current.animation].frames.length,
         )
         const col = currentTrack.frames[current.frameIndex]!
-        const pos = framePosition(cell, columns, currentRow, col, scaleRef.current)
+        const pos = framePosition(cell, currentRow, col, scaleRef.current)
         if (spriteRef.current !== null) {
           spriteRef.current.style.backgroundPosition = pos.x + 'px ' + pos.y + 'px'
         }
@@ -192,7 +192,7 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
         }
       }
       const col = track.frames[st.index]!
-      const pos = framePosition(cell, columns, row, col, scaleRef.current)
+      const pos = framePosition(cell, row, col, scaleRef.current)
       if (spriteRef.current !== null) {
         spriteRef.current.style.backgroundPosition = pos.x + 'px ' + pos.y + 'px'
       }

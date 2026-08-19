@@ -26,13 +26,8 @@ export function rowOfTrack(animation: PetAnimation): number {
  * atlas coordinates here would drift each frame by the scale factor and
  * render torn/overlapping frames.
  */
-export function framePosition(cell: PetCell, columns: number, row: number, col: number, scale = 1): { x: number; y: number } {
+export function framePosition(cell: PetCell, row: number, col: number, scale = 1): { x: number; y: number } {
   return { x: -col * cell.width * scale, y: -row * cell.height * scale }
-}
-
-/** Total duration of one track, ms. */
-export function trackDuration(track: TrackDef): number {
-  return track.durations.reduce((sum, d) => sum + d, 0)
 }
 
 /**
