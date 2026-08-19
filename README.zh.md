@@ -135,6 +135,10 @@ dsh-pet/
 - **渲染**：CSS 精灵（background-position）逐帧动画；帧时长和可选场景序列来自下发定义。悬浮面板锚定在宠物下方，间隙由指针桥接覆盖；当视口下方空间不足时，面板翻转到宠物上方并抬升到状态气泡栈之上，两者互不遮挡。
 - **通信**：浏览器 ↔ 宿主走同源 `/api/pet/*` JSON 端点（state/pets/interact/set-visible/set-config/set-name/set-pet）；每只宠物的图集从 `/pet/<id>/<spritesheetPath>` 加载——插件自给自足地提供自己的 API 与资源（与 dsh-remote-web-ui 的 `/api/pair` 同一模式）。
 
+## 安全模型
+
+- 全部 `/api/pet/*` 与 `/pet/<id>/*` 路由默认仅限 loopback（插件家族共享围栏：loopback 套接字 + Host 头 + 浏览器同源标记）：未配对的局域网客户端在任何宠物状态或图集下发前即收到 `403 forbidden: loopback-only`。同时装了 `dsh-remote-web-ui` 时，有效的已配对设备 cookie 是额外放行路径（与 `api/gate` 检查同一枚 cookie）；未配对与已撤销设备仍 403。宠物插件不硬依赖远程插件。
+
 ## 安装
 
 安装聚合全家桶 `@linxin666/dsh-web-ui-all`（全部插件与皮肤一次到位），或单独安装本插件：

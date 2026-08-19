@@ -5,7 +5,9 @@
  * domains are platform-registered, so the pet serves its own API and media —
  * the same pattern as dsh-remote-web-ui's '/api/pair' family. The asset route
  * is one prefix registration serving every registry entry (manifest, atlas,
- * optional previews), so adding a pet never touches route wiring.
+ * optional previews), so adding a pet never touches route wiring. Both the
+ * JSON API and the asset prefix are loopback-only by default; a live
+ * paired-device cookie is an extra allow path when remote-web-ui is loaded.
  * @module @linxin666/dsh-pet/routes
  */
 
@@ -13,11 +15,12 @@ import { existsSync } from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import type { Context } from '@deepseek-ai/cordis'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import type { PetService } from './service.ts'
 import type { PetInteraction } from './affinity.ts'
 import { petEntryView, type PetEntry, type PetRegistry } from './registry.ts'
-import { isLoopbackRequest } from './loopback.ts'
+import { isPetAllowed } from './access.ts'
 
 /** Browser-facing base path of the pet API. */
 export const PET_API_PREFIX = '/api/pet'
@@ -87,22 +90,22 @@ function readJsonBody(req: IncomingMessage): Promise<unknown> {
   })
 }
 
-/** Shared route fence: the browser UI is a loopback client; LAN hosts stay out. */
-function guard(req: IncomingMessage, res: ServerResponse): boolean {
-  if (isLoopbackRequest(req)) return true
+/** Shared route fence: loopback always passes; a live paired-device cookie is an extra allow path. */
+function guard(ctx: Context, req: IncomingMessage, res: ServerResponse): boolean {
+  if (isPetAllowed(ctx, req)) return true
   json(res, 403, { ok: false, error: 'forbidden: loopback-only' })
   return false
 }
 
 /** Wrap one async service call as a GET JSON route. */
-function getRoute(path: string, run: () => Promise<unknown>): WebRoute {
+function getRoute(ctx: Context, path: string, run: () => Promise<unknown>): WebRoute {
   return {
     kind: 'exact',
     path,
-    handler: (req: IncomingMessage, res: ServerResponse): void => {
-      if (!guard(req, res)) return
+    handler: (req: IncomingMessage, res: ServerResponse): void | Promise<void> => {
+      if (!guard(ctx, req, res)) return
       if (!requireMethod(req, res, 'GET')) return
-      run().then((value) => json(res, 200, value), (error) => {
+      return run().then((value) => json(res, 200, value), (error) => {
         json(res, 500, { ok: false, error: error instanceof Error ? error.message : String(error) })
       })
     },
@@ -110,12 +113,12 @@ function getRoute(path: string, run: () => Promise<unknown>): WebRoute {
 }
 
 /** Wrap one async service call as a POST JSON route (body passed through). */
-function postRoute(path: string, run: (body: Record<string, unknown>) => Promise<unknown>): WebRoute {
+function postRoute(ctx: Context, path: string, run: (body: Record<string, unknown>) => Promise<unknown>): WebRoute {
   return {
     kind: 'exact',
     path,
     handler: (req: IncomingMessage, res: ServerResponse): Promise<void> => {
-      if (!guard(req, res)) return Promise.resolve()
+      if (!guard(ctx, req, res)) return Promise.resolve()
       if (!requireMethod(req, res, 'POST')) return Promise.resolve()
       return readJsonBody(req).then((body) => {
         const record = (typeof body === 'object' && body !== null) ? body as Record<string, unknown> : {}
@@ -148,10 +151,10 @@ function dirAliases(registry: PetRegistry): Map<string, PetEntry> {
  * pet.json, the declared spritesheet path, and optional 'previews/<name>'
  * media. Composed pets without a manifest file get a synthesized pet.json.
  */
-function assetHandler(registry: PetRegistry): WebRoute['handler'] {
+function assetHandler(ctx: Context, registry: PetRegistry): WebRoute['handler'] {
   const aliases = dirAliases(registry)
-  return (req: IncomingMessage, res: ServerResponse): void => {
-    if (!guard(req, res)) return
+  return (req: IncomingMessage, res: ServerResponse): void | Promise<void> => {
+    if (!guard(ctx, req, res)) return
     if (req.method !== 'GET' && req.method !== 'HEAD') {
       res.writeHead(405)
       res.end()
@@ -230,7 +233,7 @@ function assetHandler(registry: PetRegistry): WebRoute['handler'] {
       return
     }
     const resolved = file
-    readFile(resolved).then((body) => {
+    return readFile(resolved).then((body) => {
       res.writeHead(200, {
         'content-type': mimeFor(resolved),
         'content-length': String(body.byteLength),
@@ -249,33 +252,33 @@ function assetHandler(registry: PetRegistry): WebRoute['handler'] {
 }
 
 /** Build the full route family (API + assets) for one service. */
-export function makePetRoutes(deps: { service: PetService }): WebRoute[] {
-  const { service } = deps
+export function makePetRoutes(deps: { service: PetService; ctx: Context }): WebRoute[] {
+  const { service, ctx } = deps
   const apiRoutes: WebRoute[] = [
-    getRoute(PET_API_PREFIX + '/state', () => service.state()),
-    getRoute(PET_API_PREFIX + '/pets', () => service.pets()),
-    postRoute(PET_API_PREFIX + '/interact', (body) => {
+    getRoute(ctx, PET_API_PREFIX + '/state', () => service.state()),
+    getRoute(ctx, PET_API_PREFIX + '/pets', () => service.pets()),
+    postRoute(ctx, PET_API_PREFIX + '/interact', (body) => {
       const kind = body.kind as PetInteraction | undefined
       if (kind !== 'pet' && kind !== 'feed') return Promise.reject(new Error('invalid-kind'))
       return service.interact(kind)
     }),
-    postRoute(PET_API_PREFIX + '/set-visible', (body) => {
+    postRoute(ctx, PET_API_PREFIX + '/set-visible', (body) => {
       const visible = body.visible
       if (typeof visible !== 'boolean') return Promise.reject(new Error('invalid-visible'))
       return service.setVisible(visible)
     }),
-    postRoute(PET_API_PREFIX + '/set-config', (body) => service.setConfig({
+    postRoute(ctx, PET_API_PREFIX + '/set-config', (body) => service.setConfig({
       ...(typeof body.size === 'number' ? { size: body.size } : {}),
       ...(typeof body.right === 'number' ? { right: body.right } : {}),
       ...(typeof body.bottom === 'number' ? { bottom: body.bottom } : {}),
       ...(typeof body.visible === 'boolean' ? { visible: body.visible } : {}),
     })),
-    postRoute(PET_API_PREFIX + '/set-name', (body) => {
+    postRoute(ctx, PET_API_PREFIX + '/set-name', (body) => {
       const name = body.name
       if (typeof name !== 'string') return Promise.reject(new Error('invalid-name'))
       return service.setName(name)
     }),
-    postRoute(PET_API_PREFIX + '/set-pet', (body) => {
+    postRoute(ctx, PET_API_PREFIX + '/set-pet', (body) => {
       const petId = body.petId
       if (typeof petId !== 'string') return Promise.reject(new Error('invalid-pet'))
       return service.setPetId(petId)
@@ -285,7 +288,7 @@ export function makePetRoutes(deps: { service: PetService }): WebRoute[] {
   const assetRoute: WebRoute = {
     kind: 'prefix',
     path: PET_ASSET_PREFIX,
-    handler: assetHandler(service.registrySnapshot()),
+    handler: assetHandler(ctx, service.registrySnapshot()),
   }
 
   return [...apiRoutes, assetRoute]

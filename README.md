@@ -135,6 +135,10 @@ global React root (createRoot → document.body) <-- polling 2s -- pet-client (b
 - **Rendering**: CSS sprite (background-position) per-frame animation; frame durations and optional scene sequences come from the served definition. The hover panel is anchored below the pet with a pointer bridge across the gap; when the viewport leaves no room below, it flips above the pet and is lifted clear of the status bubble stack so the two never overlap.
 - **Communication**: browser ↔ host over the same-origin `/api/pet/*` JSON endpoints (state/pets/interact/set-visible/set-config/set-name/set-pet); each pet's atlas loads from `/pet/<id>/<spritesheetPath>` — the plugin self-sufficiently provides its own API and assets (the same pattern as dsh-remote-web-ui's `/api/pair`).
 
+## Security model
+
+- Every `/api/pet/*` and `/pet/<id>/*` route is loopback-only by default (the shared plugin-family fence: loopback socket + Host header + browser same-origin markers): unpaired LAN clients get `403 forbidden: loopback-only` before any pet state or atlas is served. When `dsh-remote-web-ui` is also loaded, a live paired-device cookie is an additional allow path (the same cookie `api/gate` already checks); unpaired and revoked devices stay 403. The pet does not depend on the remote plugin.
+
 ## Install
 
 Install the family aggregate package `@linxin666/dsh-web-ui-all` (all plugins and skins in one) or this plugin alone:
