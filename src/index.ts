@@ -134,6 +134,7 @@ export function makePetSettingsSchema(fallbackPetId: string) {
     bottom: z.number().step(1).min(0).max(DISPLAY_INSET_MAX).default(20),
     petId: z.string().default(fallbackPetId),
     enabled: z.boolean().default(true),
+    decorationEnabled: z.boolean().default(true),
   })
 }
 
@@ -163,6 +164,7 @@ function applyImpl(ctx: Context, config: PetConfig = {}): void {
     bottom: service.display().bottom,
     petId: service.selectedPetId(),
     enabled: config.enabled ?? true,
+    decorationEnabled: config.decorationEnabled ?? true,
   }
   // The browser half talks to the pet through same-origin JSON endpoints and
   // loads each pet's atlas from the registry's own media route (RPC domains

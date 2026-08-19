@@ -157,6 +157,34 @@ A Live2D manifest maps the seven activity phases onto the model's motion groups:
 
 Model licensing: the official Live2D sample models (Hiyori, Haru, and friends) are evaluation-only and must not be redistributed — ship only models you have rights to (original creations or permissively licensed ones).
 
+## Status decorations (decoration.json, pet-center M5, #567)
+
+A status bubble can carry a small ornament ahead of its text (built-in: the spouting whale), driven by the ActivityPhase stream. Decorations are independent of pets: own descriptor, own id, own directory — switching pets never switches decorations. Entry assets are PNG/WebP single-row sprite strips only (no SVG/CSS); the bubble always keeps its role=status/aria-live (or session-bubble button semantics), the ornament is aria-hidden; prefers-reduced-motion holds the segment first frame, and a broken asset only removes the ornament — the text stays.
+
+```jsonc
+{
+  "decorationManifestVersion": 1,
+  "id": "whale",                     // unique lowercase kebab id
+  "displayName": "Spouting whale",    // optional
+  "license": "MIT",                   // required: asset provenance
+  "entry": "whale-frames.png",        // PNG/WebP strip, relative to this directory
+  "cell": { "width": 64, "height": 48 },
+  "columns": 4,                       // strip frames (1..16)
+  "frameMs": 160,                     // constant frame duration; or "durations": [..] per frame
+  "loop": true,
+  "phases": {                         // ActivityPhase -> inclusive frame segment; "hide" = none; default hide
+    "idle": "hide",
+    "waiting": { "from": 0, "to": 1 },
+    "thinking": { "from": 0, "to": 3 },
+    "done": { "from": 2, "to": 3 },
+    "failed": { "from": 3, "to": 3 }
+  }
+}
+```
+
+- Structure is fail-closed (unknown fields, out-of-range geometry, non-PNG/WebP entries reject with diagnostics); segment content is warn-and-drop. The machine-readable twin lives at contracts/status-decoration-v1.schema.json; the authoritative validator is src/decoration.ts.
+- Sources: built-in assets/decorations/ plus the user directory $DSH_HOME/pets/decorations/<id>/ (same id overrides the built-in). Assets ride /api/pet/decoration/<id>/<file> with the same containment and allow-lists as pet assets.
+- Switch: Settings > Pet > Status decoration (on by default). The built-in whale derives from the DeepSeek wordmark (MIT); see THIRD_PARTY_NOTICES.md.
 ## Built-in pets
 
 | Registry id | Selector label | Source |

@@ -75,13 +75,17 @@ function fakeApp(): FakeApp {
   return app
 }
 
-function fakeVendor(model: FakeModel, app: FakeApp): unknown {
+function fakeVendor(
+  model: FakeModel,
+  app: FakeApp,
+  from: (source: string, options?: Record<string, unknown>) => Promise<FakeModel> = () => Promise.resolve(model),
+): unknown {
   return {
     Application: class { constructor() { return app } },
     extensions: { add: () => {} },
     Live2DPlugin: {},
     configureCubismSDK: () => {},
-    Live2DModel: { from: () => Promise.resolve(model) },
+    Live2DModel: { from },
   }
 }
 
@@ -140,6 +144,23 @@ describe('live2dRenderer', () => {
     expect(app.destroyed).toBe(1)
     handle.dispose() // idempotent
     expect(app.destroyed).toBe(1)
+  })
+
+  it('uses one automatic texture LOD instead of the default full mip chain', async () => {
+    const model = fakeModel()
+    const app = fakeApp()
+    const from = vi.fn(async () => model)
+    runtime.vendor = fakeVendor(model, app, from)
+    const { ctx } = makeCtx()
+
+    live2dRenderer.mount(ctx, live2dRenderer.validateConfig(CONFIG))
+    await flush()
+
+    expect(from).toHaveBeenCalledWith(CONFIG.modelUrl, {
+      autoHitTest: false,
+      autoFocus: false,
+      textureOptions: { lod: 'single-auto' },
+    })
   })
 
   it('falls back to the idle group when a mapped group is absent from the model', async () => {

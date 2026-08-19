@@ -20,7 +20,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { WebRoute } from '@deepseek-ai/dsh-host-webserver'
 import type { PetService } from './service.ts'
 import type { PetInteraction } from './affinity.ts'
-import { petEntryView, petPackageRoot, type PetEntry, type PetRegistry } from './registry.ts'
+import { DECORATION_ASSET_PREFIX, petEntryView, petPackageRoot, type PetEntry, type PetRegistry } from './registry.ts'
 import { isPetAllowed } from './access.ts'
 import { dshHome } from './dsh-home.ts'
 
@@ -267,7 +267,7 @@ function assetHandler(ctx: Context, registry: PetRegistry, caps: PetAssetCaps): 
       file = existsSync(preview) ? preview : undefined
     }
     if (synthesized) {
-      const body = Buffer.from(JSON.stringify(petEntryView(entry), null, 2), 'utf8')
+      const body = Buffer.from(JSON.stringify(petEntryView(entry, registry.globalVoice), null, 2), 'utf8')
       res.writeHead(200, {
         'content-type': 'application/json; charset=utf-8',
         'content-length': String(body.byteLength),
@@ -431,6 +431,125 @@ function runtimeHandler(ctx: Context, roots: { runtimeDir: string; vendorDir: st
   }) as WebRoute['handler']
 }
 
+/**
+ * The decoration asset handler behind '/api/pet/decoration/<id>/<file>'
+ * (pet-center M5, #567). Serves exactly the files a decoration descriptor
+ * declares — decoration.json and the PNG/WebP strip — by exact allow-list
+ * match, with realpath containment and the same size ceilings as pet
+ * assets. Crafted '..' or '.' segments never match the normalized closure.
+ */
+function decorationHandler(ctx: Context, registry: PetRegistry, caps: PetAssetCaps): WebRoute['handler'] {
+  return (req: IncomingMessage, res: ServerResponse): void => {
+    if (!guard(ctx, req, res)) return
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      res.writeHead(405)
+      res.end()
+      return
+    }
+    let pathname: string
+    try {
+      pathname = new URL(req.url ?? '/', 'http://pet.local').pathname
+    } catch {
+      res.writeHead(400)
+      res.end()
+      return
+    }
+    const segments = pathname.split('/').filter(segment => segment !== '')
+    const prefixSegments = DECORATION_ASSET_PREFIX.split('/').filter(segment => segment !== '')
+    if (segments.length < prefixSegments.length + 2) {
+      res.writeHead(404)
+      res.end()
+      return
+    }
+    for (let i = 0; i < prefixSegments.length; i += 1) {
+      if (segments[i] !== prefixSegments[i]) {
+        res.writeHead(404)
+        res.end()
+        return
+      }
+    }
+    let id: string
+    try {
+      id = decodeURIComponent(segments[prefixSegments.length])
+    } catch {
+      res.writeHead(400)
+      res.end()
+      return
+    }
+    const entry = registry.decorationById?.(id)
+    if (entry === undefined) {
+      res.writeHead(404)
+      res.end()
+      return
+    }
+    const rest: string[] = []
+    for (const segment of segments.slice(prefixSegments.length + 1)) {
+      let decoded: string
+      try {
+        decoded = decodeURIComponent(segment)
+      } catch {
+        res.writeHead(400)
+        res.end()
+        return
+      }
+      rest.push(decoded)
+    }
+    const rel = rest.join('/')
+    if (!entry.servable.includes(rel)) {
+      res.writeHead(404)
+      res.end()
+      return
+    }
+    const file = join(entry.dir, rel)
+    const resolved = containedRealpath(entry.dir, file)
+    if (resolved === undefined) {
+      res.writeHead(403)
+      res.end()
+      return
+    }
+    const cap = rel === 'decoration.json' ? caps.manifest : caps.image
+    let stat: ReturnType<typeof statSync>
+    try {
+      stat = statSync(resolved)
+      if (stat.size > cap) {
+        res.writeHead(413)
+        res.end()
+        return
+      }
+    } catch {
+      res.writeHead(404)
+      res.end()
+      return
+    }
+    // Weak ETag from size + mtime: 'no-cache' forces revalidation, and the
+    // validator lets repeat requests settle as 304 — the ornament remounts
+    // on whisper and display-session flips, and without a validator each
+    // remount would re-download the full strip body.
+    const etag = '"' + stat.size.toString(16) + '-' + Math.round(stat.mtimeMs).toString(16) + '"'
+    if (req.headers['if-none-match'] === etag) {
+      res.writeHead(304, { etag, 'cache-control': 'no-cache' })
+      res.end()
+      return
+    }
+    readFile(resolved).then((body) => {
+      res.writeHead(200, {
+        'content-type': mimeFor(resolved),
+        'content-length': String(body.byteLength),
+        'cache-control': 'no-cache',
+        etag,
+      })
+      if (req.method === 'HEAD') {
+        res.end()
+        return
+      }
+      res.end(body)
+    }, () => {
+      res.writeHead(404)
+      res.end()
+    })
+  }
+}
+
 /** Build the full route family (API + assets + runtime) for one service. */
 export function makePetRoutes(deps: { service: PetService; ctx: Context; assetCaps?: PetAssetCaps } & PetRuntimeRoots): WebRoute[] {
   const { service, ctx } = deps
@@ -481,7 +600,13 @@ export function makePetRoutes(deps: { service: PetService; ctx: Context; assetCa
     }),
   }
 
-  return [...apiRoutes, assetRoute, runtimeRoute]
+  const decorationRoute: WebRoute = {
+    kind: 'prefix',
+    path: DECORATION_ASSET_PREFIX,
+    handler: decorationHandler(ctx, service.registrySnapshot(), deps.assetCaps ?? PET_ASSET_CAPS),
+  }
+
+  return [...apiRoutes, assetRoute, runtimeRoute, decorationRoute]
 }
 
 // Re-exported for the package surface (the registry owns the definition now).

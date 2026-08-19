@@ -157,6 +157,34 @@ Live2D 清单把七个活动相位映射到模型的动作组：
 
 模型授权：Live2D 官方示例模型（Hiyori、Haru 等）仅供评估、禁止再分发——只发布你有权的模型（原创作品或宽松授权的模型）。
 
+## 状态装饰（decoration.json，宠物中心 M5，#567）
+
+宠物状态气泡里的文字之前可以有一个小的状态装饰（内置：喷水鲸鱼），由 ActivityPhase 流驱动换帧。装饰与宠物相互独立：独立描述符、独立 id、独立目录，换宠物不换装饰。入口资产只收 PNG/WebP 单行精灵条带（不收 SVG/CSS）；气泡自身的 role=status/aria-live（或会话气泡按钮语义）永远保留，装饰 aria-hidden；prefers-reduced-motion 时停在帧段首帧，资产加载失败只消失装饰、文字照常。
+
+```jsonc
+{
+  "decorationManifestVersion": 1,
+  "id": "whale",                     // 唯一小写 kebab id
+  "displayName": "喷水鲸鱼",           // 可选
+  "license": "MIT",                   // 必填：资产授权（社区装饰必须携带来源声明）
+  "entry": "whale-frames.png",        // PNG/WebP 单行条带，相对本目录
+  "cell": { "width": 64, "height": 48 },
+  "columns": 4,                       // 条带帧数（1..16）
+  "frameMs": 160,                     // 常量帧时长；或用 "durations": [..] 逐帧覆盖
+  "loop": true,
+  "phases": {                         // ActivityPhase 七态 -> 帧段（含端点）；"hide" = 不显示；缺省 = hide
+    "idle": "hide",
+    "waiting": { "from": 0, "to": 1 },
+    "thinking": { "from": 0, "to": 3 },
+    "done": { "from": 2, "to": 3 },
+    "failed": { "from": 3, "to": 3 }
+  }
+}
+```
+
+- 结构 fail-closed（未知字段、越界尺寸、非 PNG/WebP 入口直接拒载并进诊断），帧段内容 warn-and-drop。机器可读 schema 见 contracts/status-decoration-v1.schema.json，权威校验器为 src/decoration.ts。
+- 来源：内置 assets/decorations/ + 用户目录 $DSH_HOME/pets/decorations/<id>/（同 id 覆盖内置）。资产经 /api/pet/decoration/<id>/<file> 路由，containment 与白名单与宠物资产同构。
+- 开关：设置 → 宠物 → 状态装饰（默认开）。内置鲸鱼素材派生自 DeepSeek wordmark（MIT），完整声明见 THIRD_PARTY_NOTICES.md。
 ## 内置宠物
 
 | 注册表 id | 选择器名称 | 来源 |

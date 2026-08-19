@@ -10,17 +10,18 @@
  */
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactNode, ReactPortal } from 'react'
+import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactElement, ReactNode, ReactPortal } from 'react'
 import { createPortal } from 'react-dom'
 import clsx from 'clsx'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { PetDisplayConfig } from '../persist.ts'
 import type { PetStateView } from '../service.ts'
 import type { PetDefinition } from '../registry.ts'
+import type { DecorationView } from '../contracts/status-decoration.ts'
 import type { PetFeedback } from './pet-store.ts'
 import { framePosition, rowOfTrack, trimTrack } from './spritesheet.ts'
 import { sequenceFrameAt } from './sequences.ts'
-import { animationForPhase, type PetAnimation } from '../state.ts'
+import { animationForPhase, type ActivityPhase, type PetAnimation } from '../state.ts'
 import { NS } from './locales.ts'
 import styles from './pet.module.css'
 
@@ -61,6 +62,81 @@ export interface PetSpriteProps {
 /** Clamp a drag offset inside the viewport with a margin. */
 function clampOffset(value: number, max: number): number {
   return Math.max(0, Math.min(max, value))
+}
+
+/**
+ * The status decoration ornament (pet-center M5, #567). Renders the active
+ * phase's frame segment as a CSS-background strip at a compact bubble
+ * height; prefers-reduced-motion holds the segment's first frame, and a
+ * missing or undecodable asset simply paints nothing (CSS background
+ * failure) — the bubble text is never disturbed. The span is aria-hidden;
+ * the bubble keeps its own semantics untouched.
+ */
+function StatusOrnament(props: { decoration: DecorationView; phase: ActivityPhase }): ReactElement | null {
+  const { decoration, phase } = props
+  const segment = decoration.phases[phase]
+  const shown = segment !== undefined && segment !== 'hide'
+  const segmentKey = segment !== undefined && segment !== 'hide' ? segment.from + ':' + segment.to : 'none'
+  const spanRef = useRef<HTMLSpanElement | null>(null)
+  const scale = 18 / decoration.cell.height
+  const frameWidth = Math.round(decoration.cell.width * scale)
+  const stripWidth = decoration.columns * frameWidth
+  // Value-stable dependency key: the host serves a fresh DecorationView
+  // object on every state poll (2 s), so the effect must not depend on the
+  // object identity — otherwise each poll would cancel and restart the
+  // frame loop and the animation would jump back to its first frame.
+  const durationsKey = decoration.durations.join(',')
+  useEffect(() => {
+    if (segment === undefined || segment === 'hide') return
+    const el = spanRef.current
+    if (el === null) return
+    const position = (index: number): string => (-index * frameWidth) + 'px 0px'
+    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches === true
+    el.style.backgroundPosition = position(segment.from)
+    if (reduceMotion) return
+    let raf = 0
+    let index = segment.from
+    let elapsed = 0
+    let last = performance.now()
+    const tick = (ts: number): void => {
+      const delta = ts - last
+      last = ts
+      elapsed += delta
+      const duration = decoration.durations[index] ?? 160
+      if (elapsed >= duration) {
+        elapsed = 0
+        if (index < segment.to) index += 1
+        else if (decoration.loop) index = segment.from
+      }
+      el.style.backgroundPosition = position(index)
+      // A non-looping segment settles on its last frame; stop scheduling
+      // instead of repainting the same position every frame.
+      if (!decoration.loop && index === segment.to) return
+      raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [shown, segmentKey, frameWidth, decoration.loop, durationsKey])
+  if (!shown) return null
+  return (
+    <span
+      ref={spanRef}
+      aria-hidden="true"
+      data-dsh-pet-decoration={decoration.id}
+      style={{
+        display: 'inline-block',
+        width: frameWidth,
+        height: 18,
+        marginRight: 6,
+        verticalAlign: 'middle',
+        flexShrink: 0,
+        backgroundImage: 'url(' + decoration.entryUrl + ')',
+        backgroundSize: stripWidth + 'px 18px',
+        backgroundRepeat: 'no-repeat',
+        backgroundPosition: '0px 0px',
+      }}
+    />
+  )
 }
 
 /**
@@ -122,8 +198,17 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
     values: Record<string, string | number>,
   ): string => {
     const format = panel?.stats?.[slot] ?? props.t(i18nKey, values)
+    if (panel?.stats?.[slot] === undefined) return format
+    // The host whitelists {rank}/{n}/{points} in every stat slot, so a pack
+    // format may reference any of them; substitute all three live values
+    // (the slot's own value plus the siblings) instead of only the slot's.
+    const all: Record<string, string | number> = {
+      rank: snapshot?.affinity.rank ?? '?',
+      n: snapshot?.treats.stocked ?? 0,
+      points: snapshot?.affinity.points ?? 0,
+    }
     let text = format
-    for (const [name, value] of Object.entries(values)) text = text.replaceAll('{' + name + '}', String(value))
+    for (const [name, value] of Object.entries(all)) text = text.replaceAll('{' + name + '}', String(value))
     return text
   }
   const panelShows = (action: 'feed' | 'rename' | 'hide'): boolean =>
@@ -305,6 +390,8 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
   const whisper = feedback === null ? snapshot?.whisper : undefined
   const bubblePresent = feedback !== null || sessionBubbles.length > 0 || statusBubble !== undefined || whisper !== undefined
   const displayName = snapshot?.name ?? definition.displayName
+  // The host-served status decoration (M5, #567); absent = text-only bubbles.
+  const decoration = snapshot?.decoration
 
   // A settled session list can no longer stay pinned open.
   useEffect(() => {
@@ -426,6 +513,9 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
                 title={props.t('pet.openSessionHint')}
                 onClick={() => { props.onOpenSession(session.sessionId) }}
               >
+                {index === 0 && !speaksWhisper && decoration !== undefined && (
+                  <StatusOrnament decoration={decoration} phase={phase} />
+                )}
                 {speaksWhisper ? whisper : session.bubble}
               </button>
             )
@@ -464,6 +554,9 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
               role="status"
               aria-live="polite"
             >
+              {whisper === undefined && decoration !== undefined && (
+                <StatusOrnament decoration={decoration} phase={phase} />
+              )}
               {whisper ?? statusBubble}
             </div>
           )}
