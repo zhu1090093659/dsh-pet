@@ -68,6 +68,10 @@ const TAP_GROUP = 'TapBody'
  * downsampled atlas only when the effective on-screen scale warrants it.
  */
 const TEXTURE_OPTIONS = { lod: 'single-auto' } as const
+/** Recursively release the activation without invalidating shared texture caches. */
+const DESTROY_OPTIONS = { children: true } as const
+/** Remove only this activation's canvas; `true` would release Pixi globals. */
+const RENDERER_DESTROY_OPTIONS = { removeView: true } as const
 
 let vendorConfigured = false
 
@@ -105,11 +109,29 @@ export const live2dRenderer: PetRenderer<PetLive2dConfig> = {
     let disposed = false
     let app: Live2dVendorApp | undefined
     let model: Live2dVendorModel | undefined
+    let modelAttached = false
     let errorListener: ((code: Live2dErrorCode) => void) | undefined
     let unsubscribe: (() => void) | undefined
     /** The motion group the current phase maps to (resume target after taps). */
     let phaseGroup: string = config.motions.idle
     let tapPlaying = false
+
+    /** Release every resource currently owned by this activation exactly once. */
+    const destroyResources = (): void => {
+      unsubscribe?.()
+      unsubscribe = undefined
+      const currentApp = app
+      const currentModel = model
+      const modelOwnedByApp = currentApp !== undefined && modelAttached
+      app = undefined
+      model = undefined
+      modelAttached = false
+      try {
+        if (currentModel !== undefined && !modelOwnedByApp) currentModel.destroy(DESTROY_OPTIONS)
+      } finally {
+        currentApp?.destroy(RENDERER_DESTROY_OPTIONS, DESTROY_OPTIONS)
+      }
+    }
 
     const playGroup = (group: string): void => {
       if (model === undefined) return
@@ -143,33 +165,43 @@ export const live2dRenderer: PetRenderer<PetLive2dConfig> = {
       }
       configureOnce(vendor)
       const pixiApp = new vendor.Application()
-      await pixiApp.init({
-        width: Math.max(1, ctx.container.clientWidth || 160),
-        height: Math.max(1, ctx.container.clientHeight || 174),
-        backgroundAlpha: 0,
-        antialias: true,
-        autoDensity: true,
-        preference: 'webgl',
-      })
+      try {
+        await pixiApp.init({
+          width: Math.max(1, ctx.container.clientWidth || 160),
+          height: Math.max(1, ctx.container.clientHeight || 174),
+          backgroundAlpha: 0,
+          antialias: true,
+          autoDensity: true,
+          preference: 'webgl',
+        })
+      } catch (error) {
+        // init() can fail after allocating a partial renderer; cleanup is
+        // best-effort because Pixi may not consider that partial app ready.
+        try { pixiApp.destroy(RENDERER_DESTROY_OPTIONS, DESTROY_OPTIONS) } catch {}
+        throw error
+      }
       if (disposed) {
-        pixiApp.destroy(true, { children: true })
+        pixiApp.destroy(RENDERER_DESTROY_OPTIONS, DESTROY_OPTIONS)
         return
       }
+      app = pixiApp
       pixiApp.canvas.style.display = 'block'
       pixiApp.canvas.style.width = '100%'
       pixiApp.canvas.style.height = '100%'
       ctx.container.appendChild(pixiApp.canvas)
+      // Keep a model that rejects during setup off Ticker.shared; from()
+      // does not expose that partial instance to callers for disposal.
       const loaded = await vendor.Live2DModel.from(config.modelUrl, {
+        autoUpdate: false,
         autoHitTest: false,
         autoFocus: false,
         textureOptions: TEXTURE_OPTIONS,
       })
+      model = loaded
       if (disposed) {
-        pixiApp.destroy(true, { children: true })
+        destroyResources()
         return
       }
-      app = pixiApp
-      model = loaded
       // Auto-fit the model into the container; the manifest scale multiplies
       // the fit and translate offsets from the center anchor.
       const fit = Math.min(
@@ -183,6 +215,8 @@ export const live2dRenderer: PetRenderer<PetLive2dConfig> = {
         pixiApp.renderer.height / 2 + (config.translate?.y ?? 0),
       )
       pixiApp.stage.addChild(loaded)
+      modelAttached = true
+      loaded.automator.autoUpdate = true
       // Resume the phase group once a tap motion finishes playing.
       loaded.on('motionFinish', () => {
         if (tapPlaying) {
@@ -195,19 +229,18 @@ export const live2dRenderer: PetRenderer<PetLive2dConfig> = {
     }
 
     void boot().catch(() => {
-      if (!disposed) errorListener?.('load-failed')
+      try {
+        destroyResources()
+      } finally {
+        if (!disposed) errorListener?.('load-failed')
+      }
     })
 
     return {
       dispose() {
         if (disposed) return
         disposed = true
-        unsubscribe?.()
-        model = undefined
-        if (app !== undefined) {
-          app.destroy(true, { children: true })
-          app = undefined
-        }
+        destroyResources()
       },
       tap(x: number, y: number) {
         const current = model
