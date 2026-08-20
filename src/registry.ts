@@ -27,7 +27,7 @@
  * @module @linxin666/dsh-pet/registry
  */
 
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { closeSync, existsSync, openSync, readFileSync, readSync, readdirSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -35,6 +35,7 @@ import type { ActivityPhase, PetAnimation } from './state.ts'
 import { normalizePetRemarks, type PetRemarks, type PetRemarksManifest } from './remarks.ts'
 import { mergeVoicePacks, normalizeVoicePack, type PetPanelView, type VoicePack } from './voice-pack.ts'
 import { parseDecorationManifest } from './decoration.ts'
+import { imageDimensions } from './image-dimensions.ts'
 import { PET_DECORATION_API_VERSION, type DecorationView } from './contracts/status-decoration.ts'
 import { dshHome } from './dsh-home.ts'
 import { parsePetManifest, type PetManifestLive2d, type PetManifestV2, type PetRendererKind } from './manifest-v2.ts'
@@ -687,6 +688,27 @@ function loadVoicePackFile(
 /** Decoration asset URL prefix (served by the decoration route, M5). */
 export const DECORATION_ASSET_PREFIX = '/api/pet/decoration'
 
+/** Read the pixel dimensions of a decoration strip (PNG/WebP), if decodable. */
+function readImageDimensions(file: string): { width: number; height: number } | undefined {
+  let header: Buffer
+  try {
+    // Only the header is needed for dimensions; cap the read so a huge or
+    // corrupt strip cannot balloon memory during the registry scan.
+    const fd = openSync(file, 'r')
+    try {
+      header = Buffer.alloc(64)
+      const read = readSync(fd, header, 0, header.length, 0)
+      if (read < 0) return undefined
+      header = header.subarray(0, read)
+    } finally {
+      closeSync(fd)
+    }
+  } catch {
+    return undefined
+  }
+  return imageDimensions(header)
+}
+
 /**
  * Scan one directory of decoration folders ('decoration.json' + strip).
  * Later scans override earlier ones on id collision; a bad descriptor warns
@@ -730,6 +752,23 @@ function scanDecorationDir(dir: string, options: { warnings?: string[]; diagnost
       const message = 'decoration ' + manifest.id + ': strip file missing: ' + manifest.entry
       options.warnings?.push(message)
       options.diagnostics?.push({ level: 'warning', source: entryDir, message })
+    } else {
+      // Geometry check: the client renders the strip as a single row of
+      // 'columns' frames (background-position advances by frame width only),
+      // so the strip must be exactly cell.width * columns wide and cell.height
+      // tall. A mismatched strip silently shows the wrong/partial frames —
+      // warn-and-keep, mirroring the missing-strip discipline (never throw).
+      const actual = readImageDimensions(join(entryDir, manifest.entry))
+      if (actual !== undefined) {
+        const expectedWidth = manifest.cell.width * manifest.columns
+        if (actual.width !== expectedWidth || actual.height !== manifest.cell.height) {
+          const message = 'decoration ' + manifest.id + ': strip ' + actual.width + 'x' + actual.height
+            + ' does not match cell ' + manifest.cell.width + 'x' + manifest.cell.height + ' x ' + manifest.columns
+            + ' columns (expected ' + expectedWidth + 'x' + manifest.cell.height + '); frames will render wrong'
+          options.warnings?.push(message)
+          options.diagnostics?.push({ level: 'warning', source: entryDir, message })
+        }
+      }
     }
     entries.push({
       apiVersion: PET_DECORATION_API_VERSION,
