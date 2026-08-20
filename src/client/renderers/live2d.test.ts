@@ -20,7 +20,10 @@ import { createPhaseStream, type PhaseStream } from '../phase-stream.ts'
 import type { PetRendererContext } from '../../contracts/renderer.ts'
 
 interface FakeModel {
+  automator: { autoUpdate: boolean }
   calls: unknown[][]
+  destroyCalls: Record<string, unknown>[]
+  destroyed: number
   listeners: Record<string, () => void>
   width: number
   height: number
@@ -32,6 +35,7 @@ interface FakeModel {
   expression(name?: string): void
   hitTest(x: number, y: number): string[]
   on(event: string, fn: () => void): void
+  destroy(options?: Record<string, unknown>): void
 }
 
 interface FakeApp {
@@ -39,14 +43,18 @@ interface FakeApp {
   stage: { addChild(child: unknown): void }
   renderer: { width: number; height: number }
   init(options: Record<string, unknown>): Promise<void>
-  destroy(): void
+  destroy(rendererOptions?: boolean | { removeView?: boolean; releaseGlobalResources?: boolean }, options?: Record<string, unknown>): void
   destroyed: number
+  destroyCalls: unknown[][]
   added: unknown
 }
 
 function fakeModel(motions: Record<string, unknown[]> = { Idle: [{}, {}], TapBody: [{}] }): FakeModel {
   const model: FakeModel = {
+    automator: { autoUpdate: false },
     calls: [],
+    destroyCalls: [],
+    destroyed: 0,
     listeners: {},
     width: 1000,
     height: 1200,
@@ -58,6 +66,11 @@ function fakeModel(motions: Record<string, unknown[]> = { Idle: [{}, {}], TapBod
     expression: (name) => { model.calls.push(['expression', name]) },
     hitTest: (x, y) => { model.calls.push(['hitTest', x, y]); return ['Body'] },
     on: (event, fn) => { model.listeners[event] = fn },
+    destroy: (options = {}) => {
+      model.destroyed += 1
+      model.destroyCalls.push(options)
+      model.automator.autoUpdate = false
+    },
   }
   return model
 }
@@ -68,8 +81,16 @@ function fakeApp(): FakeApp {
     stage: { addChild: (child) => { app.added = child } },
     renderer: { width: 160, height: 174 },
     init: () => Promise.resolve(),
-    destroy: () => { app.destroyed += 1 },
+    destroy: (rendererOptions, options) => {
+      app.destroyed += 1
+      app.destroyCalls.push([rendererOptions, options])
+      if (rendererOptions === true || (typeof rendererOptions === 'object' && rendererOptions.removeView === true)) app.canvas.remove()
+      if (options?.children === true && typeof (app.added as { destroy?: unknown } | undefined)?.destroy === 'function') {
+        ;(app.added as { destroy(options?: Record<string, unknown>): void }).destroy(options)
+      }
+    },
     destroyed: 0,
+    destroyCalls: [],
     added: undefined,
   }
   return app
@@ -78,7 +99,10 @@ function fakeApp(): FakeApp {
 function fakeVendor(
   model: FakeModel,
   app: FakeApp,
-  from: (source: string, options?: Record<string, unknown>) => Promise<FakeModel> = () => Promise.resolve(model),
+  from: (source: string, options?: Record<string, unknown>) => Promise<FakeModel> = (_source, options) => {
+    model.calls.push(['from', options])
+    return Promise.resolve(model)
+  },
 ): unknown {
   return {
     Application: class { constructor() { return app } },
@@ -131,6 +155,8 @@ describe('live2dRenderer', () => {
     await flush()
     expect(container.querySelector('canvas')).toBeTruthy()
     expect(app.added).toBe(model)
+    expect(model.calls).toContainEqual(['from', expect.objectContaining({ autoUpdate: false, autoHitTest: false, autoFocus: false })])
+    expect(model.automator.autoUpdate).toBe(true)
     // idle plays on boot: group 'Idle', random index floor(0.99 * 2) = 1.
     expect(model.calls).toContainEqual(['motion', 'Idle', 1])
     // auto-fit: min(160/1000, 174/1200) * 0.92 = 0.1334
@@ -142,8 +168,14 @@ describe('live2dRenderer', () => {
     expect(model.calls.filter(call => call[0] === 'motion').at(-1)).toEqual(['motion', 'Idle', 1])
     handle.dispose()
     expect(app.destroyed).toBe(1)
+    expect(app.destroyCalls[0]?.[0]).toEqual({ removeView: true })
+    expect(model.destroyed).toBe(1)
+    expect(model.destroyCalls).toContainEqual({ children: true })
+    expect(model.automator.autoUpdate).toBe(false)
     handle.dispose() // idempotent
     expect(app.destroyed).toBe(1)
+    expect(app.destroyCalls[0]?.[0]).toEqual({ removeView: true })
+    expect(model.destroyed).toBe(1)
   })
 
   it('uses one automatic texture LOD instead of the default full mip chain', async () => {
@@ -157,6 +189,7 @@ describe('live2dRenderer', () => {
     await flush()
 
     expect(from).toHaveBeenCalledWith(CONFIG.modelUrl, {
+      autoUpdate: false,
       autoHitTest: false,
       autoFocus: false,
       textureOptions: { lod: 'single-auto' },
@@ -239,7 +272,43 @@ describe('live2dRenderer', () => {
     handle.onError((next) => { code = next })
     await flush()
     expect(code).toBe('load-failed')
+    expect(app.destroyed).toBe(1)
+    expect(ctx.container.querySelector('canvas')).toBeNull()
     handle.dispose()
+    expect(app.destroyed).toBe(1)
+  })
+
+  it('destroys both sides exactly once when disposed while model loading is pending', async () => {
+    const model = fakeModel()
+    const app = fakeApp()
+    let resolveModel!: (value: FakeModel) => void
+    const pendingModel = new Promise<FakeModel>((resolve) => { resolveModel = resolve })
+    const from = vi.fn(() => pendingModel)
+    runtime.vendor = {
+      Application: class { constructor() { return app } },
+      extensions: { add: () => {} },
+      Live2DPlugin: {},
+      configureCubismSDK: () => {},
+      Live2DModel: { from },
+    }
+    const { ctx, container } = makeCtx()
+    const handle = live2dRenderer.mount(ctx, live2dRenderer.validateConfig(CONFIG))
+    let error: string | undefined
+    ;(handle as Live2dRendererHandle).onError((code) => { error = code })
+    await flush()
+    expect(from).toHaveBeenCalledTimes(1)
+    expect(container.querySelector('canvas')).toBeTruthy()
+    handle.dispose()
+    expect(app.destroyed).toBe(1)
+    expect(container.querySelector('canvas')).toBeNull()
+    resolveModel(model)
+    await flush()
+    expect(app.destroyed).toBe(1)
+    expect(model.destroyed).toBe(1)
+    expect(model.destroyCalls).toContainEqual({ children: true })
+    expect(model.automator.autoUpdate).toBe(false)
+    expect(app.added).toBeUndefined()
+    expect(error).toBeUndefined()
   })
 
   it('never appends a canvas when disposed mid-boot', async () => {
