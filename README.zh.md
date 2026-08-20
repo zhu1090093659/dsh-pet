@@ -288,7 +288,7 @@ pnpm typecheck    # 仅类型检查
 
 ## 安全模型
 
-- 全部宠物 API 与资产路由仅服务回环客户端。
+- 全部 `/api/pet/*` 与 `/pet/<id>/*` 路由默认仅限 loopback（插件家族共享围栏：loopback 套接字 + Host 头 + 浏览器同源标记）：未配对的局域网客户端在任何宠物状态或图集下发前即收到 `403 forbidden: loopback-only`。同时装了 `dsh-remote-web-ui` 时，有效的已配对设备 cookie 是额外放行路径（与 `api/gate` 检查同一枚 cookie）；未配对与已撤销设备仍 403。宠物插件不硬依赖远程插件。
 - 资产服务对宠物目录与目标文件双双做 `realpath` 解析；symlink 越界一律拒绝（403）。文件读入内存前按类限大小（清单 64 KB、图像 20 MB；超限 413）。
 - Live2D 模型按闭包放行：仅清单、声明的主资产与 `.model3.json` 引用到的文件（引用先经穿越/绝对路径/URL 形态筛查）。
 - 插件从不下载可执行文件，也从不内置 Live2D Cubism Core。

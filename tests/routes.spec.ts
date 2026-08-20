@@ -16,8 +16,8 @@ const GIF_BYTES = Buffer.from([0x47, 0x49, 0x46, 0x38, 0x39, 0x61])
 let dir: string
 let server: Server
 let port: number
-let routes: ReturnType<typeof makePetRoutes>
 let service: PetService
+let routes: ReturnType<typeof makePetRoutes>
 
 beforeAll(async () => {
   dir = mkdtempSync(join(tmpdir(), 'dsh-pet-routes-'))
@@ -52,7 +52,7 @@ beforeAll(async () => {
   const ctx = new Context()
   const registry = loadPetRegistry({ packageRoot: dir, petsDir: '', dshPetsDir: '' })
   service = new PetService(ctx, { persistDir: join(dir, 'home'), registry })
-  routes = makePetRoutes({ service })
+  routes = makePetRoutes({ service, ctx })
   server = createServer((req, res) => {
     const pathname = (req.url ?? '').split('?')[0]!
     for (const route of routes) {
@@ -190,6 +190,37 @@ describe('pet routes', () => {
     expect(asset.status()).toBe(403)
     expect(asset.body()).toContain('loopback-only')
   })
+
+  it('allows a LAN client with a live paired-device cookie on API and assets', async () => {
+    const probe = () => {
+      let status = 0
+      let body = ''
+      return {
+        res: {
+          writeHead: (code: number) => { status = code },
+          end: (chunk?: string | Buffer) => { body = typeof chunk === 'string' ? chunk : chunk === undefined ? '' : 'ok' },
+        },
+        status: () => status,
+        body: () => body,
+      }
+    }
+    const pairedCtx = { get: () => ({ isPairedDevice: () => true }) }
+    const pairedRoutes = makePetRoutes({ service, ctx: pairedCtx as never })
+    const lanRequest = {
+      method: 'GET',
+      socket: { remoteAddress: '192.168.1.9' },
+      headers: { host: 'dsh.thinkmoon.cn', cookie: 'dsh_pair=dev-1' },
+    }
+    const api = probe()
+    const apiRoute = pairedRoutes.find(route => route.kind === 'exact' && route.path === '/api/pet/state')
+    await apiRoute!.handler(lanRequest as never, api.res as never)
+    expect(api.status()).toBe(200)
+
+    const asset = probe()
+    const assetRoute = pairedRoutes.find(route => route.kind === 'prefix' && route.path === '/pet')
+    await assetRoute!.handler({ ...lanRequest, url: '/pet/whale-girl/pet.json' } as never, asset.res as never)
+    expect(asset.status()).toBe(200)
+  })
 })
 describe('decoration routes (pet-center M5, #567)', () => {
   it('serves the strip and descriptor from the declaration allow-list', async () => {
@@ -276,7 +307,7 @@ describe('decoration routes (pet-center M5, #567)', () => {
       const ctx = new Context()
       const registry = loadPetRegistry({ packageRoot: root, petsDir: '', dshPetsDir: '' })
       const capped = new PetService(ctx, { persistDir: join(root, 'home'), registry })
-      const tinyRoutes = makePetRoutes({ service: capped, assetCaps: { manifest: 64, image: 64, model: 64 } })
+      const tinyRoutes = makePetRoutes({ service: capped, ctx, assetCaps: { manifest: 64, image: 64, model: 64 } })
       const srv = createServer((req, res) => {
         const pathname = (req.url ?? '').split('?')[0]!
         for (const route of tinyRoutes) {

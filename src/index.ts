@@ -172,7 +172,7 @@ function applyImpl(ctx: Context, config: PetConfig = {}): void {
   // pattern as dsh-remote-web-ui's /api/pair family). The routes are
   // registered while the plugin is enabled; toggling the setting off makes
   // the pet API disappear until it is re-enabled.
-  const routes = makePetRoutes({ service })
+  const routes = makePetRoutes({ service, ctx })
   let disposeRoutes: (() => void) | undefined
   const syncRoutes = (): void => {
     const enabled = current().enabled ?? true

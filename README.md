@@ -288,7 +288,7 @@ The two built-in whale-girl atlases use the same 9-state × 8-column contract: `
 
 ## Security model
 
-- All pet API and asset routes are fenced to loopback clients.
+- Every `/api/pet/*` and `/pet/<id>/*` route is loopback-only by default (the shared plugin-family fence: loopback socket + Host header + browser same-origin markers): unpaired LAN clients get `403 forbidden: loopback-only` before any pet state or atlas is served. When `dsh-remote-web-ui` is also loaded, a live paired-device cookie is an additional allow path (the same cookie `api/gate` already checks); unpaired and revoked devices stay 403. The pet does not depend on the remote plugin.
 - Asset serving resolves both the pet directory and the candidate file through `realpath`; symlink escapes are refused (403). Files are size-capped before being read into memory (manifest 64 KB, imagery 20 MB; over-cap answers 413).
 - Live2D models are served by closure: only the manifest, the declared primary assets, and the files the `.model3.json` references (each screened against traversal, absolute and URL forms).
 - The plugin never downloads executables and never bundles the Live2D Cubism Core.
