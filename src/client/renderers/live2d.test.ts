@@ -41,12 +41,44 @@ interface FakeModel {
 interface FakeApp {
   canvas: HTMLCanvasElement
   stage: { addChild(child: unknown): void }
-  renderer: { width: number; height: number }
+  renderer: { width: number; height: number; resize(width: number, height: number): void }
   init(options: Record<string, unknown>): Promise<void>
   destroy(rendererOptions?: boolean | { removeView?: boolean; releaseGlobalResources?: boolean }, options?: Record<string, unknown>): void
   destroyed: number
   destroyCalls: unknown[][]
   added: unknown
+  resizeCalls: [number, number][]
+}
+
+class FakeResizeObserver {
+  static instances: FakeResizeObserver[] = []
+
+  readonly targets = new Set<Element>()
+  disconnected = false
+
+  constructor(private readonly callback: ResizeObserverCallback) {
+    FakeResizeObserver.instances.push(this)
+  }
+
+  observe(target: Element): void {
+    this.targets.add(target)
+  }
+
+  unobserve(target: Element): void {
+    this.targets.delete(target)
+  }
+
+  disconnect(): void {
+    this.disconnected = true
+    this.targets.clear()
+  }
+
+  emit(target: Element, width: number, height: number): void {
+    this.callback([{
+      target,
+      contentRect: { width, height },
+    } as ResizeObserverEntry], this as unknown as ResizeObserver)
+  }
 }
 
 function fakeModel(motions: Record<string, unknown[]> = { Idle: [{}, {}], TapBody: [{}] }): FakeModel {
@@ -76,11 +108,28 @@ function fakeModel(motions: Record<string, unknown[]> = { Idle: [{}, {}], TapBod
 }
 
 function fakeApp(): FakeApp {
+  const canvas = document.createElement('canvas')
   const app: FakeApp = {
-    canvas: document.createElement('canvas'),
+    canvas,
     stage: { addChild: (child) => { app.added = child } },
-    renderer: { width: 160, height: 174 },
-    init: () => Promise.resolve(),
+    renderer: {
+      width: 160,
+      height: 174,
+      resize: (width, height) => {
+        app.renderer.width = width
+        app.renderer.height = height
+        canvas.width = width
+        canvas.height = height
+        app.resizeCalls.push([width, height])
+      },
+    },
+    init: (options) => {
+      app.renderer.width = Number(options.width)
+      app.renderer.height = Number(options.height)
+      canvas.width = app.renderer.width
+      canvas.height = app.renderer.height
+      return Promise.resolve()
+    },
     destroy: (rendererOptions, options) => {
       app.destroyed += 1
       app.destroyCalls.push([rendererOptions, options])
@@ -92,6 +141,7 @@ function fakeApp(): FakeApp {
     destroyed: 0,
     destroyCalls: [],
     added: undefined,
+    resizeCalls: [],
   }
   return app
 }
@@ -115,12 +165,27 @@ function fakeVendor(
 
 const CONFIG = { modelUrl: '/pet/haru/haru.model3.json', motions: { idle: 'Idle', thinking: 'TapBody' } }
 
-function makeCtx(): { ctx: PetRendererContext; stream: PhaseStream; container: HTMLDivElement } {
+function makeCtx(width = 0, height = 0): {
+  ctx: PetRendererContext
+  stream: PhaseStream
+  container: HTMLDivElement
+  setSize(nextWidth: number, nextHeight: number): void
+} {
   const container = document.createElement('div')
+  let clientWidth = width
+  let clientHeight = height
+  Object.defineProperties(container, {
+    clientWidth: { configurable: true, get: () => clientWidth },
+    clientHeight: { configurable: true, get: () => clientHeight },
+  })
   const stream = createPhaseStream('idle')
   return {
     container,
     stream,
+    setSize(nextWidth, nextHeight) {
+      clientWidth = nextWidth
+      clientHeight = nextHeight
+    },
     ctx: {
       petId: 'haru',
       assetBase: '/pet/haru',
@@ -139,9 +204,12 @@ async function flush(): Promise<void> {
 describe('live2dRenderer', () => {
   beforeEach(() => {
     runtime.core = true
+    FakeResizeObserver.instances = []
+    vi.stubGlobal('ResizeObserver', FakeResizeObserver)
     resetLive2dRenderer()
   })
   afterEach(() => {
+    vi.unstubAllGlobals()
     vi.restoreAllMocks()
   })
 
@@ -194,6 +262,72 @@ describe('live2dRenderer', () => {
       autoFocus: false,
       textureOptions: { lod: 'single-auto' },
     })
+  })
+
+  it('keeps the Pixi canvas and model layout in sync with display-size changes', async () => {
+    const model = fakeModel()
+    const app = fakeApp()
+    runtime.vendor = fakeVendor(model, app)
+    const { ctx, container, setSize } = makeCtx(148, 160)
+
+    const handle = live2dRenderer.mount(ctx, live2dRenderer.validateConfig(CONFIG)) as Live2dRendererHandle
+    await flush()
+    expect(app.canvas.width).toBe(148)
+    expect(app.canvas.height).toBe(160)
+    expect(model.calls).toContainEqual(['position', 74, 80])
+
+    model.calls.length = 0
+    setSize(295, 320)
+    FakeResizeObserver.instances[0]?.emit(container, 295, 320)
+
+    expect(app.resizeCalls).toEqual([[295, 320]])
+    expect(app.canvas.width).toBe(295)
+    expect(app.canvas.height).toBe(320)
+    expect(model.calls).toContainEqual(['scale', expect.closeTo(0.245333, 5)])
+    expect(model.calls).toContainEqual(['position', 147.5, 160])
+    handle.tap(147.5, 160)
+    expect(model.calls).toContainEqual(['hitTest', 147.5, 160])
+
+    handle.dispose()
+    expect(FakeResizeObserver.instances[0]?.disconnected).toBe(true)
+  })
+
+  it('uses the latest renderer size when the model finishes loading', async () => {
+    const model = fakeModel()
+    const app = fakeApp()
+    let resolveModel!: (value: FakeModel) => void
+    const pendingModel = new Promise<FakeModel>((resolve) => { resolveModel = resolve })
+    runtime.vendor = fakeVendor(model, app, () => pendingModel)
+    const { ctx, container, setSize } = makeCtx(148, 160)
+
+    live2dRenderer.mount(ctx, live2dRenderer.validateConfig(CONFIG))
+    await flush()
+    setSize(295, 320)
+    FakeResizeObserver.instances[0]?.emit(container, 295, 320)
+    resolveModel(model)
+    await flush()
+
+    expect(app.resizeCalls).toEqual([[295, 320]])
+    expect(model.calls).toContainEqual(['position', 147.5, 160])
+    expect(model.calls).toContainEqual(['scale', expect.closeTo(0.245333, 5)])
+  })
+
+  it('ignores zero-size observations and stops resizing after disposal', async () => {
+    const model = fakeModel()
+    const app = fakeApp()
+    runtime.vendor = fakeVendor(model, app)
+    const { ctx, container } = makeCtx(148, 160)
+    const handle = live2dRenderer.mount(ctx, live2dRenderer.validateConfig(CONFIG))
+    await flush()
+    const observer = FakeResizeObserver.instances[0]
+
+    observer?.emit(container, 0, 0)
+    observer?.emit(container, 148, 160)
+    expect(app.resizeCalls).toEqual([])
+
+    handle.dispose()
+    observer?.emit(container, 295, 320)
+    expect(app.resizeCalls).toEqual([])
   })
 
   it('falls back to the idle group when a mapped group is absent from the model', async () => {

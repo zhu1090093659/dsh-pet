@@ -21,7 +21,11 @@ const VENDOR_URL = '/api/pet/runtime/live2d-vendor.js'
 export interface Live2dVendorApp {
   canvas: HTMLCanvasElement
   stage: { addChild(child: unknown): unknown }
-  renderer: { readonly width: number; readonly height: number }
+  renderer: {
+    readonly width: number
+    readonly height: number
+    resize(width: number, height: number): void
+  }
   init(options: Record<string, unknown>): Promise<void>
   destroy(rendererOptions?: boolean | { removeView?: boolean; releaseGlobalResources?: boolean }, options?: Record<string, unknown>): void
 }
