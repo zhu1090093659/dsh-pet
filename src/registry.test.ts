@@ -5,6 +5,8 @@ import { join } from 'node:path'
 import {
   DEFAULT_FRAME_COUNTS,
   DEFAULT_PET_CELL,
+  DEFAULT_TRACK_PATTERNS,
+  PET_ROW_ORDER,
   PET_SCAN_JSON_CAP,
   codexPetsDir,
   loadPetRegistry,
@@ -168,6 +170,18 @@ describe('loadPetRegistry', () => {
       readFileSync(petAtlasFile(registry.byId('whale-girl-refined')!)),
     )).toBe(false)
     expect(registry.defaultEntry().id).toBe('whale-girl')
+    // Both built-in whales and every override-free pet share the one slow
+    // global rhythm (user request: all pets were too fast at the legacy
+    // hatch-pet contract pace).
+    for (const track of PET_ROW_ORDER) {
+      expect(registry.byId('whale-girl')!.tracks[track].durations)
+        .toEqual(DEFAULT_TRACK_PATTERNS[track].durations)
+      expect(registry.byId('whale-girl-refined')!.tracks[track].durations)
+        .toEqual(DEFAULT_TRACK_PATTERNS[track].durations)
+    }
+    expect(DEFAULT_TRACK_PATTERNS.idle.durations[0]!).toBeGreaterThanOrEqual(500)
+    expect(DEFAULT_TRACK_PATTERNS['running-right'].durations[0]!).toBeGreaterThanOrEqual(300)
+    expect(DEFAULT_TRACK_PATTERNS.waving.durations[0]!).toBeGreaterThanOrEqual(450)
   })
 
   it('scans built-in assets, the custom pets dir, and composed extras with precedence', () => {

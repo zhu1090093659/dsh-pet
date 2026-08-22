@@ -114,21 +114,25 @@ export interface PetTrackDef {
   fallback?: PetAnimation
 }
 
-/** Default per-track rhythm (hatch-pet contract table). */
+/**
+ * Default per-track rhythm — the shared slow baseline every sprite2d pet
+ * plays unless its manifest overrides a track (user request: all pets were
+ * too fast at the legacy hatch-pet contract pace).
+ */
 export const DEFAULT_TRACK_PATTERNS: Record<PetAnimation, {
   durations: number[]
   loop: boolean
   fallback?: PetAnimation
 }> = {
-  idle: { durations: [280, 110, 110, 140, 140, 320], loop: true },
-  'running-right': { durations: [120, 120, 120, 120, 120, 120, 120, 220], loop: true },
-  'running-left': { durations: [120, 120, 120, 120, 120, 120, 120, 220], loop: true },
-  waving: { durations: [140, 140, 140, 280], loop: true },
-  jumping: { durations: [140, 140, 140, 140, 280], loop: false, fallback: 'idle' },
-  failed: { durations: [140, 140, 140, 140, 140, 140, 140, 240], loop: false, fallback: 'idle' },
-  waiting: { durations: [150, 150, 150, 150, 150, 260], loop: true },
-  running: { durations: [120, 120, 120, 120, 120, 220], loop: true },
-  review: { durations: [150, 150, 150, 150, 150, 280], loop: true },
+  idle: { durations: [500, 500, 600, 500, 500, 600], loop: true },
+  'running-right': { durations: [300, 300, 300, 300, 300, 300, 300, 400], loop: true },
+  'running-left': { durations: [300, 300, 300, 300, 300, 300, 300, 400], loop: true },
+  waving: { durations: [450, 450, 450, 450], loop: true },
+  jumping: { durations: [400, 400, 400, 450, 450], loop: false, fallback: 'idle' },
+  failed: { durations: [550, 550, 550, 600, 650, 700, 550, 550], loop: false, fallback: 'idle' },
+  waiting: { durations: [550, 550, 600, 550, 550, 600], loop: true },
+  running: { durations: [330, 330, 330, 330, 330, 400], loop: true },
+  review: { durations: [650, 650, 650, 650, 650, 650], loop: true },
 }
 
 /** Manifest shape a pet directory (or 'PetConfig.pets' entry) declares. */
