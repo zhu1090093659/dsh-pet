@@ -159,6 +159,22 @@ describe('PetSprite custom visual (pet-center M3)', () => {
   })
 })
 
+describe('PetSprite always-visible close control', () => {
+  it('renders a corner close button and hides without petting', () => {
+    const onHide = vi.fn()
+    const onPet = vi.fn()
+    renderPet({ onHide, onPet })
+
+    const close = screen.getByTestId('pet-close')
+    expect(close.getAttribute('aria-label')).toBe('隐藏')
+    expect(close.getAttribute('title')).toBe('隐藏')
+    fireEvent.click(close)
+
+    expect(onHide).toHaveBeenCalledTimes(1)
+    expect(onPet).not.toHaveBeenCalled()
+  })
+})
+
 describe('PetSprite rename input', () => {
   it('submits the draft on Enter outside composition', () => {
     const { onRename } = renderPet()
