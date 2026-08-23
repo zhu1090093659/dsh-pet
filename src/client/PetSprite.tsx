@@ -466,34 +466,58 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
       }}
     >
       <div
-        ref={spriteRef}
-        className={styles.sprite}
-        style={{
-          width: spriteWidth,
-          height: spriteHeight,
-          ...(props.visual === undefined
-            ? {
-                backgroundImage: imageReady ? 'url(' + definition.atlasUrl + ')' : undefined,
-                backgroundSize: (cell.width * columns * spriteScale) + 'px ' + (cell.height * (definition.atlasRows ?? rows.length) * spriteScale) + 'px',
-                backgroundRepeat: 'no-repeat',
-                backgroundPosition: '0 0',
-              }
-            : {}),
-          cursor: dragRef.current === null ? 'grab' : 'grabbing',
-        }}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onClick={() => {
-          // A pointer sequence that moved (dragged) still fires a trailing
-          // click; skip the pet when that happened.
-          if (draggedRef.current) return
-          props.onPet()
-        }}
-        role="button"
-        aria-label={definition.displayName}
+        className={styles.spriteWrap}
+        style={{ width: spriteWidth, height: spriteHeight }}
       >
-        {props.visual}
+        <div
+          ref={spriteRef}
+          className={styles.sprite}
+          style={{
+            width: spriteWidth,
+            height: spriteHeight,
+            ...(props.visual === undefined
+              ? {
+                  backgroundImage: imageReady ? 'url(' + definition.atlasUrl + ')' : undefined,
+                  backgroundSize: (cell.width * columns * spriteScale) + 'px ' + (cell.height * (definition.atlasRows ?? rows.length) * spriteScale) + 'px',
+                  backgroundRepeat: 'no-repeat',
+                  backgroundPosition: '0 0',
+                }
+              : {}),
+            cursor: dragRef.current === null ? 'grab' : 'grabbing',
+          }}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={onPointerUp}
+          onClick={() => {
+            // A pointer sequence that moved (dragged) still fires a trailing
+            // click; skip the pet when that happened.
+            if (draggedRef.current) return
+            props.onPet()
+          }}
+          role="button"
+          aria-label={definition.displayName}
+        >
+          {props.visual}
+        </div>
+        <button
+          type="button"
+          className={styles.closeButton}
+          aria-label={panelLabel('hide', props.t('pet.hide'))}
+          title={panelLabel('hide', props.t('pet.hide'))}
+          data-testid="pet-close"
+          onPointerDown={(e) => {
+            // Keep the close control from starting a drag on the sprite.
+            e.stopPropagation()
+          }}
+          onClick={(e) => {
+            // The close control sits beside the pet button; do not pet as a
+            // side effect of closing the overlay.
+            e.stopPropagation()
+            props.onHide()
+          }}
+        >
+          ×
+        </button>
       </div>
       {feedback !== null && (
         <div key={feedback.at} ref={bubbleRef} className={clsx(styles.bubble, feedback.kind === 'feed' ? styles.bubbleFeed : styles.bubblePet)}>
