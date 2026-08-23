@@ -23,6 +23,7 @@ import type { PetInteraction } from './affinity.ts'
 import { DECORATION_ASSET_PREFIX, petEntryView, petPackageRoot, type PetEntry, type PetRegistry } from './registry.ts'
 import { isPetAllowed } from './access.ts'
 import { dshHome } from './dsh-home.ts'
+import { readJsonBody } from './http.ts'
 
 /** Browser-facing base path of the pet API. */
 export const PET_API_PREFIX = '/api/pet'
@@ -110,35 +111,6 @@ function requireMethod(req: IncomingMessage, res: ServerResponse, method: string
   return false
 }
 
-/** Read a JSON request body (bounded). */
-function readJsonBody(req: IncomingMessage): Promise<unknown> {
-  return new Promise((resolve, reject) => {
-    let size = 0
-    const chunks: Buffer[] = []
-    req.on('data', (chunk: Buffer) => {
-      size += chunk.length
-      if (size > 64 * 1024) {
-        reject(new Error('body-too-large'))
-        queueMicrotask(() => req.destroy())
-        return
-      }
-      chunks.push(chunk)
-    })
-    req.on('end', () => {
-      if (chunks.length === 0) {
-        resolve({})
-        return
-      }
-      try {
-        resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')))
-      } catch {
-        reject(new Error('invalid-json'))
-      }
-    })
-    req.on('error', reject)
-  })
-}
-
 /** Shared route fence: loopback always passes; a live paired-device cookie is an extra allow path. */
 function guard(ctx: Context, req: IncomingMessage, res: ServerResponse): boolean {
   if (isPetAllowed(ctx, req)) return true
@@ -169,8 +141,13 @@ function postRoute(ctx: Context, path: string, run: (body: Record<string, unknow
     handler: (req: IncomingMessage, res: ServerResponse): Promise<void> => {
       if (!guard(ctx, req, res)) return Promise.resolve()
       if (!requireMethod(req, res, 'POST')) return Promise.resolve()
-      return readJsonBody(req).then((body) => {
-        const record = (typeof body === 'object' && body !== null) ? body as Record<string, unknown> : {}
+      // Shared lenient reader (64 KiB cap): an empty body yields null and is
+      // restored to {} at the call site (legacy empty-body semantics); invalid
+      // JSON and over-limit bodies also yield null, so the endpoint validators
+      // below keep answering 400 with the same { ok: false, error } envelope.
+      return readJsonBody(req, { maxBytes: 64 * 1024 }).then((parsed) => {
+        const payload = parsed ?? {}
+        const record = (typeof payload === 'object' && payload !== null) ? payload as Record<string, unknown> : {}
         return run(record).then(
           (value) => json(res, 200, value),
           (error) => {
