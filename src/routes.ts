@@ -23,7 +23,7 @@ import type { PetInteraction } from './affinity.ts'
 import { DECORATION_ASSET_PREFIX, petEntryView, petPackageRoot, type PetEntry, type PetRegistry } from './registry.ts'
 import { isPetAllowed } from './access.ts'
 import { dshHome } from './dsh-home.ts'
-import { readJsonBody } from './http.ts'
+import { readJsonBody, writeJson } from './http.ts'
 
 /** Browser-facing base path of the pet API. */
 export const PET_API_PREFIX = '/api/pet'
@@ -98,23 +98,17 @@ function mimeFor(file: string): string {
   return MIME_BY_EXT[file.slice(dot).toLowerCase()] ?? 'application/octet-stream'
 }
 
-/** Write one JSON response. */
-function json(res: ServerResponse, status: number, body: unknown): void {
-  res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' })
-  res.end(JSON.stringify(body))
-}
-
 /** Require the method or answer 405. */
 function requireMethod(req: IncomingMessage, res: ServerResponse, method: string): boolean {
   if (req.method === method) return true
-  json(res, 405, { ok: false, error: 'method-not-allowed' })
+  writeJson(res, 405, { ok: false, error: 'method-not-allowed' })
   return false
 }
 
 /** Shared route fence: loopback always passes; a live paired-device cookie is an extra allow path. */
 function guard(ctx: Context, req: IncomingMessage, res: ServerResponse): boolean {
   if (isPetAllowed(ctx, req)) return true
-  json(res, 403, { ok: false, error: 'forbidden: loopback-only' })
+  writeJson(res, 403, { ok: false, error: 'forbidden: loopback-only' })
   return false
 }
 
@@ -126,8 +120,8 @@ function getRoute(ctx: Context, path: string, run: () => Promise<unknown>): WebR
     handler: (req: IncomingMessage, res: ServerResponse): void => {
       if (!guard(ctx, req, res)) return
       if (!requireMethod(req, res, 'GET')) return
-      run().then((value) => json(res, 200, value), (error) => {
-        json(res, 500, { ok: false, error: error instanceof Error ? error.message : String(error) })
+      run().then((value) => writeJson(res, 200, value), (error) => {
+        writeJson(res, 500, { ok: false, error: error instanceof Error ? error.message : String(error) })
       })
     },
   }
@@ -149,13 +143,13 @@ function postRoute(ctx: Context, path: string, run: (body: Record<string, unknow
         const payload = parsed ?? {}
         const record = (typeof payload === 'object' && payload !== null) ? payload as Record<string, unknown> : {}
         return run(record).then(
-          (value) => json(res, 200, value),
+          (value) => writeJson(res, 200, value),
           (error) => {
-            json(res, 400, { ok: false, error: error instanceof Error ? error.message : String(error) })
+            writeJson(res, 400, { ok: false, error: error instanceof Error ? error.message : String(error) })
           },
         )
       }, (error) => {
-        json(res, 400, { ok: false, error: error instanceof Error ? error.message : String(error) })
+        writeJson(res, 400, { ok: false, error: error instanceof Error ? error.message : String(error) })
       })
     },
   }
@@ -370,7 +364,7 @@ function runtimeHandler(ctx: Context, roots: { runtimeDir: string; vendorDir: st
     const base = spec.root === 'runtimeDir' ? roots.runtimeDir : roots.vendorDir
     const file = join(base, name)
     if (!existsSync(file)) {
-      json(res, 404, { ok: false, error: 'runtime-file-missing', file: name })
+      writeJson(res, 404, { ok: false, error: 'runtime-file-missing', file: name })
       return
     }
     const resolved = containedRealpath(base, file)

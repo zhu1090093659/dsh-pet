@@ -360,6 +360,17 @@ describe('post body failure contract (shared readJsonBody migration)', () => {
     expect(await res.json()).toEqual({ ok: false, error: 'invalid-kind' })
   })
 
+  it('writes family JSON headers through the shared writer', async () => {
+    const res = await fetch(url('/api/pet/interact'), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: 'not-json',
+    })
+    expect(res.status).toBe(400)
+    expect(res.headers.get('content-type')).toBe('application/json; charset=utf-8')
+    expect(res.headers.get('referrer-policy')).toBe('no-referrer')
+  })
+
   it('preserves the empty-body {} pipeline through the call site', async () => {
     const res = await fetch(url('/api/pet/set-config'), { method: 'POST' })
     expect(res.status).toBe(200)
