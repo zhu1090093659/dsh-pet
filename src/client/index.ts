@@ -123,7 +123,7 @@ export function apply(ctx: ClientContext): void {
   // namespace, registered as a top-level settings page. The controller loads
   // the petId choices from the registry endpoint itself — the registry lists
   // the available pets (built-in assets plus user dirs), so the section only
-  // ever shows installed pets. Installing new pets happens in the DSH Market
+  // ever shows installed pets. Installing new pets happens in the Workshop
   // store.
   const petSettings = new PetSettingsCardController(settingsScope)
   // The section entry owns the controller: unregistering it (fiber disposal,
