@@ -30,6 +30,7 @@ import { defaultPetRendererRegistry } from './renderers/registry.ts'
 import { live2dRenderer } from './renderers/live2d.ts'
 import { registerPetUiTeardown, takeoverPetUiTeardown } from './ui-teardown.ts'
 import { PetSettingsSection, PetSettingsCardController, type PetSettings } from './PetSettingsCard.tsx'
+import { installMarketTabSeat, MARKET_TAB_KEY } from './market-tab.ts'
 import { NS, en, zh, t } from './locales.ts'
 
 /** The host pet API as the browser sees it (same-origin JSON endpoints). */
@@ -123,8 +124,42 @@ export function apply(ctx: ClientContext): void {
   // namespace, registered as a top-level settings page. The controller loads
   // the petId choices from the registry endpoint itself.
   const petSettings = new PetSettingsCardController(settingsScope)
-  ctx.slots.inject('settings.section', () => {
+  // Two-seat registration (the DSH Market hub contract, see market-tab.ts):
+  // with the hub installed this card becomes the Pet tab; standalone it keeps
+  // its own first-level settings section. The settings.section fallback is
+  // skipped while the hub's tab declaration is live, and a late hub takeover
+  // disposes it, so both modes never render together.
+  // seat tracks which entry owns the shared card controller so the dispose
+  // fires only when the live seat dies (the takeover path unregisters the
+  // fallback entry without disposing the controller the tab now uses).
+  let seat: 'tab' | 'section' | null = null
+  let fallbackEntry: (() => void) | null = null
+  ctx.slots.inject(MARKET_TAB_KEY, () => {
+    seat = 'tab'
     const unregister = ctx.slots.register({
+      name: MARKET_TAB_KEY,
+      id: 'pet',
+      order: 300,
+      label: () => ctx.locale.bind('pet')('settings.title'),
+      locale: 'pet',
+      inject: () => petSettings.inject(),
+    }, PetSettingsSection)
+    if (fallbackEntry) {
+      fallbackEntry()
+      fallbackEntry = null
+    }
+    return () => {
+      if (seat === 'tab') {
+        seat = null
+        petSettings.dispose()
+      }
+      unregister()
+    }
+  })
+  ctx.slots.inject('settings.section', () => {
+    if (seat === 'tab') return () => {}
+    seat = 'section'
+    fallbackEntry = ctx.slots.register({
       name: 'settings.section',
       id: 'pet',
       order: 130,
@@ -133,8 +168,11 @@ export function apply(ctx: ClientContext): void {
       inject: () => petSettings.inject(),
     }, PetSettingsSection)
     return () => {
-      petSettings.dispose()
-      unregister()
+      if (seat === 'section') {
+        seat = null
+        petSettings.dispose()
+      }
+      fallbackEntry = null
     }
   })
 
