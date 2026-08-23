@@ -22,6 +22,8 @@
  */
 
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+// Type-only: pulls the settings-surface SlotMap merge (the 'settings.section' entry).
+import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {

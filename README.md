@@ -13,7 +13,7 @@ Re-implemented from the pet feature of the Codex desktop app, as an official DSH
 | Feature | Description |
 |---|---|
 | Multi-pet registry | The host scans built-in `assets/`, the hatch-pet custom pets directory, and composed config entries; each pet is a manifest plus an atlas |
-| Pet selection in settings | The plugin settings card lists every registered pet; switching persists and the sprite swaps immediately |
+| Pet selection in settings | The plugin settings card lists every registered pet; switching persists and the sprite swaps immediately. The card sits as the Pet tab of the single DSH Market settings section (standalone installs keep a first-level Pet entry) |
 | Per-pet naming | Rename from the hover panel; each pet keeps its own name (stored per pet id, migrated from the legacy flat name) |
 | State animation | Official session activity → manifest-defined sequences of 9-state tracks; each track finishes its full duration before the sequence advances and the complete sequence loops |
 | Head-pat interaction | Click the pet → bubble feedback + affinity +1 (10s cooldown) |
