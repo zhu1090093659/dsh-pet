@@ -294,6 +294,10 @@ pnpm typecheck    # 仅类型检查
 - 插件从不下载可执行文件，也从不内置 Live2D Cubism Core。
 - 清单结构 fail-closed：未知字段或未知渲染器直接拒载，并在设置中给出诊断。
 
+## 数据遥测
+
+浏览器半区每个 UTC 日向 dsh-market.com 发送一次匿名安装心跳：仅含一个 localStorage 随机 ID 与本包名，无其他数据。服务端只存储该 ID 的加盐哈希，不存 IP，且只暴露聚合计数。完整契约见 [docs/telemetry.md](../../docs/telemetry.md)。
+
 ## 许可证
 
 [BSD-3-Clause](LICENSE)

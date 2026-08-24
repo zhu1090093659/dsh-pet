@@ -294,6 +294,10 @@ The two built-in whale-girl atlases use the same 9-state × 8-column contract: `
 - The plugin never downloads executables and never bundles the Live2D Cubism Core.
 - Manifests are fail-closed on structure: unknown fields or renderers reject the entry with a diagnostic shown in settings.
 
+## Telemetry
+
+The browser half sends one anonymous install heartbeat per UTC day to dsh-market.com: a random localStorage id plus this package's name, nothing else. The server stores only a salted hash of that id, never IP addresses, and exposes aggregate counts only. See [docs/telemetry.md](../../docs/telemetry.md) for the full contract.
+
 ## License
 
 [BSD-3-Clause](LICENSE)
