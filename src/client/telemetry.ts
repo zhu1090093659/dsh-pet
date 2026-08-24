@@ -11,16 +11,35 @@
  * is documented in docs/telemetry.md.
  */
 
+export type TelemetryChannel = 'market' | 'npm' | 'unknown'
+
 export interface TelemetryItem {
-  /** npm package name or asset id, e.g. "@linxin666/dsh-pet". */
+  /** npm package name or asset id, e.g. "@linxin666/dsh-pet" or "skin:harbor". */
   name: string
   /** Installed version when known; omitted otherwise. */
   version?: string
+  /** Install channel when determinable (market = Workshop install). */
+  channel?: TelemetryChannel
 }
 
 const VISITOR_KEY = 'dsh-web-ui-telemetry-visitor'
 const DAY_KEY_PREFIX = 'dsh-web-ui-telemetry-day:'
 const ENDPOINT = 'https://dsh-market.com/api/telemetry/event'
+
+// Baked into each client bundle by shared/tsdown.client.ts (the package's own
+// package.json version at build time). Undefined in dev/test builds.
+declare const __DSH_PKG_VERSION__: string | undefined
+
+/** The building package's version, when the bundle carries it. */
+function bakedVersion(): string | undefined {
+  try {
+    return typeof __DSH_PKG_VERSION__ === 'string' && __DSH_PKG_VERSION__ !== ''
+      ? __DSH_PKG_VERSION__
+      : undefined
+  } catch {
+    return undefined
+  }
+}
 
 /** Read or lazily create the anonymous visitor id; null when storage is unavailable. */
 function visitorId(): string | null {
@@ -50,7 +69,8 @@ function pruneDayKeys(today: string): void {
 
 /**
  * Fire the daily heartbeat for the given items at most once per UTC day per
- * browser. Never throws and never blocks the caller.
+ * browser. Never throws and never blocks the caller. Items without an explicit
+ * version inherit the bundle's baked build version.
  */
 export function reportDailyHeartbeat(items: readonly TelemetryItem[]): void {
   try {
@@ -60,11 +80,14 @@ export function reportDailyHeartbeat(items: readonly TelemetryItem[]): void {
     const visitor = visitorId()
     if (visitor === null) return
     pruneDayKeys(today)
-    const body = JSON.stringify({
-      kind: 'heartbeat',
-      visitor,
-      items: items.map((item) => item.version ? { name: item.name, version: item.version } : { name: item.name }),
+    const payloadItems = items.map((item) => {
+      const out: Record<string, string> = { name: item.name }
+      const version = item.version ?? bakedVersion()
+      if (version !== undefined) out.version = version
+      if (item.channel !== undefined) out.channel = item.channel
+      return out
     })
+    const body = JSON.stringify({ kind: 'heartbeat', visitor, items: payloadItems })
     void fetch(ENDPOINT, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
