@@ -39,6 +39,8 @@ export interface PluginSettingsCardProps<TKey extends string = string> {
   titleKey: TKey
   /** Locale key of the line describing what this plugin's settings govern. */
   descriptionKey: TKey
+  /** Optional rich header description rendered instead of the plain t(descriptionKey) text (the plain text stays as the tooltip). */
+  descriptionNode?: ReactNode
   /** The card's form state: availability, writability, and what a save would do. */
   state: CardShell
   /** Write every staged edit. */
@@ -87,7 +89,7 @@ export function PluginSettingsCard<TKey extends string = string>(props: PluginSe
       <div className={css.headerStatic}>
         <span className={css.headText}>
           <span className={css.name} title={title}>{title}</span>
-          <span className={css.description} title={description}>{description}</span>
+          <span className={css.description} title={description}>{props.descriptionNode ?? description}</span>
         </span>
         {state.dirty ? <span className={css.pending} title={props.t('settings.unsaved')}>{props.t('settings.unsaved')}</span> : null}
       </div>
@@ -102,7 +104,7 @@ export function PluginSettingsCard<TKey extends string = string>(props: PluginSe
       >
         <span className={css.headText}>
           <span className={css.name} title={title}>{title}</span>
-          <span className={css.description} title={description}>{description}</span>
+          <span className={css.description} title={description}>{props.descriptionNode ?? description}</span>
         </span>
         {state.dirty ? <span className={css.pending} title={props.t('settings.unsaved')}>{props.t('settings.unsaved')}</span> : null}
         <svg
