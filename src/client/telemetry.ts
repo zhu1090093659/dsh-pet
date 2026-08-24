@@ -76,6 +76,9 @@ export function reportDailyHeartbeat(items: readonly TelemetryItem[]): void {
   try {
     if (items.length === 0) return
     const today = new Date().toISOString().slice(0, 10)
+    // Automation contexts (CDP-driven QA browsers, fresh isolated profiles)
+    // mint a new visitor id per run and would inflate instance counts.
+    if (navigator.webdriver) return
     if (localStorage.getItem(DAY_KEY_PREFIX + today) !== null) return
     const visitor = visitorId()
     if (visitor === null) return
