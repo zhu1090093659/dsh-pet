@@ -36,6 +36,12 @@ export interface GameplayApi {
 export interface GameplayBus {
   setTrack?: (track?: string) => void
   tap?: (fx: number, fy: number) => void
+  /**
+   * Card open/close request from the chrome (the hover panel's 玩法 action):
+   * the HUD registers this, and calling it with no argument toggles the card
+   * while a boolean pins the state (same chrome -> HUD direction as tap).
+   */
+  openCard?: (open?: boolean) => void
 }
 
 type HudPage = 'root' | 'shop' | 'wallet'
@@ -133,6 +139,17 @@ export function GameplayHud(props: {
     return () => { bus.tap = undefined }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- one registration per pet definition
   }, [definition.id, def])
+
+  // Panel entry (chrome -> HUD): the hover panel's 玩法 button drives the
+  // card through this channel so the chrome never needs the card's state.
+  useEffect(() => {
+    bus.openCard = (next?: boolean) => {
+      setOpen(prev => next ?? !prev)
+      setPage('root')
+    }
+    return () => { bus.openCard = undefined }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one registration per bus
+  }, [bus])
 
   // Drag gestures wake a sleeping pet (miku behavior); the drag stream also
   // feeds the idle director's suppression check.
@@ -269,17 +286,6 @@ export function GameplayHud(props: {
           {tr(mode === 'work' ? 'pet.gameplay.working' : 'pet.gameplay.sleeping')}
         </div>
       )}
-      <button
-        type="button"
-        className={styles.gameplayToggle}
-        aria-expanded={open}
-        onClick={() => {
-          setOpen(prev => !prev)
-          setPage('root')
-        }}
-      >
-        {tr('pet.gameplay.menu')}
-      </button>
       {open && (
         <div className={styles.gameplayCard} data-page={page}>
           {page === 'root' && (

@@ -69,6 +69,13 @@ export interface PetSpriteProps {
    * affinity pet; the HUD decides zones/no-ops.
    */
   onGameplayTap?: (fractionX: number, fractionY: number) => void
+  /**
+   * Gameplay entry (miku-pet generalization): when present the hover panel
+   * renders a 玩法 action that opens/closes the gameplay card. The chrome
+   * wires it to the HUD through the per-pet bus (openCard), mirroring the
+   * onGameplayTap sink. Absent for pets without a gameplay block.
+   */
+  onGameplayMenu?: () => void
   /** Disable the drag gesture (gameplay work mode blocks dragging). */
   dragDisabled?: boolean
   /** Locale translate seat (namespace-bound). */
@@ -711,6 +718,11 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
                 {panelShows('hide') && (
                   <button type="button" className={styles.action} onClick={props.onHide}>
                     {panelLabel('hide', props.t('pet.hide'))}
+                  </button>
+                )}
+                {props.onGameplayMenu !== undefined && (
+                  <button type="button" className={styles.action} onClick={props.onGameplayMenu}>
+                    {props.t('pet.gameplay.menu')}
                   </button>
                 )}
               </div>

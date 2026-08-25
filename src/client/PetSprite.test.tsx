@@ -678,6 +678,35 @@ describe('PetSprite panel chrome from the voice pack (pet-center M4)', () => {
     expect(screen.getByText('鱼干 3（0 分，幼鲸）')).toBeDefined()
   })
 })
+describe('PetSprite gameplay entry in the hover panel (miku generalization)', () => {
+  it('renders a 玩法 action and routes clicks to the HUD channel', () => {
+    const onGameplayMenu = vi.fn()
+    renderPet({ onGameplayMenu })
+    // The entry lives in the hover panel; a closed panel shows no chrome.
+    expect(screen.queryByText('玩法')).toBeNull()
+    fireEvent.pointerOver(screen.getByRole('button', { name: '鲸鱼娘' }))
+    expect(screen.getByText('玩法')).toBeDefined()
+    fireEvent.click(screen.getByText('玩法'))
+    expect(onGameplayMenu).toHaveBeenCalledTimes(1)
+  })
+
+  it('omits the 玩法 action when the pet carries no gameplay HUD', () => {
+    renderPet()
+    fireEvent.pointerOver(screen.getByRole('button', { name: '鲸鱼娘' }))
+    expect(screen.queryByText('玩法')).toBeNull()
+  })
+
+  it('keeps the 玩法 entry when a voice pack hides every panel action', () => {
+    renderPet({
+      definition: { ...petDefinition(), panel: { actions: [] } },
+      onGameplayMenu: vi.fn(),
+    })
+    fireEvent.pointerOver(screen.getByRole('button', { name: '鲸鱼娘' }))
+    expect(screen.getByText('玩法')).toBeDefined()
+    expect(screen.queryByText('喂食')).toBeNull()
+  })
+})
+
 describe('PetSprite status decoration (pet-center M5, #567)', () => {
   const decoration: DecorationView = {
     apiVersion: 'x-org.linxin666.pet-center/status-decoration-v1',

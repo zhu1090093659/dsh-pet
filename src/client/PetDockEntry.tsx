@@ -113,6 +113,7 @@ export function PetDockEntry(props: PetDockEntryProps): ReactElement {
                   ? {}
                   : {
                       onGameplayTap: (fx: number, fy: number) => aux.bus.tap?.(fx, fy),
+                      onGameplayMenu: () => aux.bus.openCard?.(),
                       hud: (
                         <GameplayHud
                           definition={definition}

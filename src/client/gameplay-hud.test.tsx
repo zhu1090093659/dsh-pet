@@ -163,15 +163,30 @@ describe('GameplayHud', () => {
     vi.useRealTimers()
   })
 
-  it('opens the menu card with stat bars and shows the wallet page', () => {
-    harness()
-    fireEvent.click(screen.getByText('玩法'))
+  it('opens the menu card through the bus openCard channel and shows the wallet page', () => {
+    const h = harness()
+    expect(h.bus.openCard).toBeDefined()
+    act(() => { h.bus.openCard?.() })
     expect(screen.getByText('饱食')).toBeDefined()
     expect(screen.getByText('好感')).toBeDefined()
     fireEvent.click(screen.getByText('钱包'))
     expect(screen.getByText('金币 ×30')).toBeDefined()
     fireEvent.click(screen.getByText('返回'))
     expect(screen.getByText('商店')).toBeDefined()
+  })
+
+  it('toggles the card through openCard and closes with the close button', () => {
+    const h = harness()
+    act(() => { h.bus.openCard?.() })
+    expect(screen.getByText('饱食')).toBeDefined()
+    // A no-argument call toggles (the panel 玩法 button is a toggle).
+    act(() => { h.bus.openCard?.() })
+    expect(screen.queryByText('饱食')).toBeNull()
+    // An explicit boolean pins the state; the card close button still works.
+    act(() => { h.bus.openCard?.(true) })
+    expect(screen.getByText('饱食')).toBeDefined()
+    fireEvent.click(screen.getByLabelText('返回'))
+    expect(screen.queryByText('饱食')).toBeNull()
   })
 
   it('runs a touch tap through the bus: zone verb, track hold, phrase bubble', async () => {
@@ -266,7 +281,7 @@ describe('GameplayHud', () => {
     const h = harness()
     h.api.buy.mockResolvedValueOnce({ ok: false, error: 'insufficient-funds', view: gameplayView() })
     h.api.buy.mockResolvedValueOnce({ ok: true, prize: { amount: 50, currency: 'coins' }, view: gameplayView() })
-    fireEvent.click(screen.getByText('玩法'))
+    act(() => { h.bus.openCard?.() })
     fireEvent.click(screen.getByText('商店'))
     expect(screen.getByText('Bread')).toBeDefined()
     await act(async () => {
