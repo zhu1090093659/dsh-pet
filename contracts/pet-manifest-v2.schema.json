@@ -55,7 +55,8 @@
     "renderer": {
       "enum": [
         "sprite2d",
-        "live2d"
+        "live2d",
+        "frames2d"
       ],
       "default": "sprite2d",
       "description": "Renderer kind; omitted means sprite2d (v1 compatibility). Unknown values are rejected."
@@ -239,6 +240,88 @@
         }
       }
     },
+    "frames2d": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tracks",
+        "phases"
+      ],
+      "description": "Frame-sequence renderer block; required when renderer=frames2d. Free-form named tracks laid out as <dir>/<track>/<frame>.(webp|png|gif|jpg|jpeg); phase-direct state selection (the live2d motions precedent). Frame durations resolve frameMs[i] > filename-encoded <base>_<index>_<ms> suffix > defaultFrameMs.",
+      "properties": {
+        "dir": {
+          "type": "string",
+          "minLength": 1,
+          "default": ".",
+          "description": "Frame root directory relative to the manifest directory (safe segments only)."
+        },
+        "defaultFrameMs": {
+          "type": "integer",
+          "minimum": 16,
+          "maximum": 5000,
+          "default": 200
+        },
+        "tracks": {
+          "type": "object",
+          "minProperties": 1,
+          "maxProperties": 64,
+          "description": "Named tracks (lowercase kebab ids, at most 32 chars).",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "frames": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 64,
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Frame file name inside the track directory (no path segments)."
+                },
+                "description": "Explicit ordered frame list; omitted means list the track directory in filename order."
+              },
+              "frameMs": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "integer",
+                  "minimum": 16,
+                  "maximum": 5000
+                },
+                "description": "Per-frame durations; requires an explicit frames list of the same length."
+              },
+              "loop": {
+                "type": "boolean",
+                "default": true,
+                "description": "false stops on the last frame, then enters fallback."
+              },
+              "fallback": {
+                "type": "string",
+                "description": "Track entered when a non-loop track ends; defaults to the idle-mapped track."
+              }
+            }
+          }
+        },
+        "phases": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "idle"
+          ],
+          "description": "ActivityPhase -> track name; idle is required, unmapped phases fall back to it.",
+          "properties": {
+            "idle": { "type": "string", "minLength": 1 },
+            "waiting": { "type": "string", "minLength": 1 },
+            "thinking": { "type": "string", "minLength": 1 },
+            "tool": { "type": "string", "minLength": 1 },
+            "review": { "type": "string", "minLength": 1 },
+            "done": { "type": "string", "minLength": 1 },
+            "failed": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    },
     "sequences": {
       "type": "object",
       "description": "Renderer-agnostic ActivityPhase sequence table (v1 structure; every declared sequence has at least 5 items)."
@@ -274,6 +357,20 @@
       "then": {
         "required": [
           "live2d"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "renderer": {
+            "const": "frames2d"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "frames2d"
         ]
       }
     }

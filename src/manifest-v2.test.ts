@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
+  KNOWN_FRAMES2D,
+  KNOWN_FRAMES2D_TRACK,
   KNOWN_LIVE2D,
   KNOWN_SPRITE2D,
   KNOWN_TOP_LEVEL,
@@ -217,7 +219,130 @@ describe('parsePetManifest v2 fail-closed validation', () => {
 describe('constants', () => {
   it('locks the manifest version and renderer kinds', () => {
     expect(PET_MANIFEST_V2).toBe(2)
-    expect(PET_RENDERER_KINDS).toEqual(['sprite2d', 'live2d'])
+    expect(PET_RENDERER_KINDS).toEqual(['sprite2d', 'live2d', 'frames2d'])
+  })
+})
+
+/** Minimal valid v2 frames2d manifest (miku-style directory tracks). */
+function v2Frames2d(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    petManifestVersion: 2,
+    id: 'miku',
+    displayName: 'Miku',
+    license: 'MIT',
+    renderer: 'frames2d',
+    frames2d: {
+      dir: 'thumb',
+      tracks: {
+        idle: { loop: true },
+        happy: { frames: ['happy_1_300.webp', 'happy_2_320.webp'], frameMs: [300, 320], loop: false, fallback: 'idle' },
+      },
+      phases: { idle: 'idle', done: 'happy' },
+    },
+    ...overrides,
+  }
+}
+
+describe('parsePetManifest v2 frames2d', () => {
+  it('accepts a minimal valid frames2d manifest', () => {
+    const result = parsePetManifest(v2Frames2d(), 'mem')
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(result.manifest.renderer).toBe('frames2d')
+    expect(result.manifest.frames2d?.dir).toBe('thumb')
+    expect(Object.keys(result.manifest.frames2d?.tracks ?? {}).sort()).toEqual(['happy', 'idle'])
+    expect(result.manifest.frames2d?.phases).toEqual({ idle: 'idle', done: 'happy' })
+  })
+
+  it('requires the frames2d block, tracks and phases.idle', () => {
+    expect(parsePetManifest({ ...v2Frames2d(), frames2d: undefined }, 'mem').ok).toBe(false)
+    const noTracks = v2Frames2d()
+    delete (noTracks.frames2d as Record<string, unknown>).tracks
+    expect(parsePetManifest(noTracks, 'mem').ok).toBe(false)
+    const noPhases = v2Frames2d()
+    delete (noPhases.frames2d as Record<string, unknown>).phases
+    expect(parsePetManifest(noPhases, 'mem').ok).toBe(false)
+    const noIdle = v2Frames2d({ })
+    ;(noIdle.frames2d as Record<string, unknown>).phases = { done: 'happy' }
+    expect(parsePetManifest(noIdle, 'mem').ok).toBe(false)
+  })
+
+  it('rejects mixing renderer blocks', () => {
+    const mixed = v2Frames2d()
+    ;(mixed as Record<string, unknown>).sprite2d = { spritesheetPath: 'x.webp' }
+    expect(parsePetManifest(mixed, 'mem').ok).toBe(false)
+    const spriteWithFrames = v2Sprite()
+    ;(spriteWithFrames as Record<string, unknown>).frames2d = (v2Frames2d() as { frames2d: unknown }).frames2d
+    expect(parsePetManifest(spriteWithFrames, 'mem').ok).toBe(false)
+  })
+
+  it('rejects unknown block and track fields', () => {
+    const badBlock = v2Frames2d()
+    ;(badBlock.frames2d as Record<string, unknown>).blink = { state: 'idle' }
+    expect(parsePetManifest(badBlock, 'mem').ok).toBe(false)
+    const badTrack = v2Frames2d()
+    ;((badTrack.frames2d as Record<string, unknown>).tracks as Record<string, unknown>).idle = { loop: true, path: 'thumb/idle' }
+    expect(parsePetManifest(badTrack, 'mem').ok).toBe(false)
+  })
+
+  it('rejects bad track names, dangling phases and dangling fallbacks', () => {
+    const badName = v2Frames2d()
+    ;((badName.frames2d as Record<string, unknown>).tracks as Record<string, unknown>)['Bad Name'] = {}
+    expect(parsePetManifest(badName, 'mem').ok).toBe(false)
+    const badPhase = v2Frames2d()
+    ;((badPhase.frames2d as Record<string, unknown>).phases as Record<string, unknown>).done = 'ghost'
+    expect(parsePetManifest(badPhase, 'mem').ok).toBe(false)
+    const badFallback = v2Frames2d()
+    ;(((badFallback.frames2d as Record<string, unknown>).tracks as Record<string, unknown>).happy as Record<string, unknown>).fallback = 'ghost'
+    expect(parsePetManifest(badFallback, 'mem').ok).toBe(false)
+  })
+
+  it('rejects unknown activity phases in frames2d.phases', () => {
+    const bad = v2Frames2d()
+    ;((bad.frames2d as Record<string, unknown>).phases as Record<string, unknown>).sleeping = 'idle'
+    expect(parsePetManifest(bad, 'mem').ok).toBe(false)
+  })
+
+  it('rejects unsafe frame names and non-image extensions', () => {
+    const traversal = v2Frames2d()
+    ;(((traversal.frames2d as Record<string, unknown>).tracks as Record<string, unknown>).happy as Record<string, unknown>).frames = ['../evil.webp']
+    expect(parsePetManifest(traversal, 'mem').ok).toBe(false)
+    const notImage = v2Frames2d()
+    ;(((notImage.frames2d as Record<string, unknown>).tracks as Record<string, unknown>).happy as Record<string, unknown>).frames = ['payload.exe']
+    expect(parsePetManifest(notImage, 'mem').ok).toBe(false)
+  })
+
+  it('rejects frameMs without frames, length mismatch and out-of-range durations', () => {
+    const noFrames = v2Frames2d()
+    ;((noFrames.frames2d as Record<string, unknown>).tracks as Record<string, unknown>).idle = { frameMs: [100] }
+    expect(parsePetManifest(noFrames, 'mem').ok).toBe(false)
+    const mismatch = v2Frames2d()
+    ;(((mismatch.frames2d as Record<string, unknown>).tracks as Record<string, unknown>).happy as Record<string, unknown>).frameMs = [300]
+    expect(parsePetManifest(mismatch, 'mem').ok).toBe(false)
+    const tooSlow = v2Frames2d()
+    ;(((tooSlow.frames2d as Record<string, unknown>).tracks as Record<string, unknown>).happy as Record<string, unknown>).frameMs = [300, 9000]
+    expect(parsePetManifest(tooSlow, 'mem').ok).toBe(false)
+  })
+
+  it('rejects oversized track and frame counts', () => {
+    const manyTracks: Record<string, unknown> = {}
+    for (let i = 0; i < 65; i++) manyTracks['t' + i] = { loop: true }
+    const big = v2Frames2d()
+    ;(big.frames2d as Record<string, unknown>).tracks = manyTracks
+    ;((big.frames2d as Record<string, unknown>).phases as Record<string, unknown>).idle = 't0'
+    expect(parsePetManifest(big, 'mem').ok).toBe(false)
+    const manyFrames = v2Frames2d()
+    ;(((manyFrames.frames2d as Record<string, unknown>).tracks as Record<string, unknown>).happy as Record<string, unknown>).frames = Array.from({ length: 65 }, (_, i) => 'f' + i + '.webp')
+    expect(parsePetManifest(manyFrames, 'mem').ok).toBe(false)
+  })
+
+  it('rejects an unsafe frames2d.dir and out-of-range defaultFrameMs', () => {
+    const badDir = v2Frames2d()
+    ;(badDir.frames2d as Record<string, unknown>).dir = '../elsewhere'
+    expect(parsePetManifest(badDir, 'mem').ok).toBe(false)
+    const badMs = v2Frames2d()
+    ;(badMs.frames2d as Record<string, unknown>).defaultFrameMs = 9000
+    expect(parsePetManifest(badMs, 'mem').ok).toBe(false)
   })
 })
 
@@ -242,6 +367,10 @@ describe('schema file drift lock', () => {
   it('locks the renderer block allow-lists', () => {
     expect(new Set(Object.keys(schema.properties.sprite2d?.properties ?? {}))).toEqual(KNOWN_SPRITE2D)
     expect(new Set(Object.keys(schema.properties.live2d?.properties ?? {}))).toEqual(KNOWN_LIVE2D)
+    expect(new Set(Object.keys(schema.properties.frames2d?.properties ?? {}))).toEqual(KNOWN_FRAMES2D)
+    const frames2d = schema.properties.frames2d as { properties?: Record<string, { additionalProperties?: { properties?: Record<string, unknown> } }> }
+    const trackProps = frames2d.properties?.tracks?.additionalProperties?.properties ?? {}
+    expect(new Set(Object.keys(trackProps))).toEqual(KNOWN_FRAMES2D_TRACK)
   })
 
   it('keeps the schema version const in sync', () => {

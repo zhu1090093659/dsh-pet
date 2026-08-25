@@ -30,7 +30,7 @@ import type { ActivityPhase, PetAnimation } from './state.ts'
 export const PET_MANIFEST_V2 = 2 as const
 
 /** Renderer kinds the pet center knows how to dispatch (M1 §2). */
-export const PET_RENDERER_KINDS = ['sprite2d', 'live2d'] as const
+export const PET_RENDERER_KINDS = ['sprite2d', 'live2d', 'frames2d'] as const
 export type PetRendererKind = (typeof PET_RENDERER_KINDS)[number]
 
 /** The seven ActivityPhase semantics (pet-center owned; M1 §1). */
@@ -72,6 +72,35 @@ export interface PetManifestLive2d {
   lipSync?: boolean
 }
 
+/** One frames2d track: an ordered frame sequence plus its rhythm. */
+export interface PetManifestFrames2dTrack {
+  /** Explicit ordered frame file names inside <dir>/<track>/; omitted means "list the directory". */
+  frames?: string[]
+  /** Per-frame durations in ms, same length as frames; wins over filename-encoded ms. */
+  frameMs?: number[]
+  /** Loop the track (default true); false stops on the last frame, then enters fallback. */
+  loop?: boolean
+  /** Track entered when a non-loop track ends (default 'idle'). */
+  fallback?: string
+}
+
+/**
+ * frames2d renderer block: free-form named frame-sequence tracks laid out as
+ * <dir>/<track>/<frame>.webp, with phase-direct state selection (the live2d
+ * motions precedent). Frame durations resolve frameMs[i] > filename-encoded
+ * <base>_<index>_<ms> suffix > defaultFrameMs.
+ */
+export interface PetManifestFrames2d {
+  /** Frame root directory relative to the manifest directory (default '.'). */
+  dir?: string
+  /** Default per-frame duration in ms (default 200). */
+  defaultFrameMs?: number
+  /** Named tracks (1..64, kebab ids). */
+  tracks: Record<string, PetManifestFrames2dTrack>
+  /** ActivityPhase -> track name; idle is required, unmapped phases fall back to it. */
+  phases: Partial<Record<ActivityPhase, string>> & { idle: string }
+}
+
 /** Normalized v2 manifest the registry consumes. */
 export interface PetManifestV2 {
   petManifestVersion: typeof PET_MANIFEST_V2
@@ -86,6 +115,7 @@ export interface PetManifestV2 {
   renderer: PetRendererKind
   sprite2d?: PetManifestSprite2d
   live2d?: PetManifestLive2d
+  frames2d?: PetManifestFrames2d
   sequences?: Partial<Record<ActivityPhase, PetAnimation[]>>
   /** Pass-through for the registry's remarks normalizer (v1 shape). */
   remarks?: unknown
@@ -112,12 +142,16 @@ const SEMVER_PATTERN = /^\d+\.\d+\.\d+$/
  */
 export const KNOWN_TOP_LEVEL = new Set([
   '$schema', 'petManifestVersion', 'id', 'displayName', 'description', 'version',
-  'author', 'license', 'homepage', 'renderer', 'sprite2d', 'live2d', 'sequences', 'remarks',
+  'author', 'license', 'homepage', 'renderer', 'sprite2d', 'live2d', 'frames2d', 'sequences', 'remarks',
 ])
 /** sprite2d block field allow-list (drift-locked to the schema file). */
 export const KNOWN_SPRITE2D = new Set(['spritesheetPath', 'cell', 'columns', 'atlasRows', 'frames', 'tracks'])
 /** live2d block field allow-list (drift-locked to the schema file). */
 export const KNOWN_LIVE2D = new Set(['model', 'scale', 'translate', 'motions', 'expressions', 'hitAreas', 'lipSync'])
+/** frames2d block field allow-list (drift-locked to the schema file). */
+export const KNOWN_FRAMES2D = new Set(['dir', 'defaultFrameMs', 'tracks', 'phases'])
+/** frames2d track field allow-list (drift-locked to the schema file). */
+export const KNOWN_FRAMES2D_TRACK = new Set(['frames', 'frameMs', 'loop', 'fallback'])
 
 class Diagnostics {
   readonly list: PetManifestDiagnostic[] = []
@@ -293,6 +327,129 @@ function parseLive2dBlock(raw: unknown, diag: Diagnostics): PetManifestLive2d | 
   return diag.hasErrors ? undefined : block
 }
 
+const FRAMES2D_TRACK_NAME = /^[a-z0-9][a-z0-9-]*$/
+const FRAMES2D_MAX_TRACKS = 64
+const FRAMES2D_MAX_FRAMES = 64
+const FRAMES2D_MIN_FRAME_MS = 16
+const FRAMES2D_MAX_FRAME_MS = 5_000
+const FRAMES2D_IMAGE_EXTENSIONS = new Set(['.webp', '.png', '.gif', '.jpg', '.jpeg'])
+
+/** Validate one frames2d track name (kebab id, at most 32 chars). */
+function validTrackName(name: string): boolean {
+  return name.length <= 32 && FRAMES2D_TRACK_NAME.test(name)
+}
+
+/** A frames2d frame entry is a single image file name inside the track directory. */
+function safeFrameName(raw: unknown): string | undefined {
+  if (typeof raw !== 'string' || raw.trim() === '') return undefined
+  const value = raw.trim()
+  if (value.includes('/') || value.includes('\\') || !PATH_SEGMENT_PATTERN.test(value)) return undefined
+  const dot = value.lastIndexOf('.')
+  if (dot <= 0) return undefined
+  if (!FRAMES2D_IMAGE_EXTENSIONS.has(value.slice(dot).toLowerCase())) return undefined
+  return value
+}
+
+function parseFrames2dTrack(raw: unknown, field: string, diag: Diagnostics): PetManifestFrames2dTrack | undefined {
+  if (!isRecord(raw)) {
+    diag.error(field + ' must be an object')
+    return undefined
+  }
+  const extra = unknownKeys(raw, KNOWN_FRAMES2D_TRACK)
+  if (extra.length > 0) diag.error(field + ': unknown field(s) ' + extra.map(k => JSON.stringify(k)).join(', '))
+  const track: PetManifestFrames2dTrack = {}
+  if (raw.frames !== undefined) {
+    if (!Array.isArray(raw.frames) || raw.frames.length === 0) {
+      diag.error(field + '.frames must be a non-empty array of frame file names')
+    } else if (raw.frames.length > FRAMES2D_MAX_FRAMES) {
+      diag.error(field + '.frames declares too many frames (' + raw.frames.length + ', max ' + FRAMES2D_MAX_FRAMES + ')')
+    } else {
+      const frames: string[] = []
+      for (const entry of raw.frames) {
+        const safe = safeFrameName(entry)
+        if (safe === undefined) diag.error(field + '.frames entry ' + JSON.stringify(String(entry)) + ' is not a safe image file name')
+        else frames.push(safe)
+      }
+      if (frames.length === (raw.frames as unknown[]).length) track.frames = frames
+    }
+  }
+  if (raw.frameMs !== undefined) {
+    if (!Array.isArray(raw.frameMs) || raw.frameMs.length === 0
+      || raw.frameMs.some(v => typeof v !== 'number' || !Number.isInteger(v) || v < FRAMES2D_MIN_FRAME_MS || v > FRAMES2D_MAX_FRAME_MS)) {
+      diag.error(field + '.frameMs must be a non-empty array of integer ms in [' + FRAMES2D_MIN_FRAME_MS + ', ' + FRAMES2D_MAX_FRAME_MS + ']')
+    } else if (track.frames === undefined) {
+      diag.error(field + '.frameMs requires a valid explicit frames list (directory tracks use filename-encoded ms or defaultFrameMs)')
+    } else if (raw.frameMs.length !== track.frames.length) {
+      diag.error(field + '.frameMs must have the same length as frames')
+    } else {
+      track.frameMs = raw.frameMs as number[]
+    }
+  }
+  if (raw.loop !== undefined) {
+    if (typeof raw.loop !== 'boolean') diag.error(field + '.loop must be a boolean')
+    else track.loop = raw.loop
+  }
+  if (raw.fallback !== undefined) {
+    if (typeof raw.fallback !== 'string' || !validTrackName(raw.fallback)) diag.error(field + '.fallback must be a track name')
+    else track.fallback = raw.fallback
+  }
+  return diag.hasErrors ? undefined : track
+}
+
+function parseFrames2dBlock(raw: unknown, diag: Diagnostics): PetManifestFrames2d | undefined {
+  if (!isRecord(raw)) {
+    diag.error('renderer frames2d requires a "frames2d" block object')
+    return undefined
+  }
+  const extra = unknownKeys(raw, KNOWN_FRAMES2D)
+  if (extra.length > 0) diag.error('frames2d: unknown field(s) ' + extra.map(k => JSON.stringify(k)).join(', '))
+  const block: PetManifestFrames2d = { tracks: {}, phases: { idle: '' } }
+  if (raw.dir !== undefined) {
+    const dir = safeManifestPath(raw.dir)
+    if (dir === undefined) diag.error('frames2d.dir must be a safe manifest-relative directory')
+    else block.dir = dir
+  }
+  if (raw.defaultFrameMs !== undefined) {
+    if (typeof raw.defaultFrameMs !== 'number' || !Number.isInteger(raw.defaultFrameMs) || raw.defaultFrameMs < FRAMES2D_MIN_FRAME_MS || raw.defaultFrameMs > FRAMES2D_MAX_FRAME_MS) {
+      diag.error('frames2d.defaultFrameMs must be an integer in [' + FRAMES2D_MIN_FRAME_MS + ', ' + FRAMES2D_MAX_FRAME_MS + ']')
+    } else block.defaultFrameMs = raw.defaultFrameMs
+  }
+  const tracks: Record<string, PetManifestFrames2dTrack> = {}
+  if (!isRecord(raw.tracks)) {
+    diag.error('frames2d.tracks is required and must be an object keyed by track name')
+  } else {
+    const entries = Object.entries(raw.tracks)
+    if (entries.length === 0) diag.error('frames2d.tracks must declare at least one track')
+    if (entries.length > FRAMES2D_MAX_TRACKS) diag.error('frames2d.tracks declares too many tracks (' + entries.length + ', max ' + FRAMES2D_MAX_TRACKS + ')')
+    for (const [name, value] of entries) {
+      if (!validTrackName(name)) {
+        diag.error('frames2d.tracks: invalid track name ' + JSON.stringify(name) + ' (lowercase kebab, at most 32 chars)')
+        continue
+      }
+      const track = parseFrames2dTrack(value, 'frames2d.tracks.' + name, diag)
+      if (track !== undefined) tracks[name] = track
+    }
+  }
+  block.tracks = tracks
+  const phases = parsePhaseStringMap(raw.phases, 'frames2d.phases', diag)
+  if (raw.phases === undefined) diag.error('frames2d.phases is required (at least an "idle" mapping)')
+  else if (phases !== undefined && phases.idle === undefined) diag.error('frames2d.phases.idle is required (unmapped phases fall back to it)')
+  const phasesValid = phases !== undefined && phases.idle !== undefined
+  if (phasesValid) block.phases = phases as PetManifestFrames2d['phases']
+  // Dangling references (phases/fallback) are structure: fail closed.
+  if (phasesValid) {
+    for (const [phase, target] of Object.entries(block.phases)) {
+      if (target !== undefined && tracks[target] === undefined) diag.error('frames2d.phases.' + phase + ' references unknown track ' + JSON.stringify(target))
+    }
+  }
+  for (const [name, track] of Object.entries(tracks)) {
+    if (track.fallback !== undefined && tracks[track.fallback] === undefined) {
+      diag.error('frames2d.tracks.' + name + '.fallback references unknown track ' + JSON.stringify(track.fallback))
+    }
+  }
+  return diag.hasErrors ? undefined : block
+}
+
 /** v1 compat read: map the legacy flat manifest onto the v2 sprite2d shape. */
 function compatV1(source: Record<string, unknown>, diag: Diagnostics): PetManifestV2 | undefined {
   const id = parseStringBlock(source, 'id', diag, true)
@@ -377,10 +534,17 @@ function parseV2(source: Record<string, unknown>, diag: Diagnostics): PetManifes
     const block = parseSprite2dBlock(source.sprite2d, diag)
     if (block !== undefined) manifest.sprite2d = block
     if (source.live2d !== undefined) diag.error('renderer sprite2d must not declare a live2d block')
+    if (source.frames2d !== undefined) diag.error('renderer sprite2d must not declare a frames2d block')
   } else if (renderer === 'live2d') {
     const block = parseLive2dBlock(source.live2d, diag)
     if (block !== undefined) manifest.live2d = block
     if (source.sprite2d !== undefined) diag.error('renderer live2d must not declare a sprite2d block')
+    if (source.frames2d !== undefined) diag.error('renderer live2d must not declare a frames2d block')
+  } else if (renderer === 'frames2d') {
+    const block = parseFrames2dBlock(source.frames2d, diag)
+    if (block !== undefined) manifest.frames2d = block
+    if (source.sprite2d !== undefined) diag.error('renderer frames2d must not declare a sprite2d block')
+    if (source.live2d !== undefined) diag.error('renderer frames2d must not declare a live2d block')
   }
   const sequences = parseSequences(source.sequences, diag)
   if (sequences !== undefined) manifest.sequences = sequences
