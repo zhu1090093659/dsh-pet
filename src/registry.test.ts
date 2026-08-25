@@ -152,6 +152,142 @@ describe('resolvePetManifest', () => {
   })
 })
 
+describe('loadPetRegistry frames2d', () => {
+  /** Write a frames2d pet fixture: pet.json + thumb/<track>/<frame> files. */
+  function writeFrames2dPet(root: string, id: string, manifest: Record<string, unknown>, files: Record<string, string[]>): string {
+    const dir = join(root, 'assets', id)
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(join(dir, 'pet.json'), JSON.stringify({
+      petManifestVersion: 2,
+      id,
+      displayName: id,
+      license: 'MIT',
+      renderer: 'frames2d',
+      ...manifest,
+    }), 'utf8')
+    for (const [trackDir, frames] of Object.entries(files)) {
+      mkdirSync(join(dir, trackDir), { recursive: true })
+      for (const frame of frames) writeFileSync(join(dir, trackDir, frame), 'webp', 'utf8')
+    }
+    return dir
+  }
+
+  it('resolves directory-listed tracks with filename-encoded durations', () => {
+    const root = tempDir()
+    try {
+      writeFrames2dPet(root, 'miku', {
+        frames2d: {
+          dir: 'thumb',
+          tracks: { idle: { loop: true }, happy: { loop: false } },
+          phases: { idle: 'idle', done: 'happy' },
+        },
+      }, {
+        'thumb/idle': ['miku_1_200.webp', 'miku_2_260.webp'],
+        'thumb/happy': ['miku-happy_1_300.webp'],
+      })
+      const registry = loadPetRegistry({ packageRoot: root, petsDir: '', dshPetsDir: '' })
+      const entry = registry.byId('miku')
+      expect(entry?.renderer).toBe('frames2d')
+      expect(entry?.frames2d?.phases).toEqual({ idle: 'idle', done: 'happy' })
+      expect(entry?.frames2d?.tracks.idle).toMatchObject({ loop: true, durations: [200, 260] })
+      expect(entry?.frames2d?.tracks.idle?.frames).toEqual([
+        '/pet/miku/thumb/idle/miku_1_200.webp',
+        '/pet/miku/thumb/idle/miku_2_260.webp',
+      ])
+      expect(entry?.frames2d?.tracks.happy).toMatchObject({ loop: false, fallback: 'idle', durations: [300] })
+      expect(entry?.servable.sort()).toEqual([
+        'thumb/happy/miku-happy_1_300.webp',
+        'thumb/idle/miku_1_200.webp',
+        'thumb/idle/miku_2_260.webp',
+      ])
+      expect(entry?.atlasUrl).toBe('/pet/miku/thumb/idle/miku_1_200.webp')
+      // The browser view carries the frames2d block.
+      const view = petEntryView(entry!)
+      expect(view.frames2d?.tracks.idle?.frames).toHaveLength(2)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('honours explicit frames order and frameMs over filename-encoded durations', () => {
+    const root = tempDir()
+    try {
+      writeFrames2dPet(root, 'fox', {
+        frames2d: {
+          dir: 'thumb',
+          tracks: { idle: { frames: ['b_100.webp', 'a_100.webp'], frameMs: [111, 222], loop: true } },
+          phases: { idle: 'idle' },
+        },
+      }, { 'thumb/idle': ['a_100.webp', 'b_100.webp'] })
+      const entry = loadPetRegistry({ packageRoot: root, petsDir: '', dshPetsDir: '' }).byId('fox')
+      expect(entry?.frames2d?.tracks.idle?.frames).toEqual([
+        '/pet/fox/thumb/idle/b_100.webp',
+        '/pet/fox/thumb/idle/a_100.webp',
+      ])
+      expect(entry?.frames2d?.tracks.idle?.durations).toEqual([111, 222])
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('drops an empty track and remaps its phases to idle with a warning', () => {
+    const root = tempDir()
+    try {
+      writeFrames2dPet(root, 'miku', {
+        frames2d: {
+          dir: 'thumb',
+          tracks: { idle: {}, work: {} },
+          phases: { idle: 'idle', thinking: 'work' },
+        },
+      }, { 'thumb/idle': ['miku_1_200.webp'] })
+      const registry = loadPetRegistry({ packageRoot: root, petsDir: '', dshPetsDir: '' })
+      const entry = registry.byId('miku')
+      expect(entry?.frames2d?.tracks.work).toBeUndefined()
+      expect(entry?.frames2d?.phases.thinking).toBe('idle')
+      expect(registry.warnings.some(warning => warning.includes('work'))).toBe(true)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects the entry fail-closed when the idle track has no frames on disk', () => {
+    const root = tempDir()
+    try {
+      writeFrames2dPet(root, 'miku', {
+        frames2d: {
+          dir: 'thumb',
+          tracks: { idle: {}, happy: {} },
+          phases: { idle: 'idle', done: 'happy' },
+        },
+      }, { 'thumb/happy': ['miku_1_200.webp'] })
+      const registry = loadPetRegistry({ packageRoot: root, petsDir: '', dshPetsDir: '' })
+      expect(registry.byId('miku')).toBeUndefined()
+      expect(registry.diagnostics.some(d => d.level === 'error' && d.message.includes('idle'))).toBe(true)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('warns and skips a missing explicit frame', () => {
+    const root = tempDir()
+    try {
+      writeFrames2dPet(root, 'miku', {
+        frames2d: {
+          dir: 'thumb',
+          tracks: { idle: { frames: ['a_100.webp', 'gone_100.webp'] } },
+          phases: { idle: 'idle' },
+        },
+      }, { 'thumb/idle': ['a_100.webp'] })
+      const registry = loadPetRegistry({ packageRoot: root, petsDir: '', dshPetsDir: '' })
+      const entry = registry.byId('miku')
+      expect(entry?.frames2d?.tracks.idle?.frames).toEqual(['/pet/miku/thumb/idle/a_100.webp'])
+      expect(registry.warnings.some(warning => warning.includes('gone_100.webp'))).toBe(true)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+})
+
 describe('loadPetRegistry', () => {
   it('ships every built-in pet while keeping the original whale as default', () => {
     const registry = loadPetRegistry({

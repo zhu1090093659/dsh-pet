@@ -196,6 +196,26 @@ export interface PetLive2dDefinition {
   hitAreas?: string[]
 }
 
+/** One frames2d track as served to the browser half. */
+export interface PetFrames2dTrackView {
+  /** Browser URLs of the frames in play order. */
+  frames: string[]
+  /** Per-frame durations in ms; same length as frames. */
+  durations: number[]
+  /** Whether the track loops; a non-looping track ends into fallback. */
+  loop: boolean
+  /** Track entered when a non-looping track finishes (defaults to the idle track). */
+  fallback?: string
+}
+
+/** The frames2d renderer block as served to the browser half. */
+export interface PetFrames2dDefinition {
+  /** Named tracks keyed by track id. */
+  tracks: Record<string, PetFrames2dTrackView>
+  /** ActivityPhase -> track id; unmapped phases fall back to idle. */
+  phases: Partial<Record<ActivityPhase, string>> & { idle: string }
+}
+
 /** A normalized pet as served to the browser half. */
 export interface PetDefinition {
   id: string
@@ -205,6 +225,8 @@ export interface PetDefinition {
   renderer: PetRendererKind
   /** Live2d render block; present exactly when renderer is 'live2d' (M3). */
   live2d?: PetLive2dDefinition
+  /** Frames2d render block; present exactly when renderer is 'frames2d'. */
+  frames2d?: PetFrames2dDefinition
   /** Atlas cell size in px. */
   cell: PetCell
   /** Columns per row. */
@@ -581,6 +603,132 @@ function resolveLive2dEntry(
   }
 }
 
+/** Filename-encoded frame duration tail ('<base>_<index>_<ms>.webp'). */
+const FRAMES2D_FILENAME_MS = /_(\d+)\.[^.]+$/
+/** Default per-frame duration when neither frameMs nor the filename encodes one. */
+const FRAMES2D_DEFAULT_FRAME_MS = 200
+/** Image extensions a frames2d track directory may list. */
+const FRAMES2D_IMAGE_EXTENSIONS = new Set(['.webp', '.png', '.gif', '.jpg', '.jpeg'])
+
+/**
+ * Resolve a validated frames2d manifest into a renderable entry. Track frame
+ * lists come from the manifest's explicit list or from listing
+ * '<dir>/<track>/' in filename order; durations resolve frameMs[i] >
+ * filename-encoded '_<ms>' tail > defaultFrameMs. Missing frames warn and
+ * skip (the live2d closure discipline); a track left with zero frames is
+ * dropped, and if the idle-mapped track ends up empty the entry is rejected
+ * fail-closed. The sprite fields carry contract defaults: the chrome sizes
+ * frames2d pets off 'display.size', not the atlas.
+ */
+function resolveFrames2dEntry(
+  manifest: PetManifestV2,
+  dir: string,
+  options: { assetPrefix?: string; warnings?: string[]; diagnostics?: PetRegistryDiagnostic[] },
+): PetEntry | undefined {
+  const assetPrefix = options.assetPrefix ?? '/pet'
+  const record = (level: 'error' | 'warning', message: string): void => {
+    options.diagnostics?.push({ level, source: dir, message })
+    options.warnings?.push(message)
+  }
+  const block = manifest.frames2d
+  if (block === undefined) {
+    record('error', 'pet ' + manifest.id + ': renderer frames2d requires a frames2d block')
+    return undefined
+  }
+  const root = block.dir ?? '.'
+  const defaultMs = block.defaultFrameMs ?? FRAMES2D_DEFAULT_FRAME_MS
+  const idleTrack = block.phases.idle
+  const tracks: Record<string, PetFrames2dTrackView> = {}
+  const servable: string[] = []
+  const firstFrameRel: Record<string, string> = {}
+  for (const [name, track] of Object.entries(block.tracks)) {
+    const trackDir = root === '.' ? name : root + '/' + name
+    let relFrames: string[] = []
+    if (track.frames !== undefined) {
+      for (const frame of track.frames) {
+        const rel = trackDir + '/' + frame
+        if (!existsSync(join(dir, rel))) {
+          record('warning', 'pet ' + manifest.id + ': frames2d frame missing: ' + rel)
+          continue
+        }
+        relFrames.push(rel)
+      }
+    } else {
+      let files: string[] = []
+      try {
+        files = readdirSync(join(dir, trackDir)).filter(file => {
+          if (file.startsWith('.')) return false
+          const dot = file.lastIndexOf('.')
+          return dot > 0 && FRAMES2D_IMAGE_EXTENSIONS.has(file.slice(dot).toLowerCase())
+        })
+      } catch {
+        files = []
+      }
+      files.sort()
+      relFrames = files.map(file => trackDir + '/' + file)
+    }
+    if (relFrames.length === 0) {
+      record('warning', 'pet ' + manifest.id + ': frames2d track ' + JSON.stringify(name) + ' has no frames on disk; dropped')
+      continue
+    }
+    const durations = relFrames.map((rel, index) => {
+      if (track.frameMs !== undefined) return track.frameMs[index] ?? defaultMs
+      const match = FRAMES2D_FILENAME_MS.exec(rel)
+      if (match !== null) {
+        const ms = Number(match[1])
+        if (Number.isInteger(ms) && ms >= 16 && ms <= 5000) return ms
+      }
+      return defaultMs
+    })
+    const loop = track.loop ?? true
+    const view: PetFrames2dTrackView = {
+      frames: relFrames.map(rel => assetUrl(assetPrefix, manifest.id, rel)),
+      durations,
+      loop,
+      ...(loop ? {} : { fallback: track.fallback ?? idleTrack }),
+    }
+    tracks[name] = view
+    firstFrameRel[name] = relFrames[0]!
+    servable.push(...relFrames)
+  }
+  if (tracks[idleTrack] === undefined) {
+    record('error', 'pet ' + manifest.id + ': frames2d idle track ' + JSON.stringify(idleTrack) + ' has no frames on disk')
+    return undefined
+  }
+  const phases = { ...block.phases }
+  for (const [phase, target] of Object.entries(phases)) {
+    if (target !== undefined && tracks[target] === undefined) {
+      record('warning', 'pet ' + manifest.id + ': frames2d phase ' + phase + ' maps to dropped track ' + JSON.stringify(target) + '; using idle')
+      phases[phase as ActivityPhase] = idleTrack
+    }
+  }
+  const remarks = normalizePetRemarks(manifest.remarks, message => record('warning', 'pet ' + manifest.id + ': ' + message))
+  const flatTracks = buildTracks(DEFAULT_FRAME_COUNTS, DEFAULT_PET_COLUMNS, {}, message => record('warning', 'pet ' + manifest.id + ': ' + message))
+  if (flatTracks === undefined) return undefined
+  // The render box comes from the first idle frame when decodable.
+  const firstAbs = join(dir, firstFrameRel[idleTrack]!)
+  const dims = existsSync(firstAbs) ? readImageDimensions(firstAbs) : undefined
+  const cell = dims !== undefined && dims.width >= 1 && dims.height >= 1 ? dims : { ...DEFAULT_PET_CELL }
+  return {
+    id: manifest.id,
+    displayName: manifest.displayName,
+    description: manifest.description ?? '',
+    renderer: 'frames2d' as const,
+    frames2d: { tracks, phases },
+    cell,
+    columns: DEFAULT_PET_COLUMNS,
+    rows: [...DEFAULT_FRAME_COUNTS],
+    atlasRows: DEFAULT_PET_ROW_COUNT,
+    tracks: flatTracks,
+    atlasUrl: tracks[idleTrack]!.frames[0]!,
+    manifestUrl: assetUrl(assetPrefix, manifest.id, 'pet.json'),
+    dir,
+    spritesheetPath: firstFrameRel[idleTrack]!,
+    servable,
+    ...(remarks === undefined ? {} : { remarks }),
+  }
+}
+
 /** Scan one directory of pet folders; entries come back in name order. */
 function scanPetDir(dir: string, options: { assetPrefix?: string; warnings?: string[]; diagnostics?: PetRegistryDiagnostic[] }): PetEntry[] {
   if (!existsSync(dir)) return []
@@ -607,6 +755,8 @@ function scanPetDir(dir: string, options: { assetPrefix?: string; warnings?: str
     let entry: PetEntry | undefined
     if (verdict.manifest.renderer === 'live2d') {
       entry = resolveLive2dEntry(verdict.manifest, entryDir, options)
+    } else if (verdict.manifest.renderer === 'frames2d') {
+      entry = resolveFrames2dEntry(verdict.manifest, entryDir, options)
     } else {
       const legacy = flattenV2Sprite2d(verdict.manifest)
       if (legacy === undefined) {
@@ -951,6 +1101,7 @@ export function petEntryView(entry: PetEntry, globalVoice?: VoicePack): PetDefin
     description: entry.description,
     renderer: entry.renderer,
     ...(entry.live2d === undefined ? {} : { live2d: entry.live2d }),
+    ...(entry.frames2d === undefined ? {} : { frames2d: entry.frames2d }),
     cell: entry.cell,
     columns: entry.columns,
     rows: entry.rows,
