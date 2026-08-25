@@ -464,8 +464,12 @@
 .gameplayCard {
   position: absolute;
   left: 0;
-  bottom: -8px;
-  transform: translateY(100%) translateY(26px);
+  bottom: 0;
+  /* The pet dock hugs the viewport bottom edge, so the card grows upward
+     instead of downward (below the anchor it would clip off-screen). */
+  transform: translateY(calc(-100% - 20px));
+  max-height: 340px;
+  overflow-y: auto;
   min-width: 180px;
   padding: 10px 12px;
   border: 1px solid rgba(126, 152, 255, 0.25);
