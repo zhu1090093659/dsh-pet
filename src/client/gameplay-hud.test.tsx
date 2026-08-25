@@ -175,6 +175,45 @@ describe('GameplayHud', () => {
     expect(screen.getByText('商店')).toBeDefined()
   })
 
+
+  it('opens the card beside the pet, on the right when the space allows', () => {
+    // The parent float box (160x160) sits away from the viewport edges, so
+    // the right side fits the measured card width and the card anchors to
+    // the sprite's right edge, clamped to the sprite height.
+    const rect = (w: number, h: number, x: number, y: number): DOMRect => ({
+      top: y, right: x + w, bottom: y + h, left: x, width: w, height: h, x, y, toJSON: () => ({}) } as DOMRect)
+    vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(1280)
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      if (this.className.includes('gameplayHud')) return rect(0, 0, 300, 600)
+      if (this.className.includes('gameplayCard')) return rect(240, 150, 0, 600)
+      return rect(160, 160, 300, 600)
+    })
+    const h = harness()
+    act(() => { h.bus.openCard?.() })
+    const card = document.querySelector('[data-page]') as HTMLElement
+    // Right side: sprite width + 8px gap; vertically centered (up by half
+    // the sprite height); clamped to the sprite height (scrolls inside).
+    expect(card.style.transform).toContain('translate(168px, -80px)')
+    expect(card.style.maxHeight).toBe('160px')
+  })
+
+  it('flips the card to the left when the pet is parked near the right edge', () => {
+    const rect = (w: number, h: number, x: number, y: number): DOMRect => ({
+      top: y, right: x + w, bottom: y + h, left: x, width: w, height: h, x, y, toJSON: () => ({}) } as DOMRect)
+    vi.spyOn(window, 'innerWidth', 'get').mockReturnValue(1280)
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      if (this.className.includes('gameplayHud')) return rect(0, 0, 1080, 600)
+      if (this.className.includes('gameplayCard')) return rect(240, 150, 0, 600)
+      return rect(160, 160, 1080, 600)
+    })
+    const h = harness()
+    act(() => { h.bus.openCard?.() })
+    const card = document.querySelector('[data-page]') as HTMLElement
+    // Only 40px remain to the right of the pet: the card opens to the left
+    // of the sprite (measured card width + 8px gap).
+    expect(card.style.transform).toContain('translate(-248px, -80px)')
+  })
+
   it('toggles the card through openCard and closes with the close button', () => {
     const h = harness()
     act(() => { h.bus.openCard?.() })

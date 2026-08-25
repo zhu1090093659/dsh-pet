@@ -9,7 +9,7 @@
  * @module @linxin666/dsh-pet/client/GameplayHud
  */
 
-import { useEffect, useRef, useState, useSyncExternalStore, type ReactElement } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactElement } from 'react'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { PetDefinition } from '../registry.ts'
 import type { PetGameplayVerbResult } from '../service.ts'
@@ -71,6 +71,8 @@ export function GameplayHud(props: {
 
   const [open, setOpen] = useState(false)
   const [page, setPage] = useState<HudPage>('root')
+  const hudRef = useRef<HTMLDivElement | null>(null)
+  const cardRef = useRef<HTMLDivElement | null>(null)
   const [floats, setFloats] = useState<HudFloat[]>([])
   // Mutable driver state (refs so intervals never re-arm on a poll tick).
   const modeRef = useRef<'work' | 'sleep' | null>(view?.mode ?? null)
@@ -150,6 +152,33 @@ export function GameplayHud(props: {
     return () => { bus.openCard = undefined }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- one registration per bus
   }, [bus])
+
+  // Card placement: the card must not enter the bubble band above the sprite
+  // or the hover-panel band below it, so it opens beside the sprite instead
+  // of growing upward from the pet's feet. It is vertically centered on the
+  // sprite box, clamped to the sprite's height, and the side is chosen by
+  // the space available to each side (right first; a pet parked near the
+  // right viewport edge flips the card to the left).
+  useLayoutEffect(() => {
+    if (!open) return undefined
+    const hud = hudRef.current
+    const card = cardRef.current
+    if (hud === null || card === null) return undefined
+    const place = (): void => {
+      const box = hud.parentElement?.getBoundingClientRect()
+      if (box === undefined) return
+      const gap = 8
+      const width = card.getBoundingClientRect().width
+      const toRight = window.innerWidth - box.right
+      const x = toRight >= width + gap ? box.width + gap : -(width + gap)
+      card.style.transform = 'translate(' + Math.round(x) + 'px, ' + Math.round(-box.height / 2) + 'px) translateY(50%)'
+      card.style.maxHeight = Math.round(box.height) + 'px'
+    }
+    place()
+    window.addEventListener('resize', place)
+    return () => { window.removeEventListener('resize', place) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one placement per open/page change
+  }, [open, page])
 
   // Drag gestures wake a sleeping pet (miku behavior); the drag stream also
   // feeds the idle director's suppression check.
@@ -277,7 +306,7 @@ export function GameplayHud(props: {
   const currencies = Object.keys(view.currencies).length === 0 ? { coins: 0 } : view.currencies
 
   return (
-    <div className={styles.gameplayHud} data-dsh-pet-gameplay={definition.id}>
+    <div ref={hudRef} className={styles.gameplayHud} data-dsh-pet-gameplay={definition.id}>
       {floats.map(entry => (
         <div key={entry.id} className={styles.gameplayFloat}>{entry.text}</div>
       ))}
@@ -287,7 +316,7 @@ export function GameplayHud(props: {
         </div>
       )}
       {open && (
-        <div className={styles.gameplayCard} data-page={page}>
+        <div ref={cardRef} className={styles.gameplayCard} data-page={page}>
           {page === 'root' && (
             <>
               <div className={styles.gameplayBars}>

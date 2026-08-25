@@ -444,9 +444,12 @@
   position: absolute;
   left: 0;
   bottom: 0;
-  /* The pet dock hugs the viewport bottom edge, so the card grows upward
-     instead of downward (below the anchor it would clip off-screen). */
-  transform: translateY(calc(-100% - 20px));
+  /* The card opens BESIDE the sprite (right side when the space allows,
+     otherwise left), vertically centered and clamped to the sprite's height,
+     so it never enters the bubble band above or the hover-panel band below.
+     The transform and max-height are set inline from measured space by the
+     GameplayHud placement effect; these are pre-measure fallbacks. */
+  transform: none;
   max-height: 340px;
   overflow-y: auto;
   min-width: 180px;
