@@ -65,9 +65,9 @@
 宠物目录的 `pet.json` 在 v2 中显式声明渲染器：
 
 - `petManifestVersion: 2`（缺省 = v1，按 `sprite2d` 兼容读并给出迁移提示）；
-- `renderer`：`"sprite2d"`（上文图集契约）或 `"live2d"`；
+- `renderer`：`"sprite2d"`（上文图集契约）、`"live2d"` 或 `"frames2d"`；
 - `license`（v2 必填）：资产授权标识——社区宠物必须携带来源声明；
-- 渲染器专属块：`sprite2d`（spritesheetPath/cell/columns/atlasRows/frames/tracks）或 `live2d`（model/motions/expressions/hitAreas/scale/translate）。
+- 渲染器专属块：`sprite2d`（spritesheetPath/cell/columns/atlasRows/frames/tracks）、`live2d`（model/motions/expressions/hitAreas/scale/translate）或 `frames2d`（dir/defaultFrameMs/tracks/phases——目录式帧序列）。
 
 校验纪律：结构 fail-closed（未知字段或未知渲染器直接拒载并给出诊断），sequences/remarks 内容维持 warn-and-drop。机器可读 schema 见 `contracts/pet-manifest-v2.schema.json`，权威校验器为 `src/manifest-v2.ts`。迁移 v1 清单：`node scripts/dsh-pet-migrate-v2.mjs <dir> --write`（默认 dry-run；保留 `pet.json.v1.bak`）。
 
@@ -157,6 +157,14 @@ Live2D 清单把七个活动相位映射到模型的动作组：
 
 模型授权：Live2D 官方示例模型（Hiyori、Haru 等）仅供评估、禁止再分发——只发布你有权的模型（原创作品或宽松授权的模型）。
 
+## Frames2d 宠物与玩法（renderer: frames2d）
+
+frames2d 宠物不用图集，直接交付目录式帧序列：`thumb/<track>/<frame>.webp`，帧时长取文件名 `_<ms>` 尾缀或轨道的 `frameMs` 列表（默认 200ms，范围 16–5000）。清单把七个活动相位映射到轨道；`drag` 轨道跟随外壳的拖拽手势；非循环轨道播完进入 `fallback`（默认 idle 轨道），入睡/睡熟这类"引子 + 循环"拆分（sleep-intro → sleep）就是纯清单数据。
+
+frames2d 宠物可声明 `gameplay` 块——从 miku 桌宠泛化而来的可选玩法层：属性条（`stats`，按分钟衰减，另有打工中与空闲变体）、命名货币、加权 `idleDirector`（每 `intervalMs` 掷骰演出小动作，连续落空 `maxMiss` 次必演）、`hitBox` 内的 `touch` 触摸分区（分支掷骰：效果 + 轨道保持 + 台词气泡）、`work` 打工循环（宿主裁决 tick，成功/失败结果轨道）、`sleep` 睡觉循环（惰性恢复）、`passiveIncome` 被动收入，以及 `shop` 商店（商品可带效果、货币兑换或分档抽奖）。所有掷骰与记账由宿主权威裁决（`POST /api/pet/gameplay/*`），状态按宠物持久化在 `pet.json`，沿用小鱼干经济的惰性结算纪律。浏览器半侧为声明了该块的宠物自动渲染玩法菜单卡（属性条、打工/睡觉开关、商店网格、钱包页）。
+
+**Miku 宠物**（stushansusu 涂山苏苏以 MIT 贡献；初音未来角色权利归 Crypton Future Media，受 Piapro 角色许可约束——见 THIRD_PARTY_NOTICES.md）是 frames2d 玩法的参考实现。它只经**创意工坊**分发（不打进 npm 包）：从工坊宠物列表安装后落在 `$DSH_HOME/pets/miku/`。
+
 ## 状态装饰（decoration.json，宠物中心 M5，#567）
 
 宠物状态气泡里的文字之前可以有一个小的状态装饰（内置：喷水鲸鱼），由 ActivityPhase 流驱动换帧。装饰与宠物相互独立：独立描述符、独立 id、独立目录，换宠物不换装饰。入口资产只收 PNG/WebP 单行精灵条带（不收 SVG/CSS）；气泡自身的 role=status/aria-live（或会话气泡按钮语义）永远保留，装饰 aria-hidden；prefers-reduced-motion 时停在帧段首帧，资产加载失败只消失装饰、文字照常。
@@ -192,6 +200,8 @@ Live2D 清单把七个活动相位映射到模型的动作组：
 | `ouo-neko` | OUO Neko | `Pessimist0906` 以 MIT 许可证贡献的粉色樱花猫耳伙伴 |
 | `whale-girl` | 鲸鱼娘（原版） | 仓库原有的鲸鱼娘图集 |
 | `whale-girl-refined` | 鲸鱼娘（精致版） | 以鲸鱼娘设计方向为基础，经 AI 辅助二次创作、修复和细节精修的衍生版本 |
+
+Miku 宠物有意不随包内置：它是 frames2d 玩法宠物，经创意工坊按需安装（见上文 frames2d 一节）。
 
 精致版参考了 DreamSkin 的「DeepSeek-鲸鱼娘」主题。历史来源记录标注原主题作者为 `powerdog996`，并标注主题为 MIT：[DreamSkin](https://dreamskin.cc)、[仓库来源记录](https://github.com/zhu1090093659/dsh-web/commit/87edd7ff4800dffd40bc93fb76e4ae450390facd)。此处用于记录素材来源与衍生关系；精致版不表述为原作者的官方作品，也不重新定义原始美术作品的授权范围。
 

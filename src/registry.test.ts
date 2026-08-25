@@ -314,7 +314,12 @@ describe('loadPetRegistry', () => {
       dshPetsDir: '',
     })
 
+    // The repo checkout also resolves miku (frames2d gameplay pet) from
+    // assets/; the npm files whitelist excludes it (Workshop delivery), so
+    // npm installs see the three atlas pets until a Workshop install lands
+    // miku under $DSH_HOME/pets.
     expect(registry.entries.map(entry => entry.id)).toEqual([
+      'miku',
       'ouo-neko',
       'whale-girl',
       'whale-girl-refined',

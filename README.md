@@ -65,9 +65,9 @@ A pet is a directory holding one `pet.json` manifest and one atlas image. Nothin
 A pet directory's `pet.json` declares its renderer explicitly in v2:
 
 - `petManifestVersion: 2` (absent = v1, compat-read as `sprite2d` with a migration hint);
-- `renderer`: `"sprite2d"` (the atlas contract above) or `"live2d"`;
+- `renderer`: `"sprite2d"` (the atlas contract above), `"live2d"`, or `"frames2d"`;
 - `license` (required in v2): asset license identifier — community pets carry provenance;
-- a renderer block: `sprite2d` (spritesheetPath/cell/columns/atlasRows/frames/tracks) or `live2d` (model/motions/expressions/hitAreas/scale/translate).
+- a renderer block: `sprite2d` (spritesheetPath/cell/columns/atlasRows/frames/tracks), `live2d` (model/motions/expressions/hitAreas/scale/translate), or `frames2d` (dir/defaultFrameMs/tracks/phases — directory-style frame sequences).
 
 Validation is fail-closed on structure (unknown fields or renderer kinds reject the entry with a diagnostic) and warn-and-drop on sequence/remark content. The machine-readable schema lives at `contracts/pet-manifest-v2.schema.json`; the authoritative validator is `src/manifest-v2.ts`. Migrate v1 manifests with `node scripts/dsh-pet-migrate-v2.mjs <dir> --write` (dry-run by default; keeps `pet.json.v1.bak`).
 
@@ -157,6 +157,14 @@ A Live2D manifest maps the seven activity phases onto the model's motion groups:
 
 Model licensing: the official Live2D sample models (Hiyori, Haru, and friends) are evaluation-only and must not be redistributed — ship only models you have rights to (original creations or permissively licensed ones).
 
+## Frames2d pets and gameplay (renderer: frames2d)
+
+Frames2d pets ship directory-style frame sequences instead of an atlas: `thumb/<track>/<frame>.webp`, with per-frame durations from an optional `_<ms>` filename tail or the track's `frameMs` list (default 200 ms, bounds 16–5000). The manifest maps the activity phases onto tracks; a `drag` track follows the chrome's drag gesture, and non-looping tracks settle into their `fallback` (default the idle track), so intro/loop splits (sleep-intro → sleep) are plain manifest data.
+
+A frames2d pet may declare a `gameplay` block — an opt-in mini-game layer generalized from the miku desktop pet: decaying stat bars (`stats` with per-minute decay, a working variant and an idle variant), named `currencies`, a weighted `idleDirector` (rolls an act every `intervalMs`, `maxMiss` forces one after consecutive idle rolls), `touch` zones inside a `hitBox` (roll branches with effects, a track hold and phrase bubbles), a `work` loop (host-adjudicated ticks with success/fail result tracks), a `sleep` loop (lazy stat restore), `passiveIncome`, and a `shop` whose items carry effects, currency swaps or tiered lotteries. All rolls and bookkeeping are host-authoritative (`POST /api/pet/gameplay/*`); state persists per pet in `pet.json` and settles lazily on the treats-economy discipline. The browser half renders the menu card (stat bars, work/sleep toggles, shop grid, wallet) automatically for any pet that declares the block.
+
+The **Miku pet** (contributed by stushansusu under MIT; Hatsune Miku character rights belong to Crypton Future Media under the Piapro Character License — see THIRD_PARTY_NOTICES.md) is the reference frames2d gameplay pet. It ships through the **Workshop** only (not the npm bundle): install it from the Workshop's pet list and it lands in `$DSH_HOME/pets/miku/`.
+
 ## Status decorations (decoration.json, pet-center M5, #567)
 
 A status bubble can carry a small ornament ahead of its text (built-in: the spouting whale), driven by the ActivityPhase stream. Decorations are independent of pets: own descriptor, own id, own directory — switching pets never switches decorations. Entry assets are PNG/WebP single-row sprite strips only (no SVG/CSS); the bubble always keeps its role=status/aria-live (or session-bubble button semantics), the ornament is aria-hidden; prefers-reduced-motion holds the segment first frame, and a broken asset only removes the ornament — the text stays.
@@ -192,6 +200,8 @@ A status bubble can carry a small ornament ahead of its text (built-in: the spou
 | `ouo-neko` | OUO Neko | Pink-sakura cat-eared companion contributed by `Pessimist0906` under MIT |
 | `whale-girl` | 鲸鱼娘（原版） | The repository's original whale-girl atlas |
 | `whale-girl-refined` | 鲸鱼娘（精致版） | An AI-assisted derivative with repaired and refined details, based on the whale-girl design direction |
+
+The Miku pet is deliberately not bundled: it is a frames2d gameplay pet installed on demand from the Workshop (see the frames2d section above).
 
 The refined variant references DreamSkin's “DeepSeek-Whale” theme. The historical source record identifies `powerdog996` as the original theme author and marks the theme as MIT: [DreamSkin](https://dreamskin.cc), [repository source record](https://github.com/zhu1090093659/dsh-web/commit/87edd7ff4800dffd40bc93fb76e4ae450390facd). This attribution records the source and derivative relationship; it does not present the refined variant as an official work of the original author or redefine the original artwork's licensing scope.
 
