@@ -413,3 +413,219 @@
     transition: none;
   }
 }
+
+/* ------------------------------------------------------------------ */
+/* Gameplay HUD (miku-pet generalization): toggle, card, bars, shop.   */
+/* ------------------------------------------------------------------ */
+
+.gameplayHud {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 0;
+  height: 0;
+}
+
+.gameplayToggle {
+  position: absolute;
+  left: -8px;
+  bottom: -8px;
+  transform: translateY(100%);
+  padding: 2px 10px;
+  border: 1px solid rgba(126, 152, 255, 0.35);
+  border-radius: 999px;
+  background: rgba(7, 11, 26, 0.85);
+  color: #cdd7ff;
+  font-size: 11px;
+  line-height: 1.6;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.gameplayToggle:hover {
+  border-color: rgba(126, 152, 255, 0.8);
+  color: #ffffff;
+}
+
+.gameplayModeChip {
+  position: absolute;
+  left: 0;
+  top: 0;
+  transform: translateY(-100%) translateY(-4px);
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: rgba(126, 152, 255, 0.18);
+  color: #cdd7ff;
+  font-size: 10px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.gameplayCard {
+  position: absolute;
+  left: 0;
+  bottom: -8px;
+  transform: translateY(100%) translateY(26px);
+  min-width: 180px;
+  padding: 10px 12px;
+  border: 1px solid rgba(126, 152, 255, 0.25);
+  border-radius: 10px;
+  background: rgba(7, 11, 26, 0.92);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  color: #dfe6ff;
+  font-size: 12px;
+}
+
+.gameplayBars {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.gameplayBarRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.gameplayBarLabel {
+  width: 34px;
+  flex-shrink: 0;
+  color: #9aa8d8;
+}
+
+.gameplayBarTrack {
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(126, 152, 255, 0.15);
+  overflow: hidden;
+}
+
+.gameplayBarFill {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, #7e98ff, #9db4ff);
+  transition: width 300ms ease;
+}
+
+.gameplayActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.gameplayShopItems {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.gameplayShopItem {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 6px;
+  border: 1px solid rgba(126, 152, 255, 0.25);
+  border-radius: 8px;
+  background: rgba(126, 152, 255, 0.08);
+  color: inherit;
+  cursor: pointer;
+}
+
+.gameplayShopItem:hover {
+  border-color: rgba(126, 152, 255, 0.7);
+  background: rgba(126, 152, 255, 0.16);
+}
+
+.gameplayShopItemImage {
+  width: 36px;
+  height: 36px;
+  object-fit: contain;
+  image-rendering: pixelated;
+  pointer-events: none;
+}
+
+.gameplayShopItemLabel {
+  font-size: 11px;
+  text-align: center;
+}
+
+.gameplayShopItemPrice {
+  font-size: 10px;
+  color: #ffd27e;
+}
+
+.gameplayWallet {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+}
+
+.gameplayWalletRow {
+  color: #ffd27e;
+}
+
+.gameplayClose {
+  position: absolute;
+  top: 4px;
+  right: 8px;
+  border: none;
+  background: none;
+  color: #9aa8d8;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 0 2px;
+}
+
+.gameplayClose:hover {
+  color: #ffffff;
+}
+
+.gameplayFloat {
+  position: absolute;
+  left: 50%;
+  top: -8px;
+  transform: translateX(-50%);
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: rgba(255, 210, 126, 0.92);
+  color: #3a2a00;
+  font-size: 11px;
+  white-space: nowrap;
+  pointer-events: none;
+  animation: pet-gameplay-float 1100ms ease-out forwards;
+}
+
+@keyframes pet-gameplay-float {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(6px);
+  }
+
+  20% {
+    opacity: 1;
+  }
+
+  to {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-18px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gameplayFloat {
+    animation: none;
+    opacity: 1;
+  }
+
+  .gameplayBarFill {
+    transition: none;
+  }
+}
+

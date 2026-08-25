@@ -19,7 +19,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { PetDisplayConfig } from '../persist.ts'
-import type { PetInteractResult, PetStateView } from '../service.ts'
+import type { PetGameplayVerbResult, PetInteractResult, PetStateView } from '../service.ts'
 import type { PetInteraction } from '../affinity.ts'
 import type { PetDefinition } from '../registry.ts'
 import { createElement } from 'react'
@@ -43,6 +43,10 @@ interface PetHttpApi {
   setConfig(patch: Partial<PetDisplayConfig>): Promise<{ ok: true; display: PetDisplayConfig }>
   setName(name: string): Promise<{ ok: true; name: string } | { ok: false; error: string }>
   setPet(petId: string): Promise<{ ok: true; petId: string } | { ok: false; error: string }>
+  gameplayTouch(zone?: string): Promise<PetGameplayVerbResult>
+  gameplaySetMode(mode: 'work' | 'sleep' | null): Promise<PetGameplayVerbResult>
+  gameplayWorkTick(): Promise<PetGameplayVerbResult>
+  gameplayBuy(item: string): Promise<PetGameplayVerbResult>
 }
 
 /** Same-origin JSON fetch helper (GET without body, POST with JSON body). */
@@ -69,6 +73,10 @@ const petApi: PetHttpApi = {
   setConfig: (patch) => petFetch('/api/pet/set-config', patch),
   setName: (name) => petFetch('/api/pet/set-name', { name }),
   setPet: (petId) => petFetch('/api/pet/set-pet', { petId }),
+  gameplayTouch: (zone) => petFetch('/api/pet/gameplay/touch', zone === undefined ? {} : { zone }),
+  gameplaySetMode: (mode) => petFetch('/api/pet/gameplay/mode', { mode }),
+  gameplayWorkTick: () => petFetch('/api/pet/gameplay/work-tick', {}),
+  gameplayBuy: (item) => petFetch('/api/pet/gameplay/buy', { item }),
 }
 
 /** Poll interval for the host snapshot. */
@@ -322,6 +330,12 @@ export function apply(ctx: ClientContext): void {
         },
         feedbackDone: () => {
           setFeedback(null)
+        },
+        gameplay: {
+          touch: (zone) => petApi.gameplayTouch(zone),
+          setMode: (mode) => petApi.gameplaySetMode(mode),
+          workTick: () => petApi.gameplayWorkTick(),
+          buy: (item) => petApi.gameplayBuy(item),
         },
       })
 

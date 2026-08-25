@@ -18,6 +18,7 @@ import type { DragStream } from '../drag-stream.ts'
 import type { PetRendererContext } from '../../contracts/renderer.ts'
 import { defaultPetRendererRegistry } from './registry.ts'
 import type { Frames2dRendererHandle } from './frames2d.ts'
+import type { GameplayBus } from '../gameplay-hud.tsx'
 import type { NS } from '../locales.ts'
 
 /** Mount the frames2d renderer as the sprite's visual (inside the chrome). */
@@ -27,6 +28,8 @@ export function Frames2dVisualMount(props: {
   onPet: () => void
   /** Chrome drag gesture stream (the renderer switch owns it). */
   drag: DragStream
+  /** Gameplay coordination bus; the mount registers its track override. */
+  bus?: GameplayBus
   t: PropsLocale<typeof NS>['t']
 }): ReactElement {
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -58,6 +61,14 @@ export function Frames2dVisualMount(props: {
       return () => { for (const fn of cleanups.splice(0)) fn() }
     }
     handleRef.current = handle
+    // The gameplay HUD steers one shared override slot through the bus;
+    // mode rules (work blocks drag, sleep wakes on it) keep the two
+    // producers from fighting over the slot.
+    if (props.bus !== undefined) {
+      const gameplayBus = props.bus
+      gameplayBus.setTrack = (track) => { handleRef.current?.setState(track) }
+      cleanups.push(() => { gameplayBus.setTrack = undefined })
+    }
     // The drag gesture drives the conventional 'drag' track when declared.
     const hasDragTrack = frames2d.tracks.drag !== undefined
     const offDrag = props.drag.subscribe((dragging) => {

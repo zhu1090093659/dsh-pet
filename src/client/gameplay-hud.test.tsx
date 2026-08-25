@@ -1,0 +1,282 @@
+// @vitest-environment jsdom
+/**
+ * GameplayHud behavior tests: menu pages, touch taps through the bus, the
+ * idle director, the work/sleep loops and shop purchases — all with a mock
+ * verb API and fake timers so every roll is deterministic.
+ */
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+// The npm SDK's client half is a closure-factory bundle for the GUI's
+// __ModuleLoader__ (not importable under vitest); provide the defineStore
+// the pet store needs (same fake-store pattern as PetDockEntry.test.tsx).
+vi.mock('@deepseek-ai/dsh-client-runtime/client', () => ({
+  defineStore: (spec: {
+    init: () => unknown
+    actions: Record<string, (draft: never, ...args: never[]) => void>
+  }) => ({
+    create: () => {
+      let value = spec.init()
+      const listeners = new Set<() => void>()
+      const actions: Record<string, (...args: unknown[]) => void> = {}
+      for (const [name, fn] of Object.entries(spec.actions)) {
+        actions[name] = (...args: unknown[]) => {
+          fn(value as never, ...(args as never[]))
+          // Re-identity the root so useSyncExternalStore actually re-renders
+          // (the real engine store produces a fresh state per action).
+          value = { ...(value as Record<string, unknown>) }
+          for (const listener of listeners) listener()
+        }
+      }
+      return {
+        getSnapshot: () => value,
+        subscribe: (listener: () => void) => {
+          listeners.add(listener)
+          return () => { listeners.delete(listener) }
+        },
+        actions,
+      }
+    },
+  }),
+}))
+import { GameplayHud, type GameplayApi, type GameplayBus } from './gameplay-hud.tsx'
+import { createPetStore, type PetStoreInstance } from './pet-store.ts'
+import { createDragStream } from './drag-stream.ts'
+import { t } from './locales.ts'
+import type { PetDefinition } from '../registry.ts'
+import type { PetGameplayStateView, PetGameplayVerbResult, PetStateView } from '../service.ts'
+
+const VIEW: PetGameplayStateView = {
+  stats: { hunger: 100, mood: 100, energy: 100, affection: 100 },
+  currencies: { coins: 30 },
+  mode: null,
+}
+
+function gameplayView(patch?: Partial<PetGameplayStateView>): PetGameplayStateView {
+  return { stats: { ...VIEW.stats }, currencies: { ...VIEW.currencies }, mode: null, ...patch }
+}
+
+function petDefinition(): PetDefinition {
+  return {
+    id: 'miku',
+    displayName: 'Miku',
+    description: 'frames2d gameplay pet',
+    renderer: 'frames2d',
+    cell: { width: 100, height: 100 },
+    columns: 8,
+    rows: [6, 8, 8, 4, 5, 8, 6, 6, 6],
+    atlasRows: 9,
+    tracks: {} as PetDefinition['tracks'],
+    atlasUrl: '/pet/miku/thumb/idle/idle_1_200.webp',
+    manifestUrl: '/pet/miku/pet.json',
+    frames2d: {
+      tracks: {
+        idle: { frames: ['/pet/miku/thumb/idle/idle_1_200.webp'], durations: [200], loop: true },
+        happy: { frames: ['/pet/miku/thumb/happy/happy_1_200.webp'], durations: [200], loop: false, fallback: 'idle' },
+        work: { frames: ['/pet/miku/thumb/work/work_1_200.webp'], durations: [200], loop: true },
+        success: { frames: ['/pet/miku/thumb/success/success_1_200.webp'], durations: [200], loop: false, fallback: 'idle' },
+        fail: { frames: ['/pet/miku/thumb/fail/fail_1_200.webp'], durations: [200], loop: false, fallback: 'idle' },
+        sleep: { frames: ['/pet/miku/thumb/sleep/sleep_1_200.webp'], durations: [200], loop: true },
+        eat: { frames: ['/pet/miku/thumb/eat/eat_1_200.webp'], durations: [200], loop: false, fallback: 'idle' },
+      },
+      phases: { idle: 'idle', done: 'success', failed: 'fail' },
+    },
+    gameplay: {
+      idleDirector: { intervalMs: 5000, maxMiss: 2, idleWeight: 0, acts: [{ track: 'eat', weight: 1 }] },
+      stats: {
+        hunger: { max: 100 },
+        mood: { max: 100 },
+        energy: { max: 100 },
+        affection: { max: 500, initial: 100 },
+      },
+      hitBox: { x0: 0, y0: 0, x1: 1, y1: 1 },
+      touch: {
+        zones: [
+          { name: 'head', y0: 0, y1: 0.55, branches: [{ probability: 1, effects: [{ stat: 'affection', amount: 5 }], state: 'happy', stateMs: 3000, phrases: ['happy!'] }] },
+        ],
+        clickBoost: { stat: 'mood', min: 0, max: 3 },
+      },
+      work: {
+        state: 'work', successState: 'success', failState: 'fail', tickMs: 10_000,
+        resultMs: { success: 1300, fail: 1900 }, successProbability: 0.5,
+        success: { effects: [{ currency: 'coins', amount: 3 }] },
+      },
+      sleep: { state: 'sleep', restore: { stat: 'energy', amount: 4, intervalMs: 30_000 } },
+      shop: {
+        items: [
+          { id: 'food1', label: 'Bread', image: '/pet/miku/thumb/shop/food.webp', price: 5, currency: 'coins', effects: [{ stat: 'hunger', amount: 40 }] },
+          { id: 'lottery', label: 'Ticket', price: 10, currency: 'coins', lottery: { currency: 'coins', tiers: [{ probability: 1, prize: 50 }] } },
+        ],
+      },
+    },
+  }
+}
+
+function snapshot(view: PetGameplayStateView): PetStateView {
+  return {
+    animation: 'idle',
+    phase: 'idle',
+    sessionActive: false,
+    sessions: [],
+    affinity: { points: 0, rank: '幼鲸', rankEmoji: '*', pets: 0, feeds: 0, turns: 0, petCooldown: false, feedCooldown: false },
+    display: { visible: true, size: 160, right: 24, bottom: 20 },
+    pet: { id: 'miku', displayName: 'Miku', description: '' },
+    name: 'Miku',
+    treats: { stocked: 0, max: 5 },
+    gameplay: view,
+  }
+}
+
+interface Harness {
+  store: PetStoreInstance
+  bus: GameplayBus
+  api: GameplayApi & { touch: ReturnType<typeof vi.fn>; setMode: ReturnType<typeof vi.fn>; workTick: ReturnType<typeof vi.fn>; buy: ReturnType<typeof vi.fn> }
+  setTrack: ReturnType<typeof vi.fn>
+  drag: ReturnType<typeof createDragStream>
+  setView: (view: PetGameplayStateView) => void
+}
+
+function harness(view: PetGameplayStateView = gameplayView()): Harness {
+  const store = createPetStore().create()
+  store.actions.setSnapshot(snapshot(view))
+  const bus: GameplayBus = {}
+  const setTrack = vi.fn()
+  bus.setTrack = setTrack
+  const drag = createDragStream()
+  const ok = (patch?: Partial<PetGameplayVerbResult>): PetGameplayVerbResult => ({ ok: true, ...patch })
+  const api = {
+    touch: vi.fn(async () => ok({ hit: true, state: 'happy', stateMs: 3000, phrase: 'happy!', view: gameplayView({ stats: { ...VIEW.stats, affection: 105 } }) })),
+    setMode: vi.fn(async (mode: 'work' | 'sleep' | null) => ok({ view: gameplayView({ mode }) })),
+    workTick: vi.fn(async () => ok({ outcome: 'success' as const, view: gameplayView({ mode: 'work', currencies: { coins: 33 } }) })),
+    buy: vi.fn(async () => ok({ view: gameplayView() })),
+  }
+  const setView = (next: PetGameplayStateView): void => store.actions.setSnapshot(snapshot(next))
+  render(<GameplayHud definition={petDefinition()} store={store} api={api} bus={bus} drag={drag} t={t} />)
+  return { store, bus, api, setTrack, drag, setView }
+}
+
+describe('GameplayHud', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+  afterEach(() => {
+    cleanup()
+    vi.useRealTimers()
+  })
+
+  it('opens the menu card with stat bars and shows the wallet page', () => {
+    harness()
+    fireEvent.click(screen.getByText('玩法'))
+    expect(screen.getByText('饱食')).toBeDefined()
+    expect(screen.getByText('好感')).toBeDefined()
+    fireEvent.click(screen.getByText('钱包'))
+    expect(screen.getByText('金币 ×30')).toBeDefined()
+    fireEvent.click(screen.getByText('返回'))
+    expect(screen.getByText('商店')).toBeDefined()
+  })
+
+  it('runs a touch tap through the bus: zone verb, track hold, phrase bubble', async () => {
+    const h = harness()
+    expect(h.bus.tap).toBeDefined()
+    await act(async () => {
+      h.bus.tap!(0.5, 0.3)
+    })
+    expect(h.api.touch).toHaveBeenCalledWith('head')
+    expect(h.setTrack).toHaveBeenCalledWith('happy')
+    expect(h.store.getSnapshot().feedback?.text).toBe('happy!')
+    expect(h.store.getSnapshot().snapshot?.gameplay?.stats.affection).toBe(105)
+    // The hold releases after stateMs.
+    await act(async () => {
+      vi.advanceTimersByTime(3100)
+    })
+    expect(h.setTrack).toHaveBeenCalledWith(undefined)
+    // A tap during the hold is the plain-click boost (no zone argument).
+    await act(async () => {
+      h.bus.tap!(0.5, 0.3)
+      h.bus.tap!(0.5, 0.3)
+    })
+    await act(async () => {
+      vi.advanceTimersByTime(100)
+    })
+    // Second tap landed inside the lock window? First tap re-locked; third is the boost.
+    const calls = h.api.touch.mock.calls.map(args => args[0])
+    expect(calls[0]).toBe('head')
+  })
+
+  it('ignores taps outside the hit box', async () => {
+    const def = petDefinition()
+    def.gameplay!.hitBox = { x0: 0.2, y0: 0.2, x1: 0.4, y1: 0.4 }
+    const store = createPetStore().create()
+    store.actions.setSnapshot(snapshot(gameplayView()))
+    const api = { touch: vi.fn(), setMode: vi.fn(), workTick: vi.fn(), buy: vi.fn() } as unknown as Harness['api']
+    const bus: GameplayBus = { setTrack: vi.fn() }
+    render(<GameplayHud definition={def} store={store} api={api} bus={bus} drag={createDragStream()} t={t} />)
+    await act(async () => {
+      bus.tap!(0.9, 0.9)
+    })
+    expect(api.touch).not.toHaveBeenCalled()
+  })
+
+  it('runs the idle director: weighted act rolls on the interval', async () => {
+    const h = harness()
+    await act(async () => {
+      vi.advanceTimersByTime(5000)
+    })
+    expect(h.setTrack).toHaveBeenCalledWith('eat')
+    // A non-idle phase suppresses the roll.
+    h.store.actions.setSnapshot(snapshot(gameplayView()))
+    h.setTrack.mockClear()
+    const busy = snapshot(gameplayView())
+    busy.phase = 'thinking'
+    await act(async () => {
+      h.store.actions.setSnapshot(busy)
+    })
+    await act(async () => {
+      vi.advanceTimersByTime(5000)
+    })
+    expect(h.setTrack).not.toHaveBeenCalled()
+  })
+
+  it('drives the work loop: work track, adjudicated ticks, result hold', async () => {
+    const h = harness(gameplayView({ mode: 'work' }))
+    expect(h.setTrack).toHaveBeenCalledWith('work')
+    await act(async () => {
+      vi.advanceTimersByTime(10_000)
+    })
+    expect(h.api.workTick).toHaveBeenCalled()
+    expect(h.setTrack).toHaveBeenCalledWith('success')
+    // Result hold (1300ms) then back to the work loop track.
+    await act(async () => {
+      vi.advanceTimersByTime(1400)
+    })
+    expect(h.setTrack).toHaveBeenLastCalledWith('work')
+    expect(h.store.getSnapshot().snapshot?.gameplay?.currencies.coins).toBe(33)
+  })
+
+  it('holds the sleep track and wakes on drag', async () => {
+    const h = harness(gameplayView({ mode: 'sleep' }))
+    expect(h.setTrack).toHaveBeenCalledWith('sleep')
+    await act(async () => {
+      h.drag.push(true)
+    })
+    expect(h.api.setMode).toHaveBeenCalledWith(null)
+    expect(h.store.getSnapshot().snapshot?.gameplay?.mode).toBeNull()
+  })
+
+  it('buys shop items and floats the lottery prize', async () => {
+    const h = harness()
+    h.api.buy.mockResolvedValueOnce({ ok: false, error: 'insufficient-funds', view: gameplayView() })
+    h.api.buy.mockResolvedValueOnce({ ok: true, prize: { amount: 50, currency: 'coins' }, view: gameplayView() })
+    fireEvent.click(screen.getByText('玩法'))
+    fireEvent.click(screen.getByText('商店'))
+    expect(screen.getByText('Bread')).toBeDefined()
+    await act(async () => {
+      fireEvent.click(screen.getByText('Bread'))
+    })
+    expect(h.api.buy).toHaveBeenCalledWith('food1')
+    expect(screen.getByText('金币不足')).toBeDefined()
+    await act(async () => {
+      fireEvent.click(screen.getByText('Ticket'))
+    })
+    expect(screen.getByText('中奖 +50 金币')).toBeDefined()
+  })
+})

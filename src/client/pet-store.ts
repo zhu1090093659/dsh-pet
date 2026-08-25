@@ -8,7 +8,7 @@
 
 import { defineStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type { EngineStoreHandle, EngineStoreInstance } from '@deepseek-ai/dsh-client-runtime/client'
-import type { PetStateView } from '../service.ts'
+import type { PetGameplayStateView, PetStateView } from '../service.ts'
 import type { PetInteraction } from '../affinity.ts'
 import type { PetDefinition } from '../registry.ts'
 
@@ -46,6 +46,12 @@ export type PetUiActions = {
   setState: (draft: PetUiState, state: PetUiState['state'], error: string | null) => void
   /** Show a reaction bubble. */
   setFeedback: (draft: PetUiState, feedback: PetFeedback | null) => void
+  /**
+   * Patch the gameplay slice of the snapshot (verb write-back), so the HUD
+   * reflects a touch/mode/buy result immediately instead of waiting one
+   * poll tick (2 s).
+   */
+  setGameplayView: (draft: PetUiState, view: PetGameplayStateView) => void
 }
 
 /** Create the pet store handle (apply world only; never module-level). */
@@ -73,6 +79,9 @@ export function createPetStore(): EngineStoreHandle<PetUiState, PetUiActions> {
       },
       setFeedback: (draft, feedback) => {
         draft.feedback = feedback
+      },
+      setGameplayView: (draft, view) => {
+        if (draft.snapshot !== null) draft.snapshot = { ...draft.snapshot, gameplay: view }
       },
     },
   })

@@ -57,6 +57,20 @@ export interface PetSpriteProps {
    * renders inside the sprite box, and the atlas load + frame loop skip.
    */
   visual?: ReactNode
+  /**
+   * Gameplay overlay (miku-pet generalization): rendered inside the float
+   * container so hover containment and stacking work unchanged. Absent for
+   * pets without a gameplay block.
+   */
+  hud?: ReactNode
+  /**
+   * Gameplay tap sink: receives the tap point as sprite-box fractions
+   * (0..1). When present the chrome reports the tap IN ADDITION to the
+   * affinity pet; the HUD decides zones/no-ops.
+   */
+  onGameplayTap?: (fractionX: number, fractionY: number) => void
+  /** Disable the drag gesture (gameplay work mode blocks dragging). */
+  dragDisabled?: boolean
   /** Locale translate seat (namespace-bound). */
   t: TranslateNS<typeof NS>
 }
@@ -367,6 +381,7 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
   useEffect(() => () => clearHideTimer(), [])
 
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>): void => {
+    if (props.dragDisabled === true) return
     e.preventDefault()
     ;(e.target as HTMLElement).setPointerCapture?.(e.pointerId)
     const current = dragPos ?? { right: display.right, bottom: display.bottom }
@@ -503,10 +518,16 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
           onPointerDown={onPointerDown}
           onPointerMove={onPointerMove}
           onPointerUp={onPointerUp}
-          onClick={() => {
+          onClick={(e) => {
             // A pointer sequence that moved (dragged) still fires a trailing
             // click; skip the pet when that happened.
             if (draggedRef.current) return
+            if (props.onGameplayTap !== undefined && spriteRef.current !== null) {
+              const rect = spriteRef.current.getBoundingClientRect()
+              if (rect.width > 0 && rect.height > 0) {
+                props.onGameplayTap((e.clientX - rect.left) / rect.width, (e.clientY - rect.top) / rect.height)
+              }
+            }
             props.onPet()
           }}
           role="button"
@@ -515,6 +536,7 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
           {props.visual}
         </div>
       </div>
+      {props.hud}
       {feedback !== null && (
         <div key={feedback.at} ref={bubbleRef} className={clsx(styles.bubble, feedback.kind === 'feed' ? styles.bubbleFeed : styles.bubblePet)}>
           {feedback.text}

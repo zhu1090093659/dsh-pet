@@ -79,6 +79,12 @@ function injected(): PetInjected {
     rename: vi.fn(),
     openSession: vi.fn(),
     feedbackDone: vi.fn(),
+    gameplay: {
+      touch: vi.fn(),
+      setMode: vi.fn(),
+      workTick: vi.fn(),
+      buy: vi.fn(),
+    },
   }
 }
 

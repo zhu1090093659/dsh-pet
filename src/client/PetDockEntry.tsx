@@ -11,12 +11,14 @@
  * @module @linxin666/dsh-pet/client/PetDockEntry
  */
 
-import { useEffect, useSyncExternalStore, type ReactElement } from 'react'
+import { useEffect, useRef, useSyncExternalStore, type ReactElement } from 'react'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { PetDisplayConfig } from '../persist.ts'
 import type { PetStoreInstance } from './pet-store.ts'
 import { PetSprite } from './PetSprite.tsx'
 import { PetRendererSwitch } from './renderers/PetRendererSwitch.tsx'
+import { createDragStream, type DragStream } from './drag-stream.ts'
+import { GameplayHud, type GameplayApi, type GameplayBus } from './gameplay-hud.tsx'
 import { NS } from './locales.ts'
 import styles from './pet.module.css'
 
@@ -42,6 +44,8 @@ export interface PetInjected {
   openSession: (sessionId: string) => void
   /** Clear the reaction bubble. */
   feedbackDone: () => void
+  /** Gameplay verb API (miku-pet generalization); wired but unused for pets without a gameplay block. */
+  gameplay: GameplayApi
 }
 
 /** Composed props of the global pet entry (locale + injected; no slot runtime share). */
@@ -70,6 +74,15 @@ export function PetDockEntry(props: PetDockEntryProps): ReactElement {
     ensure()
   }, [ensure])
 
+  // Per-pet gameplay wiring: the coordination bus (HUD taps <-> chrome,
+  // HUD track overrides <-> frames2d mount) and the shared drag stream.
+  const auxRef = useRef<{ id: string; bus: GameplayBus; drag: DragStream } | null>(null)
+  if (definition !== null && (auxRef.current === null || auxRef.current.id !== definition.id)) {
+    auxRef.current = { id: definition.id, bus: {}, drag: createDragStream() }
+  }
+  const aux = auxRef.current
+  const gameplay = definition?.gameplay
+
   if (visible) {
     return (
       <span data-pet-dock data-testid="pet-dock">
@@ -80,6 +93,7 @@ export function PetDockEntry(props: PetDockEntryProps): ReactElement {
               definition={definition}
               phase={snapshot?.phase ?? 'idle'}
               onPet={props.pet}
+              {...(aux === null ? {} : { drag: aux.drag, bus: aux.bus })}
               t={props.t}
             >
               <PetSprite
@@ -94,6 +108,22 @@ export function PetDockEntry(props: PetDockEntryProps): ReactElement {
                 onRename={props.rename}
                 onOpenSession={props.openSession}
                 onFeedbackDone={props.feedbackDone}
+                dragDisabled={snapshot.gameplay?.mode === 'work'}
+                {...(gameplay === undefined || aux === null
+                  ? {}
+                  : {
+                      onGameplayTap: (fx: number, fy: number) => aux.bus.tap?.(fx, fy),
+                      hud: (
+                        <GameplayHud
+                          definition={definition}
+                          store={store}
+                          api={props.gameplay}
+                          bus={aux.bus}
+                          drag={aux.drag}
+                          t={props.t}
+                        />
+                      ),
+                    })}
                 t={props.t}
               />
             </PetRendererSwitch>
