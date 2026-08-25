@@ -25,6 +25,7 @@
 
 import { isAbsolute } from 'node:path'
 import type { ActivityPhase, PetAnimation } from './state.ts'
+import { parseGameplayManifest, type PetGameplayManifest } from './gameplay.ts'
 
 /** Schema version this module validates. */
 export const PET_MANIFEST_V2 = 2 as const
@@ -116,6 +117,8 @@ export interface PetManifestV2 {
   sprite2d?: PetManifestSprite2d
   live2d?: PetManifestLive2d
   frames2d?: PetManifestFrames2d
+  /** Optional gameplay layer (frames2d pets only); fail-closed structure. */
+  gameplay?: PetGameplayManifest
   sequences?: Partial<Record<ActivityPhase, PetAnimation[]>>
   /** Pass-through for the registry's remarks normalizer (v1 shape). */
   remarks?: unknown
@@ -143,6 +146,7 @@ const SEMVER_PATTERN = /^\d+\.\d+\.\d+$/
 export const KNOWN_TOP_LEVEL = new Set([
   '$schema', 'petManifestVersion', 'id', 'displayName', 'description', 'version',
   'author', 'license', 'homepage', 'renderer', 'sprite2d', 'live2d', 'frames2d', 'sequences', 'remarks',
+  'gameplay',
 ])
 /** sprite2d block field allow-list (drift-locked to the schema file). */
 export const KNOWN_SPRITE2D = new Set(['spritesheetPath', 'cell', 'columns', 'atlasRows', 'frames', 'tracks'])
@@ -545,6 +549,17 @@ function parseV2(source: Record<string, unknown>, diag: Diagnostics): PetManifes
     if (block !== undefined) manifest.frames2d = block
     if (source.sprite2d !== undefined) diag.error('renderer frames2d must not declare a sprite2d block')
     if (source.live2d !== undefined) diag.error('renderer frames2d must not declare a live2d block')
+  }
+  if (source.gameplay !== undefined) {
+    if (renderer !== 'frames2d') {
+      diag.error('gameplay currently requires renderer frames2d (its state references name frames2d tracks)')
+    } else {
+      const gameplay = parseGameplayManifest(source.gameplay, {
+        stateNames: new Set(Object.keys(manifest.frames2d?.tracks ?? {})),
+        error: (message) => diag.error('gameplay: ' + message),
+      })
+      if (gameplay !== undefined) manifest.gameplay = gameplay
+    }
   }
   const sequences = parseSequences(source.sequences, diag)
   if (sequences !== undefined) manifest.sequences = sequences

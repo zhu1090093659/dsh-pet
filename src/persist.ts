@@ -11,6 +11,7 @@ import { dshHome } from './dsh-home.ts'
 import { AFFINITY_MAX, emptyAffinity, type AffinityState } from './affinity.ts'
 import { defaultTreatConfig, emptyTreatLedger, type TreatLedger } from './treats.ts'
 import { DEFAULT_PET_ID, DEFAULT_PET_NAME } from './defaults.ts'
+import type { PetGameplayState } from './gameplay.ts'
 
 export { DEFAULT_PET_ID, DEFAULT_PET_NAME } from './defaults.ts'
 
@@ -51,6 +52,8 @@ export interface PetPersist {
   /** Treat (小鱼干) stock ledger. */
   treats: TreatLedger
   display: PetDisplayConfig
+  /** Per-pet gameplay state (stats/currencies/mode), keyed by pet id. */
+  gameplay: Record<string, PetGameplayState>
 }
 
 /** Name constraints. */
@@ -63,6 +66,7 @@ export function emptyPersist(): PetPersist {
     affinity: emptyAffinity(),
     treats: emptyTreatLedger(),
     display: { ...defaultDisplayConfig },
+    gameplay: {},
   }
 }
 
@@ -99,6 +103,41 @@ function loadPetNames(parsed: PetPersistDocument): Record<string, string> {
 /** Clamp one count/score into [0, max]. */
 function clamp(value: number, max: number): number {
   return Math.min(max, Math.max(0, value))
+}
+
+/** Absolute numeric ceilings applied at load (manifest clamps refine these). */
+const GAMEPLAY_LOAD_STAT_CAP = 1_000_000
+const GAMEPLAY_LOAD_CURRENCY_CAP = 9_999_999
+
+/** Sanitize the persisted per-pet gameplay map. */
+function loadGameplay(parsed: PetPersistDocument): Record<string, PetGameplayState> {
+  const result: Record<string, PetGameplayState> = {}
+  if (typeof parsed.gameplay !== 'object' || parsed.gameplay === null) return result
+  for (const [petId, raw] of Object.entries(parsed.gameplay as Record<string, unknown>)) {
+    if (petId === '' || typeof raw !== 'object' || raw === null) continue
+    const record = raw as Partial<PetGameplayState>
+    const stats: Record<string, number> = {}
+    if (typeof record.stats === 'object' && record.stats !== null) {
+      for (const [key, value] of Object.entries(record.stats)) {
+        if (key === '' || typeof value !== 'number' || !Number.isFinite(value)) continue
+        stats[key] = Math.min(GAMEPLAY_LOAD_STAT_CAP, Math.max(0, value))
+      }
+    }
+    const currencies: Record<string, number> = {}
+    if (typeof record.currencies === 'object' && record.currencies !== null) {
+      for (const [key, value] of Object.entries(record.currencies)) {
+        if (key === '' || typeof value !== 'number' || !Number.isFinite(value)) continue
+        currencies[key] = Math.min(GAMEPLAY_LOAD_CURRENCY_CAP, Math.max(0, Math.floor(value)))
+      }
+    }
+    result[petId] = {
+      stats,
+      currencies,
+      mode: record.mode === 'work' || record.mode === 'sleep' ? record.mode : null,
+      settledAt: clamp(finiteNum(record.settledAt, 0), Number.MAX_SAFE_INTEGER),
+    }
+  }
+  return result
 }
 
 /** Load persisted state; missing or corrupt files fall back to defaults. */
@@ -149,6 +188,7 @@ export function loadPetPersist(dir: string = petHomeDir()): PetPersist {
       affinity,
       treats,
       display,
+      gameplay: loadGameplay(parsed),
     }
   } catch {
     return emptyPersist()

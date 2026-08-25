@@ -39,6 +39,7 @@ import { imageDimensions } from './image-dimensions.ts'
 import { PET_DECORATION_API_VERSION, type DecorationView } from './contracts/status-decoration.ts'
 import { dshHome } from './dsh-home.ts'
 import { parsePetManifest, type PetManifestLive2d, type PetManifestV2, type PetRendererKind } from './manifest-v2.ts'
+import type { PetGameplayManifest } from './gameplay.ts'
 import { collectModel3References } from './model3.ts'
 import { DEFAULT_PET_ID } from './defaults.ts'
 
@@ -227,6 +228,12 @@ export interface PetDefinition {
   live2d?: PetLive2dDefinition
   /** Frames2d render block; present exactly when renderer is 'frames2d'. */
   frames2d?: PetFrames2dDefinition
+  /**
+   * The pet's gameplay layer (miku-pet generalization), present when the
+   * manifest declares 'gameplay'. Shop item images are served as browser
+   * URLs; every other field is the validated manifest block verbatim.
+   */
+  gameplay?: PetGameplayManifest
   /** Atlas cell size in px. */
   cell: PetCell
   /** Columns per row. */
@@ -703,6 +710,31 @@ function resolveFrames2dEntry(
     }
   }
   const remarks = normalizePetRemarks(manifest.remarks, message => record('warning', 'pet ' + manifest.id + ': ' + message))
+  // Gameplay layer: shop item icons are manifest-relative frame paths —
+  // verify them, promote them to browser URLs, and add them to the servable
+  // allow-list so the asset route can serve them.
+  let gameplay: PetGameplayManifest | undefined
+  if (manifest.gameplay !== undefined) {
+    gameplay = manifest.gameplay
+    if (gameplay.shop !== undefined) {
+      const items = []
+      for (const item of gameplay.shop.items) {
+        if (item.image === undefined) {
+          items.push(item)
+          continue
+        }
+        if (!existsSync(join(dir, item.image))) {
+          record('warning', 'pet ' + manifest.id + ': gameplay shop item ' + item.id + ' image missing: ' + item.image)
+          const { image, ...rest } = item
+          items.push(rest)
+          continue
+        }
+        servable.push(item.image)
+        items.push({ ...item, image: assetUrl(assetPrefix, manifest.id, item.image) })
+      }
+      gameplay = { ...gameplay, shop: { ...gameplay.shop, items } }
+    }
+  }
   const flatTracks = buildTracks(DEFAULT_FRAME_COUNTS, DEFAULT_PET_COLUMNS, {}, message => record('warning', 'pet ' + manifest.id + ': ' + message))
   if (flatTracks === undefined) return undefined
   // The render box comes from the first idle frame when decodable.
@@ -715,6 +747,7 @@ function resolveFrames2dEntry(
     description: manifest.description ?? '',
     renderer: 'frames2d' as const,
     frames2d: { tracks, phases },
+    ...(gameplay === undefined ? {} : { gameplay }),
     cell,
     columns: DEFAULT_PET_COLUMNS,
     rows: [...DEFAULT_FRAME_COUNTS],
@@ -1102,6 +1135,7 @@ export function petEntryView(entry: PetEntry, globalVoice?: VoicePack): PetDefin
     renderer: entry.renderer,
     ...(entry.live2d === undefined ? {} : { live2d: entry.live2d }),
     ...(entry.frames2d === undefined ? {} : { frames2d: entry.frames2d }),
+    ...(entry.gameplay === undefined ? {} : { gameplay: entry.gameplay }),
     cell: entry.cell,
     columns: entry.columns,
     rows: entry.rows,

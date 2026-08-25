@@ -24,6 +24,7 @@ import {
 } from './treats.ts'
 import { RemarkPicker, type PetRemarks } from './remarks.ts'
 import type { PetDisplayConfig, PetPersist } from './persist.ts'
+import type { PetGameplayState } from './gameplay.ts'
 
 /** Tuning overrides for the affinity economy. */
 export interface LedgerConfig {
@@ -106,6 +107,12 @@ export class PetLedger {
   setPetId(petId: string): void {
     if (this.current.petId === petId) return
     this.current = { ...this.current, petId }
+    this.dirty = true
+  }
+
+  /** Replace one pet's gameplay state (validation/clamping stays a caller concern). */
+  setGameplay(petId: string, gameplay: PetGameplayState): void {
+    this.current = { ...this.current, gameplay: { ...this.current.gameplay, [petId]: gameplay } }
     this.dirty = true
   }
 

@@ -554,6 +554,25 @@ export function makePetRoutes(deps: { service: PetService; ctx: Context; assetCa
       if (typeof petId !== 'string') return Promise.reject(new Error('invalid-pet'))
       return service.setPetId(petId)
     }),
+    // Gameplay verbs (miku-pet generalization): touch rolls a named zone's
+    // branch; the omitted-zone form is the plain-click boost during a touch
+    // animation. Mode/tick/buy drive the work, sleep and shop loops.
+    postRoute(ctx, PET_API_PREFIX + '/gameplay/touch', (body) => {
+      const zone = body.zone
+      if (zone !== undefined && typeof zone !== 'string') return Promise.reject(new Error('invalid-zone'))
+      return service.gameplayTouch(zone)
+    }),
+    postRoute(ctx, PET_API_PREFIX + '/gameplay/mode', (body) => {
+      const mode = body.mode
+      if (mode !== null && mode !== 'work' && mode !== 'sleep') return Promise.reject(new Error('invalid-mode'))
+      return service.gameplaySetMode(mode)
+    }),
+    postRoute(ctx, PET_API_PREFIX + '/gameplay/work-tick', () => service.gameplayWorkTick()),
+    postRoute(ctx, PET_API_PREFIX + '/gameplay/buy', (body) => {
+      const item = body.item
+      if (typeof item !== 'string') return Promise.reject(new Error('invalid-item'))
+      return service.gameplayBuy(item)
+    }),
   ]
 
   const assetRoute: WebRoute = {

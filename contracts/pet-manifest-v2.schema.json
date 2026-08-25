@@ -329,6 +329,10 @@
     "remarks": {
       "type": "object",
       "description": "Per-slot witty-remark pools (v1 structure; a slot replaces the built-in pool for that slot only)."
+    },
+    "gameplay": {
+      "type": "object",
+      "description": "Optional gameplay layer (frames2d pets only): stat decay, currencies, touch zones, work/sleep loops, passive income and a shop with optional lotteries. State references name frames2d tracks; structure is fail-closed in the validator."
     }
   },
   "allOf": [

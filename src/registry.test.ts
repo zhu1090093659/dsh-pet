@@ -195,7 +195,7 @@ describe('loadPetRegistry frames2d', () => {
         '/pet/miku/thumb/idle/miku_2_260.webp',
       ])
       expect(entry?.frames2d?.tracks.happy).toMatchObject({ loop: false, fallback: 'idle', durations: [300] })
-      expect(entry?.servable.sort()).toEqual([
+      expect([...(entry?.servable ?? [])].sort()).toEqual([
         'thumb/happy/miku-happy_1_300.webp',
         'thumb/idle/miku_1_200.webp',
         'thumb/idle/miku_2_260.webp',

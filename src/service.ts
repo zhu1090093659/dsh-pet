@@ -56,6 +56,16 @@ import {
   type PetStateInput,
   type PetStateSnapshot,
 } from './state.ts'
+import {
+  applyGameplayEffects,
+  drawLotteryTier,
+  initialGameplayState,
+  rollTouchBranch,
+  rollWorkOutcome,
+  settleGameplay,
+  type PetGameplayManifest,
+  type PetGameplayState,
+} from './gameplay.ts'
 
 /** Plugin configuration. */
 export interface PetConfig {
@@ -176,10 +186,40 @@ export interface PetStateView {
    * browser half renders no ornament.
    */
   decoration?: DecorationView
+  /**
+   * The selected pet's gameplay view (miku-pet generalization), present
+   * when the pet declares a gameplay block. Read-only projection: polling
+   * settles the view in memory but never writes pet.json.
+   */
+  gameplay?: PetGameplayStateView
 }
 
 /** Result of `pet.interact`. */
 export type PetInteractResult = LedgerInteractionResult
+
+/** The gameplay slice of the state view (dynamic state only; defs ride the pet definition). */
+export interface PetGameplayStateView {
+  /** Stat values rounded for display. */
+  stats: Record<string, number>
+  currencies: Record<string, number>
+  mode: 'work' | 'sleep' | null
+}
+
+/** Result of the gameplay verbs (touch / setMode / workTick / buy). */
+export interface PetGameplayVerbResult {
+  ok: boolean
+  error?: string
+  /** Touch: whether a branch hit, plus its presentation. */
+  hit?: boolean
+  state?: string
+  stateMs?: number
+  phrase?: string
+  /** Work tick outcome. */
+  outcome?: 'success' | 'fail'
+  /** Shop purchase: the drawn prize, when the item was a lottery. */
+  prize?: { amount: number; currency: string }
+  view?: PetGameplayStateView
+}
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -483,6 +523,138 @@ export class PetService extends Service {
     return result
   }
 
+  /* ---------------------------------------------------------------- *
+   * Gameplay verbs (miku-pet generalization). The manifest block lives
+   * on the registry entry; dynamic state persists per pet id. Verbs
+   * settle and persist; the state view projects without writing.
+   * ---------------------------------------------------------------- */
+
+  /** The active pet's gameplay block, if it declares one. */
+  private gameplayDef(): PetGameplayManifest | undefined {
+    return this.activeEntry().gameplay
+  }
+
+  /** The persisted (or fresh) gameplay state of the selected pet. */
+  private gameplayState(def: PetGameplayManifest, now: number): { petId: string; state: PetGameplayState } {
+    const petId = this.selectedPetId()
+    const stored = this.ledger.snapshot.gameplay[petId]
+    return {
+      petId,
+      state: stored === undefined
+        ? initialGameplayState(def, now)
+        : { stats: { ...stored.stats }, currencies: { ...stored.currencies }, mode: stored.mode, settledAt: stored.settledAt },
+    }
+  }
+
+  /** Display view of one gameplay state (rounded stats). */
+  private gameplayViewOf(state: PetGameplayState): PetGameplayStateView {
+    const stats: Record<string, number> = {}
+    for (const [name, value] of Object.entries(state.stats)) stats[name] = Math.round(value)
+    return { stats, currencies: { ...state.currencies }, mode: state.mode }
+  }
+
+  /** Persist the mutated gameplay state of one verb call. */
+  private commitGameplay(petId: string, state: PetGameplayState): void {
+    this.ledger.setGameplay(petId, state)
+    if (this.ledger.takeDirty()) this.flush()
+  }
+
+  /**
+   * RPC: a touch on the pet. 'zone' names a touch zone (roll a branch);
+   * omitted means a plain click while a touch animation holds (clickBoost).
+   */
+  async gameplayTouch(zone?: string): Promise<PetGameplayVerbResult> {
+    const def = this.gameplayDef()
+    if (def === undefined) return { ok: false, error: 'no-gameplay' }
+    const now = Date.now()
+    const { petId, state } = this.gameplayState(def, now)
+    settleGameplay(state, def, now, { sessionActive: this.machine.render().sessionActive })
+    if (zone === undefined) {
+      const boost = def.touch?.clickBoost
+      if (boost === undefined) return { ok: false, error: 'no-touch' }
+      const amount = boost.min + Math.floor(Math.random() * (boost.max - boost.min + 1))
+      if (amount > 0) applyGameplayEffects(state, def, [{ stat: boost.stat, amount }])
+      this.commitGameplay(petId, state)
+      return { ok: true, hit: false, view: this.gameplayViewOf(state) }
+    }
+    const target = def.touch?.zones.find(entry => entry.name === zone)
+    if (target === undefined) return { ok: false, error: 'unknown-zone' }
+    const branch = rollTouchBranch(target, Math.random)
+    if (branch === undefined) {
+      this.commitGameplay(petId, state)
+      return { ok: true, hit: false, view: this.gameplayViewOf(state) }
+    }
+    if (branch.effects !== undefined) applyGameplayEffects(state, def, branch.effects)
+    const phrase = branch.phrases !== undefined && branch.phrases.length > 0
+      ? branch.phrases[Math.floor(Math.random() * branch.phrases.length)]
+      : undefined
+    this.commitGameplay(petId, state)
+    return {
+      ok: true,
+      hit: true,
+      ...(branch.state === undefined ? {} : { state: branch.state }),
+      ...(branch.stateMs === undefined ? {} : { stateMs: branch.stateMs }),
+      ...(phrase === undefined ? {} : { phrase }),
+      view: this.gameplayViewOf(state),
+    }
+  }
+
+  /** RPC: enter or leave a gameplay mode ('work' | 'sleep' | null). */
+  async gameplaySetMode(mode: 'work' | 'sleep' | null): Promise<PetGameplayVerbResult> {
+    const def = this.gameplayDef()
+    if (def === undefined) return { ok: false, error: 'no-gameplay' }
+    if (mode === 'work' && def.work === undefined) return { ok: false, error: 'no-work' }
+    if (mode === 'sleep' && def.sleep === undefined) return { ok: false, error: 'no-sleep' }
+    const now = Date.now()
+    const { petId, state } = this.gameplayState(def, now)
+    settleGameplay(state, def, now, { sessionActive: this.machine.render().sessionActive })
+    state.mode = mode
+    this.commitGameplay(petId, state)
+    return { ok: true, view: this.gameplayViewOf(state) }
+  }
+
+  /** RPC: one work-round adjudication (only while the work mode holds). */
+  async gameplayWorkTick(): Promise<PetGameplayVerbResult> {
+    const def = this.gameplayDef()
+    if (def?.work === undefined) return { ok: false, error: 'no-work' }
+    const now = Date.now()
+    const { petId, state } = this.gameplayState(def, now)
+    if (state.mode !== 'work') return { ok: false, error: 'not-working' }
+    settleGameplay(state, def, now, { sessionActive: this.machine.render().sessionActive })
+    const outcome = rollWorkOutcome(def.work, Math.random)
+    const effects = outcome === 'success' ? def.work.success?.effects : def.work.fail?.effects
+    if (effects !== undefined) applyGameplayEffects(state, def, effects)
+    this.commitGameplay(petId, state)
+    return { ok: true, outcome, view: this.gameplayViewOf(state) }
+  }
+
+  /** RPC: buy one shop item (effects, currency swap, or a lottery draw). */
+  async gameplayBuy(itemId: string): Promise<PetGameplayVerbResult> {
+    const def = this.gameplayDef()
+    if (def === undefined) return { ok: false, error: 'no-gameplay' }
+    const item = def.shop?.items.find(entry => entry.id === itemId)
+    if (item === undefined) return { ok: false, error: 'unknown-item' }
+    const now = Date.now()
+    const { petId, state } = this.gameplayState(def, now)
+    settleGameplay(state, def, now, { sessionActive: this.machine.render().sessionActive })
+    const balance = state.currencies[item.currency] ?? 0
+    if (balance < item.price) {
+      return { ok: false, error: 'insufficient-funds', view: this.gameplayViewOf(state) }
+    }
+    state.currencies[item.currency] = balance - item.price
+    if (item.effects !== undefined) applyGameplayEffects(state, def, item.effects)
+    let prize: PetGameplayVerbResult['prize']
+    if (item.lottery !== undefined) {
+      if (item.lottery.effects !== undefined) applyGameplayEffects(state, def, item.lottery.effects)
+      const tier = drawLotteryTier(item.lottery, Math.random)
+      const prizeCurrency = tier.currency ?? item.lottery.currency ?? item.currency
+      state.currencies[prizeCurrency] = (state.currencies[prizeCurrency] ?? 0) + tier.prize
+      prize = { amount: tier.prize, currency: prizeCurrency }
+    }
+    this.commitGameplay(petId, state)
+    return { ok: true, ...(prize === undefined ? {} : { prize }), view: this.gameplayViewOf(state) }
+  }
+
   /** RPC: show or hide the pet. */
   async setVisible(visible: boolean): Promise<{ ok: true; display: PetDisplayConfig }> {
     this.ledger.setDisplay({ ...this.ledger.snapshot.display, visible })
@@ -597,6 +769,15 @@ export class PetService extends Service {
       ? whisper.text
       : undefined
     const decoration = this.activeDecoration()
+    // Gameplay view: a read-only projection. The settle runs on a copy, so
+    // polling never writes pet.json (verbs settle and persist).
+    const gameplayDef = this.gameplayDef()
+    let gameplay: PetGameplayStateView | undefined
+    if (gameplayDef !== undefined) {
+      const { state } = this.gameplayState(gameplayDef, Date.now())
+      settleGameplay(state, gameplayDef, Date.now(), { sessionActive: snapshot.sessionActive })
+      gameplay = this.gameplayViewOf(state)
+    }
     // Read-only: the ledger settles on economic events only, never on a read,
     // so polling the state cannot trigger pet.json writes.
     return {
@@ -619,6 +800,7 @@ export class PetService extends Service {
         stocked: this.ledger.snapshot.treats.treats,
         max: this.ledger.treatMax,
       },
+      ...(gameplay === undefined ? {} : { gameplay }),
     }
   }
 
