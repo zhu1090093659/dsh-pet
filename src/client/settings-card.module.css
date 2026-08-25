@@ -24,6 +24,10 @@
 .header {
   appearance: none;
   width: 100%;
+  /* The suite does not force a global border-box, so width:100% + padding
+     would stretch the row 32px past the card and push the trailing pending
+     badge (last flex item) outside the card border. */
+  box-sizing: border-box;
   font: inherit;
   color: inherit;
   text-align: left;
@@ -44,6 +48,7 @@
 
 .headerStatic {
   width: 100%;
+  box-sizing: border-box;
   border-radius: 12px;
   align-items: center;
   gap: 12px;
