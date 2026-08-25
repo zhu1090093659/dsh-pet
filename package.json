@@ -38,7 +38,10 @@
     "lib/**/*.d.ts.map",
     "src",
     "cordis.patch.yml",
-    "assets",
+    "assets/whale",
+    "assets/whale-refined",
+    "assets/ouo-neko",
+    "assets/decorations",
     "contracts"
   ],
   "license": "Apache-2.0",

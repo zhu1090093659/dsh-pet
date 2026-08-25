@@ -159,28 +159,33 @@ export function GameplayHud(props: {
       if (phaseRef.current !== 'idle') return
       if (modeRef.current !== null || draggingRef.current) return
       if (Date.now() < touchLockUntilRef.current) return
-      let picked: string | undefined
+      let pickedAct: { track: string; weight: number; phrases?: string[] } | undefined
       if (missRef.current >= director.maxMiss) {
         // Forced act: pick among the acts only.
         const actTotal = director.acts.reduce((sum, act) => sum + act.weight, 0)
         let actRoll = Math.random() * actTotal
         for (const act of director.acts) {
           actRoll -= act.weight
-          if (actRoll < 0) { picked = act.track; break }
+          if (actRoll < 0) { pickedAct = act; break }
         }
       } else {
         let roll = Math.random() * total
         for (const act of director.acts) {
           roll -= act.weight
-          if (roll < 0) { picked = act.track; break }
+          if (roll < 0) { pickedAct = act; break }
         }
       }
-      if (picked === undefined) {
+      if (pickedAct === undefined) {
         missRef.current += 1
         return
       }
       missRef.current = 0
-      bus.setTrack?.(picked)
+      bus.setTrack?.(pickedAct.track)
+      // Acts with a phrase pool speak one line while they play (miku parity).
+      if (pickedAct.phrases !== undefined && pickedAct.phrases.length > 0) {
+        const phrase = pickedAct.phrases[Math.floor(Math.random() * pickedAct.phrases.length)]!
+        store.actions.setFeedback({ text: phrase, kind: 'none', at: Date.now() })
+      }
     }, director.intervalMs)
     return () => window.clearInterval(timer)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- one director per pet definition

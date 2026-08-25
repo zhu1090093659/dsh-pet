@@ -612,6 +612,8 @@ function resolveLive2dEntry(
 
 /** Filename-encoded frame duration tail ('<base>_<index>_<ms>.webp'). */
 const FRAMES2D_FILENAME_MS = /_(\d+)\.[^.]+$/
+/** Trailing frame index, allowing an optional '_<ms>' duration tail after it. */
+const FRAMES2D_FRAME_INDEX = /(\d+)(?:_\d+)?\.[^.]+$/
 /** Default per-frame duration when neither frameMs nor the filename encodes one. */
 const FRAMES2D_DEFAULT_FRAME_MS = 200
 /** Image extensions a frames2d track directory may list. */
@@ -671,7 +673,15 @@ function resolveFrames2dEntry(
       } catch {
         files = []
       }
-      files.sort()
+      // Natural frame order: the trailing index (before any _<ms> duration
+      // suffix) sorts numerically, so 'eat10' comes after 'eat9' — plain
+      // lexicographic order would break any track with 10+ frames.
+      files.sort((a, b) => {
+        const ia = FRAMES2D_FRAME_INDEX.exec(a)?.[1]
+        const ib = FRAMES2D_FRAME_INDEX.exec(b)?.[1]
+        if (ia !== undefined && ib !== undefined && ia !== ib) return Number(ia) - Number(ib)
+        return a < b ? -1 : a > b ? 1 : 0
+      })
       relFrames = files.map(file => trackDir + '/' + file)
     }
     if (relFrames.length === 0) {

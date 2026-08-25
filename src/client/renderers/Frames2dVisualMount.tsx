@@ -70,10 +70,16 @@ export function Frames2dVisualMount(props: {
       cleanups.push(() => { gameplayBus.setTrack = undefined })
     }
     // The drag gesture drives the conventional 'drag' track when declared.
-    const hasDragTrack = frames2d.tracks.drag !== undefined
+    // On release, a declared gameplay.dragEndState (miku: standup) plays
+    // once; its fallback auto-releases the override back to the phase map.
+    const dragTrack = props.definition.gameplay?.dragState ?? (frames2d.tracks.drag === undefined ? undefined : 'drag')
     const offDrag = props.drag.subscribe((dragging) => {
-      if (!hasDragTrack) return
-      handle.setState(dragging ? 'drag' : undefined)
+      if (dragTrack === undefined) return
+      if (dragging) {
+        handle.setState(dragTrack)
+        return
+      }
+      handle.setState(props.definition.gameplay?.dragEndState)
     })
     cleanups.push(offDrag)
     return () => {

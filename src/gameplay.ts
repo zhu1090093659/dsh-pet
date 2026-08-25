@@ -70,7 +70,7 @@ export interface PetGameplayManifest {
     intervalMs: number
     maxMiss: number
     idleWeight: number
-    acts: { track: string; weight: number }[]
+    acts: { track: string; weight: number; phrases?: string[] }[]
   }
   stats?: Record<string, PetGameplayStatDef>
   /** Click hit box inside the sprite box (fractions). */
@@ -100,6 +100,8 @@ export interface PetGameplayManifest {
   shop?: { state?: string; items: PetGameplayShopItem[] }
   /** Track played while the chrome reports dragging (default 'drag'). */
   dragState?: string
+  /** Track played once when a drag ends (miku: standup), before settling. */
+  dragEndState?: string
 }
 
 /* ------------------------------------------------------------------ *
@@ -118,7 +120,7 @@ const PHRASE_MAX_LENGTH = 120
 const STAT_VALUE_MAX = 1_000_000
 const CURRENCY_MAX = 9_999_999
 
-const KNOWN_GAMEPLAY = new Set(['idleDirector', 'stats', 'hitBox', 'touch', 'work', 'sleep', 'passiveIncome', 'shop', 'dragState'])
+const KNOWN_GAMEPLAY = new Set(['idleDirector', 'stats', 'hitBox', 'touch', 'work', 'sleep', 'passiveIncome', 'shop', 'dragState', 'dragEndState'])
 const KNOWN_STAT = new Set(['max', 'initial', 'decayPerMinute', 'workingDecayPerMinute', 'idleDecayPerMinute'])
 const KNOWN_ZONE = new Set(['name', 'y0', 'y1', 'branches'])
 const KNOWN_TOUCH = new Set(['zones', 'clickBoost'])
@@ -129,6 +131,7 @@ const KNOWN_SLEEP = new Set(['state', 'wakeState', 'restore'])
 const KNOWN_SHOP_ITEM = new Set(['id', 'label', 'image', 'price', 'currency', 'effects', 'lottery'])
 const KNOWN_LOTTERY = new Set(['effects', 'currency', 'tiers'])
 const KNOWN_IDLE_DIRECTOR = new Set(['intervalMs', 'maxMiss', 'idleWeight', 'acts'])
+const KNOWN_ACT = new Set(['track', 'weight', 'phrases'])
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -285,15 +288,20 @@ export function parseGameplayManifest(raw: unknown, hooks: GameplayParseHooks): 
       if (d.maxMiss !== undefined && !intIn(d.maxMiss, 0, 10)) fail('gameplay.idleDirector.maxMiss must be an integer in [0, 10]')
       if (d.idleWeight !== undefined && !intIn(d.idleWeight, 0, 10_000)) fail('gameplay.idleDirector.idleWeight must be an integer in [0, 10000]')
       if (d.acts.length === 0 || d.acts.length > MAX_ACTS) fail('gameplay.idleDirector.acts must declare 1..' + MAX_ACTS + ' acts')
-      const acts: { track: string; weight: number }[] = []
+      const acts: { track: string; weight: number; phrases?: string[] }[] = []
       for (const act of d.acts as unknown[]) {
         if (!isRecord(act) || !intIn(act.weight, 1, 10_000)) {
           fail('gameplay.idleDirector.acts entries need a weight integer in [1, 10000]')
           continue
         }
+        const aExtra = unknownKeys(act, KNOWN_ACT)
+        if (aExtra.length > 0) fail('gameplay.idleDirector.acts: unknown field(s) ' + aExtra.map(k => JSON.stringify(k)).join(', '))
         const track = parseStateRef(act.track, 'gameplay.idleDirector.acts.track', hooks)
         if (track === undefined) continue
-        acts.push({ track, weight: act.weight })
+        const entry: { track: string; weight: number; phrases?: string[] } = { track, weight: act.weight }
+        const phrases = parsePhrases(act.phrases, 'gameplay.idleDirector.acts.phrases', hooks)
+        if (phrases !== undefined) entry.phrases = phrases
+        acts.push(entry)
       }
       if (acts.length > 0) {
         block.idleDirector = {
@@ -544,6 +552,10 @@ export function parseGameplayManifest(raw: unknown, hooks: GameplayParseHooks): 
   if (raw.dragState !== undefined) {
     const state = parseStateRef(raw.dragState, 'gameplay.dragState', hooks)
     if (state !== undefined) block.dragState = state
+  }
+  if (raw.dragEndState !== undefined) {
+    const state = parseStateRef(raw.dragEndState, 'gameplay.dragEndState', hooks)
+    if (state !== undefined) block.dragEndState = state
   }
 
   return failed ? undefined : block

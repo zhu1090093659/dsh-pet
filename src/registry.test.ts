@@ -209,6 +209,24 @@ describe('loadPetRegistry frames2d', () => {
     }
   })
 
+  it('orders directory-scanned frames by their trailing index (10+ frames)', () => {
+    const root = tempDir()
+    try {
+      const names = Array.from({ length: 12 }, (_, index) => 'miku-pet-eat' + String(index + 1) + '.webp')
+      writeFrames2dPet(root, 'miku', {
+        frames2d: { dir: 'thumb', tracks: { eat: { loop: false } }, phases: { idle: 'eat' } },
+      }, { 'thumb/eat': names })
+      const registry = loadPetRegistry({ packageRoot: root, petsDir: '', dshPetsDir: '' })
+      const frames = registry.byId('miku')?.frames2d?.tracks.eat?.frames ?? []
+      expect(frames).toHaveLength(12)
+      expect(frames[1]).toBe('/pet/miku/thumb/eat/miku-pet-eat2.webp')
+      expect(frames[9]).toBe('/pet/miku/thumb/eat/miku-pet-eat10.webp')
+      expect(frames[11]).toBe('/pet/miku/thumb/eat/miku-pet-eat12.webp')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   it('honours explicit frames order and frameMs over filename-encoded durations', () => {
     const root = tempDir()
     try {
