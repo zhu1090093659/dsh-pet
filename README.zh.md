@@ -161,7 +161,7 @@ Live2D 清单把七个活动相位映射到模型的动作组：
 
 frames2d 宠物不用图集，直接交付目录式帧序列：`thumb/<track>/<frame>.webp`，帧时长取文件名 `_<ms>` 尾缀或轨道的 `frameMs` 列表（默认 200ms，范围 16–5000）。清单把七个活动相位映射到轨道；`drag` 轨道跟随外壳的拖拽手势；非循环轨道播完进入 `fallback`（默认 idle 轨道），入睡/睡熟这类"引子 + 循环"拆分（sleep-intro → sleep）就是纯清单数据。
 
-frames2d 宠物可声明 `gameplay` 块——从 miku 桌宠泛化而来的可选玩法层：属性条（`stats`，按分钟衰减，另有打工中与空闲变体）、命名货币、加权 `idleDirector`（每 `intervalMs` 掷骰演出小动作，连续落空 `maxMiss` 次必演）、`hitBox` 内的 `touch` 触摸分区（分支掷骰：效果 + 轨道保持 + 台词气泡）、`work` 打工循环（宿主裁决 tick，成功/失败结果轨道）、`sleep` 睡觉循环（惰性恢复）、`passiveIncome` 被动收入，以及 `shop` 商店（商品可带效果、货币兑换或分档抽奖）。所有掷骰与记账由宿主权威裁决（`POST /api/pet/gameplay/*`），状态按宠物持久化在 `pet.json`，沿用小鱼干经济的惰性结算纪律。浏览器半侧为声明了该块的宠物自动渲染玩法菜单卡（属性条、打工/睡觉开关、商店网格、钱包页）。
+frames2d 宠物可声明 `gameplay` 块——从 miku 桌宠泛化而来的可选玩法层：属性条（`stats`，按分钟衰减，另有打工中与空闲变体）、统一的小鱼干货币（玩法收入与商店支出都走宠物面板那条小鱼干库存，上限 20 条：`work` 成功、`passiveIncome` 与彩票奖品发放小鱼干，商品也以小鱼干标价扣款，无独立钱包页）、加权 `idleDirector`（每 `intervalMs` 掷骰演出小动作，连续落空 `maxMiss` 次必演）、`hitBox` 内的 `touch` 触摸分区（分支掷骰：效果 + 轨道保持 + 台词气泡）、`work` 打工循环（宿主裁决 tick，成功/失败结果轨道）、`sleep` 睡觉循环（惰性恢复）、`passiveIncome` 被动收入，以及 `shop` 商店（商品可带效果或分档抽奖）。所有掷骰与记账由宿主权威裁决（`POST /api/pet/gameplay/*`），状态按宠物持久化在 `pet.json`，沿用小鱼干经济的惰性结算纪律。浏览器半侧为声明了该块的宠物自动渲染玩法菜单卡（属性条、打工/睡觉开关、商店网格）。
 
 **Miku 宠物**（stushansusu 涂山苏苏以 MIT 贡献；初音未来角色权利归 Crypton Future Media，受 Piapro 角色许可约束——见 THIRD_PARTY_NOTICES.md）是 frames2d 玩法的参考实现。它只经**创意工坊**分发（不打进 npm 包）：从工坊宠物列表安装后落在 `$DSH_HOME/pets/miku/`。
 

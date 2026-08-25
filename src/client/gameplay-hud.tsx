@@ -1,7 +1,7 @@
 /**
  * Gameplay HUD — the client half of the manifest 'gameplay' block (miku-pet
  * generalization). One component owns everything the block needs: the stat
- * bars and currencies card (menu / shop / wallet pages), the touch-zone tap
+ * bars and shop card (menu / shop pages), the touch-zone tap
  * handling, the idle director rolls, the work and sleep loops, and the
  * float-text toasts. It talks to the host through the injected verb API,
  * writes results straight back into the store (the 2 s poll stays the
@@ -44,7 +44,7 @@ export interface GameplayBus {
   openCard?: (open?: boolean) => void
 }
 
-type HudPage = 'root' | 'shop' | 'wallet'
+type HudPage = 'root' | 'shop'
 
 /** One floating toast (prize / insufficient funds). */
 interface HudFloat {
@@ -289,7 +289,7 @@ export function GameplayHud(props: {
       if (result.ok !== true) {
         if (result.error === 'insufficient-funds') {
           const item = shop?.items.find(entry => entry.id === itemId)
-          pushFloat(tr('pet.gameplay.insufficient', { currency: currencyLabel(item?.currency ?? 'coins') }))
+          pushFloat(tr('pet.gameplay.insufficient', { currency: currencyLabel(item?.currency ?? 'treats') }))
         }
         return
       }
@@ -302,8 +302,6 @@ export function GameplayHud(props: {
   const setMode = (next: 'work' | 'sleep' | null): void => {
     void api.setMode(next).then(applyResult, () => undefined)
   }
-
-  const currencies = Object.keys(view.currencies).length === 0 ? { coins: 0 } : view.currencies
 
   return (
     <div ref={hudRef} className={styles.gameplayHud} data-dsh-pet-gameplay={definition.id}>
@@ -359,9 +357,6 @@ export function GameplayHud(props: {
                     {tr('pet.gameplay.shop')}
                   </button>
                 )}
-                <button type="button" className={styles.action} onClick={() => setPage('wallet')}>
-                  {tr('pet.gameplay.wallet')}
-                </button>
               </div>
             </>
           )}
@@ -384,22 +379,6 @@ export function GameplayHud(props: {
                       {item.price} {currencyLabel(item.currency)}
                     </span>
                   </button>
-                ))}
-              </div>
-              <div className={styles.gameplayActions}>
-                <button type="button" className={styles.action} onClick={() => setPage('root')}>
-                  {tr('pet.gameplay.back')}
-                </button>
-              </div>
-            </>
-          )}
-          {page === 'wallet' && (
-            <>
-              <div className={styles.gameplayWallet}>
-                {Object.entries(currencies).map(([name, amount]) => (
-                  <div key={name} className={styles.gameplayWalletRow}>
-                    {currencyLabel(name)} ×{amount}
-                  </div>
                 ))}
               </div>
               <div className={styles.gameplayActions}>

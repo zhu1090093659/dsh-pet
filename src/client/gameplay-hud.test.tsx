@@ -47,12 +47,11 @@ import type { PetGameplayStateView, PetGameplayVerbResult, PetStateView } from '
 
 const VIEW: PetGameplayStateView = {
   stats: { hunger: 100, mood: 100, energy: 100, affection: 100 },
-  currencies: { coins: 30 },
   mode: null,
 }
 
 function gameplayView(patch?: Partial<PetGameplayStateView>): PetGameplayStateView {
-  return { stats: { ...VIEW.stats }, currencies: { ...VIEW.currencies }, mode: null, ...patch }
+  return { stats: { ...VIEW.stats }, mode: null, ...patch }
 }
 
 function petDefinition(): PetDefinition {
@@ -98,13 +97,13 @@ function petDefinition(): PetDefinition {
       work: {
         state: 'work', successState: 'success', failState: 'fail', tickMs: 10_000,
         resultMs: { success: 1300, fail: 1900 }, successProbability: 0.5,
-        success: { effects: [{ currency: 'coins', amount: 3 }] },
+        success: { effects: [{ currency: 'treats', amount: 1 }] },
       },
       sleep: { state: 'sleep', restore: { stat: 'energy', amount: 4, intervalMs: 30_000 } },
       shop: {
         items: [
-          { id: 'food1', label: 'Bread', image: '/pet/miku/thumb/shop/food.webp', price: 5, currency: 'coins', effects: [{ stat: 'hunger', amount: 40 }] },
-          { id: 'lottery', label: 'Ticket', price: 10, currency: 'coins', lottery: { currency: 'coins', tiers: [{ probability: 1, prize: 50 }] } },
+          { id: 'food1', label: 'Bread', image: '/pet/miku/thumb/shop/food.webp', price: 2, currency: 'treats', effects: [{ stat: 'hunger', amount: 40 }] },
+          { id: 'lottery', label: 'Ticket', price: 3, currency: 'treats', lottery: { currency: 'treats', tiers: [{ probability: 1, prize: 5 }] } },
         ],
       },
     },
@@ -146,7 +145,7 @@ function harness(view: PetGameplayStateView = gameplayView()): Harness {
   const api = {
     touch: vi.fn(async () => ok({ hit: true, state: 'happy', stateMs: 3000, phrase: 'happy!', view: gameplayView({ stats: { ...VIEW.stats, affection: 105 } }) })),
     setMode: vi.fn(async (mode: 'work' | 'sleep' | null) => ok({ view: gameplayView({ mode }) })),
-    workTick: vi.fn(async () => ok({ outcome: 'success' as const, view: gameplayView({ mode: 'work', currencies: { coins: 33 } }) })),
+    workTick: vi.fn(async () => ok({ outcome: 'success' as const, view: gameplayView({ mode: 'work' }) })),
     buy: vi.fn(async () => ok({ view: gameplayView() })),
   }
   const setView = (next: PetGameplayStateView): void => store.actions.setSnapshot(snapshot(next))
@@ -163,16 +162,18 @@ describe('GameplayHud', () => {
     vi.useRealTimers()
   })
 
-  it('opens the menu card through the bus openCard channel and shows the wallet page', () => {
+  it('opens the menu card through the bus openCard channel and shows the shop page', () => {
     const h = harness()
     expect(h.bus.openCard).toBeDefined()
     act(() => { h.bus.openCard?.() })
     expect(screen.getByText('饱食')).toBeDefined()
     expect(screen.getByText('好感')).toBeDefined()
-    fireEvent.click(screen.getByText('钱包'))
-    expect(screen.getByText('金币 ×30')).toBeDefined()
+    fireEvent.click(screen.getByText('商店'))
+    expect(screen.getByText('Bread')).toBeDefined()
     fireEvent.click(screen.getByText('返回'))
-    expect(screen.getByText('商店')).toBeDefined()
+    expect(screen.getByText('打工')).toBeDefined()
+    // The wallet page is gone: no wallet action anywhere in the card.
+    expect(screen.queryByText('钱包')).toBeNull()
   })
 
 
@@ -303,7 +304,8 @@ describe('GameplayHud', () => {
       vi.advanceTimersByTime(1400)
     })
     expect(h.setTrack).toHaveBeenLastCalledWith('work')
-    expect(h.store.getSnapshot().snapshot?.gameplay?.currencies.coins).toBe(33)
+    // The tick view lands in the store (treats ride the panel ledger, not the view).
+    expect(h.store.getSnapshot().snapshot?.gameplay?.mode).toBe('work')
   })
 
   it('holds the sleep track and wakes on drag', async () => {
@@ -319,7 +321,7 @@ describe('GameplayHud', () => {
   it('buys shop items and floats the lottery prize', async () => {
     const h = harness()
     h.api.buy.mockResolvedValueOnce({ ok: false, error: 'insufficient-funds', view: gameplayView() })
-    h.api.buy.mockResolvedValueOnce({ ok: true, prize: { amount: 50, currency: 'coins' }, view: gameplayView() })
+    h.api.buy.mockResolvedValueOnce({ ok: true, prize: { amount: 5, currency: 'treats' }, view: gameplayView() })
     act(() => { h.bus.openCard?.() })
     fireEvent.click(screen.getByText('商店'))
     expect(screen.getByText('Bread')).toBeDefined()
@@ -327,10 +329,10 @@ describe('GameplayHud', () => {
       fireEvent.click(screen.getByText('Bread'))
     })
     expect(h.api.buy).toHaveBeenCalledWith('food1')
-    expect(screen.getByText('金币不足')).toBeDefined()
+    expect(screen.getByText('小鱼干不足')).toBeDefined()
     await act(async () => {
       fireEvent.click(screen.getByText('Ticket'))
     })
-    expect(screen.getByText('中奖 +50 金币')).toBeDefined()
+    expect(screen.getByText('中奖 +5 小鱼干')).toBeDefined()
   })
 })

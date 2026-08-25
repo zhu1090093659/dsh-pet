@@ -546,17 +546,6 @@
   color: #ffd27e;
 }
 
-.gameplayWallet {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-bottom: 8px;
-}
-
-.gameplayWalletRow {
-  color: #ffd27e;
-}
-
 .gameplayClose {
   position: absolute;
   top: 4px;

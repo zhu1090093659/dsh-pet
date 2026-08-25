@@ -150,6 +150,30 @@ export class PetLedger {
   }
 
   /**
+   * Grant gameplay treats into the shared stock (capped by the treat cap).
+   * This is the unified gameplay currency (wallet removed): work rewards,
+   * passive income and lottery prizes land here so one balance feeds the
+   * shop and the feeding economy. Returns true when the snapshot changed.
+   */
+  grantTreats(amount: number): boolean {
+    if (amount <= 0) return false
+    const capped = Math.min(this.treatConfig.maxTreats, this.current.treats.treats + amount)
+    if (capped === this.current.treats.treats) return false
+    this.current = { ...this.current, treats: { ...this.current.treats, treats: capped } }
+    this.dirty = true
+    return true
+  }
+
+  /** Spend gameplay treats from the shared stock; refuses when unaffordable. */
+  spendTreats(amount: number): { ok: boolean } {
+    const stock = this.current.treats.treats
+    if (amount <= 0 || stock < amount) return { ok: false }
+    this.current = { ...this.current, treats: { ...this.current.treats, treats: stock - amount } }
+    this.dirty = true
+    return { ok: true }
+  }
+
+  /**
    * Award the completed-turn reward once per session+turn (idempotent) and
    * run the treat settlement that work output feeds. Returns true when the
    * snapshot changed.

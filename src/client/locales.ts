@@ -24,14 +24,13 @@ export const zh = {
   'pet.live2d.vendor-missing': 'Live2D 组件缺失，请升级宠物插件。',
   'pet.live2d.load-failed': 'Live2D 模型加载失败，请检查该宠物目录的完整性。',
   'pet.openSessionHint': '点击跳转到对应会话',
-  // 玩法 HUD（miku-pet 泛化：属性条 / 打工 / 睡觉 / 商店 / 钱包）。
+  // 玩法 HUD（miku-pet 泛化：属性条 / 打工 / 睡觉 / 商店；统一小鱼干经济）。
   'pet.gameplay.menu': '玩法',
   'pet.gameplay.work': '打工',
   'pet.gameplay.stopWork': '收工',
   'pet.gameplay.sleep': '睡觉',
   'pet.gameplay.wake': '起床',
   'pet.gameplay.shop': '商店',
-  'pet.gameplay.wallet': '钱包',
   'pet.gameplay.back': '返回',
   'pet.gameplay.buy': '购买',
   'pet.gameplay.insufficient': '{currency}不足',
@@ -42,8 +41,7 @@ export const zh = {
   'pet.gameplay.stat.mood': '心情',
   'pet.gameplay.stat.energy': '精力',
   'pet.gameplay.stat.affection': '好感',
-  'pet.gameplay.currency.coins': '金币',
-  'pet.gameplay.currency.gamecoins': '游戏币',
+  'pet.gameplay.currency.treats': '小鱼干',
   'pet.moreSessions': '展开其余 {n} 个会话的气泡',
   'pet.collapseSessions': '收起会话气泡',
   // 一级设置页（settings.section 席位）。
@@ -99,14 +97,13 @@ export const en = {
   'pet.live2d.vendor-missing': 'The Live2D component is missing; please update the pet plugin.',
   'pet.live2d.load-failed': 'The Live2D model failed to load; check the pet directory is complete.',
   'pet.openSessionHint': 'Click to jump to this session',
-  // Gameplay HUD (miku-pet generalization: stat bars / work / sleep / shop / wallet).
+  // Gameplay HUD (miku-pet generalization: stat bars / work / sleep / shop; unified treats economy).
   'pet.gameplay.menu': 'Play',
   'pet.gameplay.work': 'Work',
   'pet.gameplay.stopWork': 'Stop work',
   'pet.gameplay.sleep': 'Sleep',
   'pet.gameplay.wake': 'Wake up',
   'pet.gameplay.shop': 'Shop',
-  'pet.gameplay.wallet': 'Wallet',
   'pet.gameplay.back': 'Back',
   'pet.gameplay.buy': 'Buy',
   'pet.gameplay.insufficient': 'Not enough {currency}',
@@ -117,8 +114,7 @@ export const en = {
   'pet.gameplay.stat.mood': 'Mood',
   'pet.gameplay.stat.energy': 'Energy',
   'pet.gameplay.stat.affection': 'Affection',
-  'pet.gameplay.currency.coins': 'Coins',
-  'pet.gameplay.currency.gamecoins': 'Game coins',
+  'pet.gameplay.currency.treats': 'Treats',
   'pet.moreSessions': 'Expand {n} more session bubbles',
   'pet.collapseSessions': 'Collapse session bubbles',
   // First-level settings section (the `settings.section` seat).

@@ -246,16 +246,8 @@
       "success": {
         "effects": [
           {
-            "currency": "coins",
-            "amount": 3
-          }
-        ]
-      },
-      "fail": {
-        "effects": [
-          {
-            "currency": "coins",
-            "amount": -1
+            "currency": "treats",
+            "amount": 1
           }
         ]
       }
@@ -269,9 +261,9 @@
       }
     },
     "passiveIncome": {
-      "currency": "coins",
+      "currency": "treats",
       "amount": 1,
-      "intervalMs": 60000
+      "intervalMs": 1800000
     },
     "shop": {
       "items": [
@@ -279,8 +271,8 @@
           "id": "food1",
           "label": "香浓可口的超级无敌黄油面包",
           "image": "thumb/shop/miku-pet-shop1.webp",
-          "price": 5,
-          "currency": "coins",
+          "price": 2,
+          "currency": "treats",
           "effects": [
             {
               "stat": "hunger",
@@ -292,8 +284,8 @@
           "id": "food2",
           "label": "闪闪发亮新鲜出炉的红豆沙包",
           "image": "thumb/shop/miku-pet-shop2.webp",
-          "price": 10,
-          "currency": "coins",
+          "price": 4,
+          "currency": "treats",
           "effects": [
             {
               "stat": "hunger",
@@ -302,26 +294,13 @@
           ]
         },
         {
-          "id": "gamecoin",
-          "label": "游戏币",
-          "image": "thumb/shop/miku-pet-shop4.webp",
-          "price": 10,
-          "currency": "coins",
-          "effects": [
-            {
-              "currency": "gamecoins",
-              "amount": 1
-            }
-          ]
-        },
-        {
           "id": "lottery",
           "label": "幸运彩票",
           "image": "thumb/shop/miku-pet-shop6.webp",
-          "price": 10,
-          "currency": "gamecoins",
+          "price": 3,
+          "currency": "treats",
           "lottery": {
-            "currency": "coins",
+            "currency": "treats",
             "effects": [
               {
                 "stat": "hunger",
@@ -343,23 +322,23 @@
             "tiers": [
               {
                 "probability": 0.0001,
-                "prize": 1000000
+                "prize": 100
               },
               {
                 "probability": 0.0008,
-                "prize": 500000
+                "prize": 50
               },
               {
                 "probability": 0.0035,
-                "prize": 6666
+                "prize": 20
               },
               {
                 "probability": 0.012,
-                "prize": 1000
+                "prize": 10
               },
               {
                 "probability": 0.9836,
-                "prize": 50
+                "prize": 5
               }
             ]
           }

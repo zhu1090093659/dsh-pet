@@ -67,6 +67,9 @@ import {
   type PetGameplayState,
 } from './gameplay.ts'
 
+/** The unified gameplay currency: the shared treat (小鱼干) ledger. */
+const GAMEPLAY_TREATS_CURRENCY = 'treats'
+
 /** Plugin configuration. */
 export interface PetConfig {
   /** Affinity tuning. */
@@ -201,7 +204,6 @@ export type PetInteractResult = LedgerInteractionResult
 export interface PetGameplayStateView {
   /** Stat values rounded for display. */
   stats: Record<string, number>
-  currencies: Record<string, number>
   mode: 'work' | 'sleep' | null
 }
 
@@ -546,11 +548,23 @@ export class PetService extends Service {
     }
   }
 
-  /** Display view of one gameplay state (rounded stats). */
+  /** Display view of one gameplay state (rounded stats; treats ride the shared treat ledger). */
   private gameplayViewOf(state: PetGameplayState): PetGameplayStateView {
     const stats: Record<string, number> = {}
     for (const [name, value] of Object.entries(state.stats)) stats[name] = Math.round(value)
-    return { stats, currencies: { ...state.currencies }, mode: state.mode }
+    return { stats, mode: state.mode }
+  }
+
+  /**
+   * Move gameplay 'treats' currency (the unified post-wallet currency) from
+   * the engine's settle work area into the shared treat ledger, capped by
+   * the stock cap. The engine keeps its generic currency record for settle
+   * math; this drain is the only bridge to the wallet-free economy.
+   */
+  private drainGameplayTreats(state: PetGameplayState): void {
+    const pending = Math.floor(state.currencies[GAMEPLAY_TREATS_CURRENCY] ?? 0)
+    delete state.currencies[GAMEPLAY_TREATS_CURRENCY]
+    if (pending > 0) this.ledger.grantTreats(pending)
   }
 
   /** Persist the mutated gameplay state of one verb call. */
@@ -574,6 +588,7 @@ export class PetService extends Service {
       if (boost === undefined) return { ok: false, error: 'no-touch' }
       const amount = boost.min + Math.floor(Math.random() * (boost.max - boost.min + 1))
       if (amount > 0) applyGameplayEffects(state, def, [{ stat: boost.stat, amount }])
+      this.drainGameplayTreats(state)
       this.commitGameplay(petId, state)
       return { ok: true, hit: false, view: this.gameplayViewOf(state) }
     }
@@ -581,6 +596,7 @@ export class PetService extends Service {
     if (target === undefined) return { ok: false, error: 'unknown-zone' }
     const branch = rollTouchBranch(target, Math.random)
     if (branch === undefined) {
+      this.drainGameplayTreats(state)
       this.commitGameplay(petId, state)
       return { ok: true, hit: false, view: this.gameplayViewOf(state) }
     }
@@ -588,6 +604,7 @@ export class PetService extends Service {
     const phrase = branch.phrases !== undefined && branch.phrases.length > 0
       ? branch.phrases[Math.floor(Math.random() * branch.phrases.length)]
       : undefined
+    this.drainGameplayTreats(state)
     this.commitGameplay(petId, state)
     return {
       ok: true,
@@ -609,6 +626,7 @@ export class PetService extends Service {
     const { petId, state } = this.gameplayState(def, now)
     settleGameplay(state, def, now, { sessionActive: this.machine.render().sessionActive })
     state.mode = mode
+    this.drainGameplayTreats(state)
     this.commitGameplay(petId, state)
     return { ok: true, view: this.gameplayViewOf(state) }
   }
@@ -624,6 +642,7 @@ export class PetService extends Service {
     const outcome = rollWorkOutcome(def.work, Math.random)
     const effects = outcome === 'success' ? def.work.success?.effects : def.work.fail?.effects
     if (effects !== undefined) applyGameplayEffects(state, def, effects)
+    this.drainGameplayTreats(state)
     this.commitGameplay(petId, state)
     return { ok: true, outcome, view: this.gameplayViewOf(state) }
   }
@@ -637,20 +656,27 @@ export class PetService extends Service {
     const now = Date.now()
     const { petId, state } = this.gameplayState(def, now)
     settleGameplay(state, def, now, { sessionActive: this.machine.render().sessionActive })
-    const balance = state.currencies[item.currency] ?? 0
+    // The unified currency is the shared treat ledger (wallet removed): shop
+    // prices and prizes ride the same balance the panel shows and feeding
+    // consumes, capped by the stock cap.
+    const treats = item.currency === GAMEPLAY_TREATS_CURRENCY
+    const balance = treats ? this.ledger.snapshot.treats.treats : (state.currencies[item.currency] ?? 0)
     if (balance < item.price) {
       return { ok: false, error: 'insufficient-funds', view: this.gameplayViewOf(state) }
     }
-    state.currencies[item.currency] = balance - item.price
+    if (treats) this.ledger.spendTreats(item.price)
+    else state.currencies[item.currency] = balance - item.price
     if (item.effects !== undefined) applyGameplayEffects(state, def, item.effects)
     let prize: PetGameplayVerbResult['prize']
     if (item.lottery !== undefined) {
       if (item.lottery.effects !== undefined) applyGameplayEffects(state, def, item.lottery.effects)
       const tier = drawLotteryTier(item.lottery, Math.random)
       const prizeCurrency = tier.currency ?? item.lottery.currency ?? item.currency
-      state.currencies[prizeCurrency] = (state.currencies[prizeCurrency] ?? 0) + tier.prize
+      if (prizeCurrency === GAMEPLAY_TREATS_CURRENCY) this.ledger.grantTreats(tier.prize)
+      else state.currencies[prizeCurrency] = (state.currencies[prizeCurrency] ?? 0) + tier.prize
       prize = { amount: tier.prize, currency: prizeCurrency }
     }
+    this.drainGameplayTreats(state)
     this.commitGameplay(petId, state)
     return { ok: true, ...(prize === undefined ? {} : { prize }), view: this.gameplayViewOf(state) }
   }

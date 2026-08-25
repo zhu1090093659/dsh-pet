@@ -53,22 +53,20 @@ const MIKU_MANIFEST = {
     work: {
       state: 'work', successState: 'success', failState: 'fail',
       tickMs: 10_000, successProbability: 0.5,
-      success: { effects: [{ currency: 'coins', amount: 3 }] },
-      fail: { effects: [{ currency: 'coins', amount: -1 }] },
+      success: { effects: [{ currency: 'treats', amount: 1 }] },
     },
     sleep: { state: 'sleep', wakeState: 'standup', restore: { stat: 'energy', amount: 4, intervalMs: 30_000 } },
-    passiveIncome: { currency: 'coins', amount: 1, intervalMs: 60_000 },
+    passiveIncome: { currency: 'treats', amount: 1, intervalMs: 1_800_000 },
     shop: {
       state: 'shop',
       items: [
-        { id: 'food1', label: 'bread', image: 'thumb/shop/food.webp', price: 5, currency: 'coins', effects: [{ stat: 'hunger', amount: 40 }] },
-        { id: 'gamecoin', label: 'game coin', price: 10, currency: 'coins', effects: [{ currency: 'gamecoins', amount: 1 }] },
+        { id: 'food1', label: 'bread', image: 'thumb/shop/food.webp', price: 2, currency: 'treats', effects: [{ stat: 'hunger', amount: 40 }] },
         {
-          id: 'lottery', label: 'ticket', price: 10, currency: 'gamecoins',
+          id: 'lottery', label: 'ticket', price: 3, currency: 'treats',
           lottery: {
-            currency: 'coins',
+            currency: 'treats',
             effects: [{ stat: 'mood', amount: 10 }],
-            tiers: [{ probability: 1, prize: 50 }],
+            tiers: [{ probability: 1, prize: 5 }],
           },
         },
       ],
@@ -131,7 +129,7 @@ afterAll(async () => {
   rmSync(dir, { recursive: true, force: true })
 })
 
-interface GameplayView { stats: Record<string, number>; currencies: Record<string, number>; mode: 'work' | 'sleep' | null }
+interface GameplayView { stats: Record<string, number>; mode: 'work' | 'sleep' | null }
 interface VerbResult { ok: boolean; error?: string; hit?: boolean; state?: string; stateMs?: number; phrase?: string; outcome?: string; prize?: { amount: number; currency: string }; view?: GameplayView }
 
 describe('gameplay routes', () => {
@@ -196,43 +194,42 @@ describe('gameplay routes', () => {
     expect(unknown.error).toBe('unknown-zone')
   })
 
-  it('runs the shop: funds check, food, currency swap, lottery prize', async () => {
+  it('runs the shop on the treats economy: funds check, food, lottery prize', async () => {
     const broke = await post('/api/pet/gameplay/buy', { item: 'food1' }).then(res => res.json()) as VerbResult
     expect(broke.ok).toBe(false)
     expect(broke.error).toBe('insufficient-funds')
-    // Earn coins through the work loop (bounded; +3 / -1 per adjudication).
-    // Target: 5 (food) + 10 x 10 (gamecoins) = 105 plus slack.
+    // Earn treats through the work loop (+1 per success, capped at 20).
     await post('/api/pet/gameplay/mode', { mode: 'work' })
-    let coins = 0
-    for (let i = 0; i < 300 && coins < 110; i++) {
+    for (let i = 0; i < 80; i++) {
       const tick = await post('/api/pet/gameplay/work-tick').then(res => res.json()) as VerbResult
-      coins = tick.view?.currencies.coins ?? 0
+      expect(tick.ok).toBe(true)
     }
     await post('/api/pet/gameplay/mode', { mode: null })
-    expect(coins).toBeGreaterThanOrEqual(110)
+    const stocked = (await fetch('http://127.0.0.1:' + port + '/api/pet/state').then(res => res.json()) as { treats: { stocked: number } }).treats.stocked
+    expect(stocked).toBe(20)
     const hungerBefore = (await fetch('http://127.0.0.1:' + port + '/api/pet/state').then(res => res.json()) as { gameplay: GameplayView }).gameplay.stats.hunger
     const fed = await post('/api/pet/gameplay/buy', { item: 'food1' }).then(res => res.json()) as VerbResult
-    expect(fed, JSON.stringify({ fed, coins, hungerBefore })).toMatchObject({ ok: true })
+    expect(fed, JSON.stringify({ fed, stocked, hungerBefore })).toMatchObject({ ok: true })
     expect(fed.view?.stats.hunger).toBe(Math.min(100, hungerBefore + 40))
-    expect(fed.view?.currencies.coins).toBe(coins - 5)
-    let swap = {} as VerbResult
-    for (let i = 0; i < 10; i++) {
-      swap = await post('/api/pet/gameplay/buy', { item: 'gamecoin' }).then(res => res.json()) as VerbResult
-      expect(swap.ok).toBe(true)
-    }
-    expect(swap.view?.currencies.gamecoins).toBe(10)
+    const afterFood = (await fetch('http://127.0.0.1:' + port + '/api/pet/state').then(res => res.json()) as { treats: { stocked: number } }).treats.stocked
+    expect(afterFood).toBe(stocked - 2)
     const draw = await post('/api/pet/gameplay/buy', { item: 'lottery' }).then(res => res.json()) as VerbResult
     expect(draw.ok).toBe(true)
-    expect(draw.prize).toEqual({ amount: 50, currency: 'coins' })
-    expect(draw.view?.currencies.gamecoins).toBe(0)
+    expect(draw.prize).toEqual({ amount: 5, currency: 'treats' })
+    // Lottery cost 3, prize 5: capped back at the 20-stock cap.
+    const afterDraw = (await fetch('http://127.0.0.1:' + port + '/api/pet/state').then(res => res.json()) as { treats: { stocked: number } }).treats.stocked
+    expect(afterDraw).toBe(20)
   })
 
-  it('persists the gameplay state under the pet id', async () => {
+  it('persists gameplay stats under the pet id and keeps treats in the shared ledger', async () => {
     const persisted = JSON.parse(readFileSync(join(dir, 'home', 'pet.json'), 'utf8')) as {
       gameplay?: Record<string, { currencies: Record<string, number>; mode: string | null }>
+      treats?: { treats: number }
     }
     expect(persisted.gameplay?.miku).toBeDefined()
-    expect(persisted.gameplay?.miku.currencies.coins).toBeGreaterThan(0)
+    // Treats are the wallet-free currency: the gameplay currency record is empty.
+    expect(persisted.gameplay?.miku.currencies).toEqual({})
+    expect(persisted.treats?.treats).toBe(20)
   })
 
   it('rejects gameplay verbs for a pet without a gameplay block', async () => {
