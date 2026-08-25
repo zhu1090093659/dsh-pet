@@ -43,6 +43,8 @@ export interface PetSpriteProps {
   onHide: () => void
   /** Persist a drag position. */
   onDragEnd: (right: number, bottom: number) => void
+  /** Drag gesture notifications for renderers with a drag track (frames2d). */
+  onDraggingChange?: (dragging: boolean) => void
   /** Rename the selected pet (persisted by the host). */
   onRename: (name: string) => void
   /** Navigate to the session one status bubble reports on. */
@@ -377,7 +379,10 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
     if (drag === null) return
     const dx = e.clientX - drag.startX
     const dy = e.clientY - drag.startY
-    if (Math.abs(dx) > 4 || Math.abs(dy) > 4) draggedRef.current = true
+    if (Math.abs(dx) > 4 || Math.abs(dy) > 4) {
+      if (!draggedRef.current) props.onDraggingChange?.(true)
+      draggedRef.current = true
+    }
     const right = clampOffset(drag.right - dx, window.innerWidth - 40)
     const bottom = clampOffset(drag.bottom - dy, window.innerHeight - 40)
     setDragPos({ right, bottom })
@@ -385,6 +390,7 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
   const onPointerUp = (): void => {
     if (dragRef.current === null) return
     dragRef.current = null
+    if (draggedRef.current) props.onDraggingChange?.(false)
     if (dragPos !== null) props.onDragEnd(dragPos.right, dragPos.bottom)
   }
 
