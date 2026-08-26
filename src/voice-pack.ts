@@ -74,9 +74,6 @@ export interface VoicePack {
 /** Hard caps shared by every pool slot (mirrors the remarks discipline). */
 export const VOICE_POOL_LINES_MAX = 64
 export const VOICE_LINE_MAX = 160
-export const VOICE_KEYWORDS_PER_RULE_MAX = 16
-export const VOICE_KEYWORD_MAX = 40
-export const VOICE_RULES_MAX = 32
 export const VOICE_LABEL_MAX = 40
 export const VOICE_STAT_MAX = 80
 
