@@ -23,8 +23,8 @@ Re-implemented from the pet feature of the Codex desktop app, as an official DSH
 | Dragging | Hold and drag the pet to reposition; position persisted |
 | Hide/Summon | The hover panel sits below the pet (lifted above the status bubbles when there is no room below) and provides 隐藏 (Hide); after hiding, a 召唤{name} (Summon {name}) button appears |
 | Witty remarks | Built-in remark library (10 lines per event) plus per-pet custom lines; success lines rotate by persisted success counts and cooldown lines by persisted rejection counts |
-| Status bubbles | Only the most recently active top-level session speaks by default — when several sessions run at once, the rest collapse behind a +N badge on the main bubble instead of stacking a tall column; hover the bubble (or tap the badge, for touch) to fan every session's bubble out above it and click one to jump to its session; subagent sessions report through their spawning conversation and never occupy a bubble of their own; transient interaction feedback temporarily takes priority. Bubble copy comes from generous rotating pools per scene (waiting / thinking / writing / done / failed...), tool calls map onto per-family witty lines carrying the real argument hint (e.g. 跑跑 npm test), and a long-lived scene re-phrases itself every few seconds |
-| Inner whispers | 碎碎念: while the model streams, the pet occasionally speaks its inner voice through its own bubble — a fresh whisper takes over the display session's bubble and marks it with 「」 quotes — sharing the same DeepSeek-blue glass as every status bubble, so stacked bubbles never clash — instead of stacking a second bubble — keyword moods woken by the model output (errors, test greens, plans, victories...) plus ambient whispers earned by output volume; paced by a cooldown, the status copy returns after a few seconds |
+| Status bubbles | Only one top-level session speaks by default — the session the GUI is currently on when it is reported, otherwise the most recently active one — and the rest collapse behind a +N badge on the main bubble instead of stacking a tall column; hover the bubble (or tap the badge, for touch) to fan every session's bubble out above it and click one to jump to its session; subagent sessions report through their spawning conversation and never occupy a bubble of their own; transient interaction feedback temporarily takes priority. Bubble copy comes from generous rotating pools per scene (waiting / thinking / writing / done / failed...), tool calls map onto per-family witty lines carrying the real argument hint (e.g. 跑跑 npm test), and a long-lived scene re-phrases itself every few seconds |
+| Inner whispers | 碎碎念: while a session streams, the pet occasionally speaks its inner voice through that session's own bubble — a fresh whisper takes over the bubble and marks it with 「」 quotes — sharing the same DeepSeek-blue glass as every status bubble, so stacked bubbles never clash — instead of stacking a second bubble — category lines woken by the SITUATION (thinking / writing / the running tool family) plus outcome lines woken only by structured results (test green from a passed test tool, error from a failed tool result, completion from a completed turn) — never from the model's words, so a discussion that merely mentions a keyword cannot wake a mood, and a whisper never quotes real content (no tool names, paths or model text); paced by cooldowns (9 s category, 5 s outcome) and an 8 s display TTL, the status copy returns after a few seconds |
 | Multi-session activity | The pet is host-global: the most recent meaningful event drives the sprite animation while every active top-level session reports its own state in a separate bubble; completed turns from every session (subagents included) contribute affinity and treats |
 | Voice packs and panel DIY | A per-pet voice.json plus the global $DSH_HOME/pets/.voice.json override replace every bubble word and the hover panel (button labels, stat formats, button visibility); merge precedence per-pet > global > built-in, broken packs warn and never reject a pet |
 
@@ -102,11 +102,14 @@ Every word in the thought bubble (status / tool / whisper copy) and the hover pa
     "shell": ["Running {hint}", "Hit enter: {hint}"]
   },
   "toolRemaining": ["{n} helpers still at work"],   // {n} allowed
-  "whispers": {                        // murmur pools; each section replaces the built-in one
-    "generic": ["On it", "Almost there"],  // ambient pool; an explicit empty array mutes it
-    "rules": [                         // ordered keyword rules; given rules replace the built-ins
-      { "keywords": ["all tests pass"], "pool": ["All green!"] }
-    ]
+  "whispers": {                        // murmur pools; keys replace the built-in pools
+    "categories": {                    // situation pools; an explicit empty array mutes that category
+      "thinking": ["Let me think..."],
+      "running": ["It's running now"]
+    },
+    "results": {                       // outcome pools (test green / error / completion)
+      "pass": ["All green!"]
+    }
   },
   "panel": {                           // hover panel; unset slots keep the plugin i18n copy
     "labels": { "feed": "Treat", "hide": "Dive", "rename": "Rename me", "confirm": "Sure" },
@@ -116,11 +119,11 @@ Every word in the thought bubble (status / tool / whisper copy) and the hover pa
 }
 ```
 
-- Merge precedence (per slot): the pet voice.json > the global .voice.json > built-in copy. status/tools merge per key, whispers replace per section, panel merges per slot; any slot a layer misses falls through.
+- Merge precedence (per slot): the pet voice.json > the global .voice.json > built-in copy. status/tools/whispers merge per key, panel merges per slot; any slot a layer misses falls through.
 - Placeholder whitelist: tools accept {tool} / {hint}; toolRemaining accepts {n}; panel.stats accept {rank} / {n} / {points}; status, whisper and panel-label lines accept no placeholders (lines carrying one are dropped with a warning).
-- Caps (warn-and-drop): at most 64 lines per pool and 160 characters per line; at most 32 rules and 16 keywords (40 characters) per rule; panel labels 40 and stats 80 characters.
+- Caps (warn-and-drop): at most 64 lines per pool and 160 characters per line; panel labels 40 and stats 80 characters.
 - A broken pack never breaks the pet: voice.json that is not valid JSON or whose root is not an object is ignored with a warning; every other issue drops its slot only. Diagnostics appear under Settings > Pet directory diagnostics. node scripts/dsh-pet validate <dir> fails installs on structure errors and lists content issues as warnings.
-- Semantics: an empty status/tools pool falls back to the built-in copy (a scene line always renders); an explicit empty whisper pool mutes that channel; an empty panel actions array hides all three buttons; uncovered buttons and stats keep the plugin bilingual dictionary.
+- Semantics: an empty status/tools pool falls back to the built-in copy (a scene line always renders); an explicit empty whisper pool mutes that channel; an empty panel actions array hides all three buttons; uncovered buttons and stats keep the plugin bilingual dictionary. Legacy whispers.generic / whispers.rules fields are no longer supported and are ignored with a warning.
 
 ## Live2D pets (renderer: live2d)
 

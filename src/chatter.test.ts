@@ -11,8 +11,9 @@ import {
   TOOL_POOLS,
   toolArgHint,
   toolCategory,
-  WHISPER_GENERIC_POOL,
-  WHISPER_RULES,
+  WHISPER_CATEGORY_POOLS,
+  WHISPER_RESULT_POOLS,
+  looksLikeTestTool,
   WhisperEngine,
   type VoicePackOverrides,
 } from './chatter.ts'
@@ -127,30 +128,65 @@ describe('toolArgHint', () => {
 })
 
 describe('WhisperEngine', () => {
-  it('wakes a themed whisper from a keyword in the model output', () => {
+  it('speaks a category line for the current situation, then respects the cooldown', () => {
     const engine = new WhisperEngine()
-    expect(engine.feed('这里有个错误需要处理', 0)).toBe(WHISPER_RULES[1]!.pool[0])
+    expect(engine.feed('thinking', 0)).toBe(WHISPER_CATEGORY_POOLS.thinking[0])
+    expect(engine.feed('writing', 1)).toBeUndefined()
   })
 
-  it('suppresses whispers during the cooldown, then rotates the pool', () => {
+  it('rotates within each category and keeps the category cursors apart', () => {
     const engine = new WhisperEngine()
-    expect(engine.feed('出现一个错误', 0)).toBe(WHISPER_RULES[1]!.pool[0])
-    expect(engine.feed('又一个错误', 1000)).toBeUndefined()
-    expect(engine.feed('还有一个错误', 9000)).toBe(WHISPER_RULES[1]!.pool[1])
+    expect(engine.feed('thinking', 0)).toBe(WHISPER_CATEGORY_POOLS.thinking[0])
+    expect(engine.feed('writing', 9001)).toBe(WHISPER_CATEGORY_POOLS.writing[0])
+    expect(engine.feed('thinking', 18002)).toBe(WHISPER_CATEGORY_POOLS.thinking[1])
   })
 
-  it('earns an ambient whisper from output volume alone', () => {
-    const engine = new WhisperEngine(undefined, 0, 10)
-    expect(engine.feed('aaaaaaaa', 0)).toBeUndefined()
-    expect(engine.feed('bbbb', 1)).toBe(WHISPER_GENERIC_POOL[0])
-    // The counter resets after speaking: another budget must accumulate.
-    expect(engine.feed('cccc', 2)).toBeUndefined()
-    expect(engine.feed('dddddddddd', 3)).toBe(WHISPER_GENERIC_POOL[1])
+  it('stays quiet on an explicitly muted category', () => {
+    const engine = new WhisperEngine(() => ({ whispers: { categories: { thinking: [] } } }))
+    expect(engine.feed('thinking', 0)).toBeUndefined()
   })
 
-  it('ignores empty chunks', () => {
-    const engine = new WhisperEngine(undefined, 0, 0)
-    expect(engine.feed('', 0)).toBeUndefined()
+  it('wakes outcome whispers on their own shorter cooldown and rotates per outcome', () => {
+    const engine = new WhisperEngine()
+    expect(engine.result('pass', 0)).toBe(WHISPER_RESULT_POOLS.pass[0])
+    expect(engine.result('fail', 1000)).toBeUndefined()
+    expect(engine.result('fail', 5001)).toBe(WHISPER_RESULT_POOLS.fail[0])
+    expect(engine.result('pass', 10002)).toBe(WHISPER_RESULT_POOLS.pass[1])
+  })
+
+  it('paces category and outcome whispers against one shared clock', () => {
+    const engine = new WhisperEngine()
+    expect(engine.feed('writing', 0)).toBe(WHISPER_CATEGORY_POOLS.writing[0])
+    // An outcome right after a category reply must wait the outcome cooldown.
+    expect(engine.result('done', 4999)).toBeUndefined()
+    expect(engine.result('done', 5000)).toBe(WHISPER_RESULT_POOLS.done[0])
+    // After an outcome, the category must wait the full category cooldown
+    // measured from the outcome whisper (5000), so 14000 is the next slot.
+    expect(engine.feed('thinking', 5001)).toBeUndefined()
+    expect(engine.feed('thinking', 14000)).toBe(WHISPER_CATEGORY_POOLS.thinking[0])
+  })
+
+  it('mutes an outcome with an explicit empty pool', () => {
+    const engine = new WhisperEngine(() => ({ whispers: { results: { fail: [] } } }))
+    expect(engine.result('fail', 0)).toBeUndefined()
+  })
+})
+
+describe('looksLikeTestTool', () => {
+  it('recognizes test tools by name and by shell command', () => {
+    expect(looksLikeTestTool('run_tests', undefined)).toBe(true)
+    expect(looksLikeTestTool('run_code', '{"command":"npm test"}')).toBe(true)
+    expect(looksLikeTestTool('run_code', '{"command":"pnpm run test -- --run"}')).toBe(true)
+    expect(looksLikeTestTool('bash', '{"command":"pytest -q"}')).toBe(true)
+    expect(looksLikeTestTool('bash', '{"command":"go test ./..."}')).toBe(true)
+    expect(looksLikeTestTool('run_code', '{"code":"import pytest"}')).toBe(true)
+  })
+
+  it('does not misfire on ordinary tools or mentions in generic code', () => {
+    expect(looksLikeTestTool('bash', '{"command":"node server.js"}')).toBe(false)
+    expect(looksLikeTestTool('grep', '{"pattern":"test"}')).toBe(false)
+    expect(looksLikeTestTool('read', '{"file_path":"/repo/test/fixture.txt"}')).toBe(false)
+    expect(looksLikeTestTool('run_code', '{"code":"server.listen(8080)"}')).toBe(false)
   })
 })
 
@@ -165,8 +201,8 @@ describe('voice-pack overrides (pet-center M4)', () => {
     },
     toolRemaining: ['后台还有 {n} 个'],
     whispers: {
-      generic: ['自定义碎碎念 A', '自定义碎碎念 B'],
-      rules: [{ keywords: ['测试通过'], pool: ['自定义全绿'] }],
+      categories: { thinking: ['自定义思考', '自定义思考二'] },
+      results: { pass: ['自定义全绿'] },
     },
   })
 
@@ -214,28 +250,22 @@ describe('voice-pack overrides (pet-center M4)', () => {
     expect(voice.scene('done', 5000)).toBe('换声了')
   })
 
-  it('replaces the whisper rules as a whole', () => {
+  it('replaces whisper category pools per key', () => {
     const engine = new WhisperEngine(PACK)
-    expect(engine.feed('这里有一个错误', 0)).toBeUndefined()
-    // The built-in error rule is gone; only the pack's rule fires.
-    expect(engine.feed('测试通过', 1000)).toBe('自定义全绿')
+    expect(engine.feed('thinking', 0)).toBe('自定义思考')
+    expect(engine.feed('writing', 9000)).toBe(WHISPER_CATEGORY_POOLS.writing[0])
+    expect(engine.feed('thinking', 18000)).toBe('自定义思考二')
   })
 
-  it('replaces the ambient generic pool', () => {
-    const engine = new WhisperEngine(PACK, 0, 3)
-    expect(engine.feed('aaaa', 0)).toBe('自定义碎碎念 A')
-    expect(engine.feed('bbbb', 1)).toBe('自定义碎碎念 B')
+  it('replaces whisper outcome pools per key', () => {
+    const engine = new WhisperEngine(PACK)
+    expect(engine.result('pass', 0)).toBe('自定义全绿')
+    expect(engine.result('fail', 5001)).toBe(WHISPER_RESULT_POOLS.fail[0])
   })
 
-  it('mutes ambient whispers when the generic pool is explicitly empty', () => {
-    const engine = new WhisperEngine(() => ({ whispers: { generic: [] } }), 0, 3)
-    expect(engine.feed('aaaa', 0)).toBeUndefined()
-    expect(engine.feed('bbbb', 1)).toBeUndefined()
-  })
-
-  it('disables keyword rules when the rules array is explicitly empty', () => {
-    const engine = new WhisperEngine(() => ({ whispers: { rules: [] } }), 0, 3)
-    // No keyword rule matches anymore; volume still earns a built-in ambient.
-    expect(engine.feed('测试通过', 0)).toBe(WHISPER_GENERIC_POOL[0])
+  it('mutes a whisper channel with an explicit empty override', () => {
+    const engine = new WhisperEngine(() => ({ whispers: { categories: { thinking: [] }, results: { done: [] } } }))
+    expect(engine.feed('thinking', 0)).toBeUndefined()
+    expect(engine.result('done', 0)).toBeUndefined()
   })
 })

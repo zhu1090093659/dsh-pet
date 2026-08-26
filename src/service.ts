@@ -137,6 +137,8 @@ export interface PetSessionView {
   bubble: string
   /** This session's raw activity phase. */
   phase: PetStateSnapshot['phase']
+  /** This session's fresh inner whisper (碎碎念), when one is within its TTL. */
+  whisper?: string
 }
 
 /** Hard cap on simultaneously displayed session bubbles (most recent first). */
@@ -149,10 +151,10 @@ export interface PetStateView {
   phase: PetStateSnapshot['phase']
   sessionActive: boolean
   /**
-   * Per-session bubbles for every concurrently active TOP-LEVEL session,
-   * most recent first; optional so older hosts without the multi-session
-   * view stay consumable. The single 'bubble' above mirrors the display
-   * session.
+   * Per-session bubbles for every concurrently active TOP-LEVEL session:
+   * the GUI's current session first when reported, the rest most recently
+   * active first; optional so older hosts without the multi-session view
+   * stay consumable. The single 'bubble' above mirrors the display session.
    */
   sessions?: PetSessionView[]
   /** Affinity ledger snapshot. */
@@ -177,12 +179,6 @@ export interface PetStateView {
     /** Stock cap. */
     max: number
   }
-  /**
-   * The display session's fresh inner whisper (碎碎念), when one is within
-   * its TTL — short inner-voice copy woken by the model's own output,
-   * rendered by the client as a distinct whisper bubble.
-   */
-  whisper?: string
   /**
    * The active status decoration (pet-center M5, #567), when the master
    * switch is on and the default decoration entry exists. Absent means the
@@ -338,8 +334,8 @@ export class PetService extends Service {
   }
 
   /** RPC: current pet state snapshot. */
-  async state(): Promise<PetStateView> {
-    return this.view()
+  async state(currentSessionId?: string): Promise<PetStateView> {
+    return this.view(currentSessionId)
   }
 
   /** Current persisted display config (read-only view). */
@@ -763,37 +759,45 @@ export class PetService extends Service {
     if (this.ledger.rewardLegacyTurn(Date.now())) this.flush()
   }
 
-  private view(): PetStateView {
+  private view(currentSessionId?: string): PetStateView {
     const snapshot = this.machine.render()
     const entry = this.activeEntry()
-    // One bubble per concurrently active TOP-LEVEL session, most recent
-    // first. Subagent children render no bubble of their own (their activity
-    // already shows through the spawning conversation's bubble/display, and
-    // the bubble buttons navigate to GUI sessions, which subagents are not).
-    // Sessions whose own machine has settled (no bubble copy) drop out, so a
-    // finished turn does not leave a stale bubble behind.
+    // One bubble per concurrently active TOP-LEVEL session. The GUI's current
+    // session leads the stack when reported (the browser half passes its
+    // session list's 'current'); everything else keeps the most recent
+    // meaningful event order. Subagent children render no bubble of their own
+    // (their activity already shows through the spawning conversation's
+    // bubble/display, and the bubble buttons navigate to GUI sessions, which
+    // subagents are not). Sessions whose own machine has settled (no bubble
+    // copy) drop out, so a finished turn does not leave a stale bubble behind.
     const sessions: PetSessionView[] = []
     for (const [session, activity] of [...this.sessionActivity.entries()].reverse()) {
       if (sessions.length >= MAX_SESSION_BUBBLES) break
       if (session.header?.origin === 'subagent') continue
       const perSession = activity.machine.render()
       if (perSession.bubble === undefined) continue
+      // Each session's whisper rides its own bubble while fresh; an expired
+      // whisper simply stops appearing (the client's 2 s poll drops it).
+      const whisper = activity.whisper
+      const freshWhisper = whisper !== undefined && Date.now() - whisper.at < WHISPER_TTL_MS
+        ? whisper.text
+        : undefined
       sessions.push({
         sessionId: String(session.id),
         animation: perSession.animation,
         bubble: perSession.bubble,
         phase: perSession.phase,
+        ...(freshWhisper === undefined ? {} : { whisper: freshWhisper }),
       })
     }
-    // The display session's inner whisper rides the global view while fresh;
-    // an expired whisper simply stops appearing (the client's 2s poll drops it).
-    const displayActivity = this.displaySession === undefined
-      ? undefined
-      : this.sessionActivity.get(this.displaySession)
-    const whisper = displayActivity?.whisper
-    const freshWhisper = whisper !== undefined && Date.now() - whisper.at < WHISPER_TTL_MS
-      ? whisper.text
-      : undefined
+    // The browser half reports the session the user is currently on; that
+    // session's bubble leads the stack (its whisper then speaks on the
+    // collapsed single bubble). An unreported or absent session keeps the
+    // legacy most-recent-first order.
+    if (currentSessionId !== undefined) {
+      const index = sessions.findIndex(session => session.sessionId === currentSessionId)
+      if (index > 0) sessions.unshift(sessions.splice(index, 1)[0]!)
+    }
     const decoration = this.activeDecoration()
     // Gameplay view: a read-only projection. The settle runs on a copy, so
     // polling never writes pet.json (verbs settle and persist).
@@ -812,7 +816,6 @@ export class PetService extends Service {
       phase: snapshot.phase,
       sessionActive: snapshot.sessionActive,
       sessions,
-      ...(freshWhisper === undefined ? {} : { whisper: freshWhisper }),
       ...(decoration === undefined ? {} : { decoration }),
       affinity: this.ledger.affinityView(Date.now()),
       display: { ...this.ledger.snapshot.display },

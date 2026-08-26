@@ -12,7 +12,8 @@ import {
   normalizePanel,
   normalizePool,
   normalizeVoicePack,
-  normalizeWhisperRules,
+  normalizeWhisperCategories,
+  normalizeWhisperResults,
   PANEL_ACTIONS,
   PANEL_LABEL_KEYS,
   PANEL_STAT_KEYS,
@@ -21,7 +22,7 @@ import {
   VOICE_PACK_V1,
   WHISPER_KEYS,
 } from './voice-pack.ts'
-import { STATUS_SCENES, TOOL_CATEGORIES } from './chatter.ts'
+import { STATUS_SCENES, TOOL_CATEGORIES, WHISPER_CATEGORIES, WHISPER_RESULTS } from './chatter.ts'
 import { petPackageRoot } from './registry.ts'
 
 function collectWarnings(pack: unknown): { pack: ReturnType<typeof normalizeVoicePack>; warnings: string[] } {
@@ -85,31 +86,40 @@ describe('normalizePool', () => {
   })
 
   it('preserves an explicit empty array (mute semantics) but not absent', () => {
-    expect(normalizePool([], 'whisperGeneric')).toEqual([])
-    expect(normalizePool(undefined, 'whisperGeneric')).toBeUndefined()
+    expect(normalizePool([], 'whisperCategory')).toEqual([])
+    expect(normalizePool(undefined, 'whisperCategory')).toBeUndefined()
   })
 })
 
-describe('normalizeWhisperRules', () => {
-  it('lowercases and trims keywords, drops unusable rules', () => {
+describe('normalizeWhisperCategories', () => {
+  it('keeps known categories, keeps an explicit empty pool (mute) and warns on unknown keys', () => {
     const warnings: string[] = []
-    const rules = normalizeWhisperRules([
-      { keywords: ['  测试通过  ', 7], pool: ['全绿'] },
-      { keywords: [], pool: ['没有关键词'] },
-      { keywords: ['有词'], pool: [] },
-    ], m => warnings.push(m))
-    expect(rules).toEqual([{ keywords: ['测试通过'], pool: ['全绿'] }])
-    expect(warnings.length).toBeGreaterThan(0)
+    const pools = normalizeWhisperCategories({ thinking: ['自定义思考'], running: [], bogus: ['x'] }, m => warnings.push(m))
+    expect(pools).toEqual({ thinking: ['自定义思考'], running: [] })
+    expect(warnings.join('\n')).toContain('unknown whisper category')
   })
 
-  it('caps the rule count and keyword count', () => {
-    const many = Array.from({ length: 40 }, (_, i) => ({ keywords: ['k' + i], pool: ['p'] }))
-    expect(normalizeWhisperRules(many)).toHaveLength(32)
-    expect(normalizeWhisperRules([{ keywords: Array.from({ length: 20 }, (_, i) => 'k' + i), pool: ['p'] }])![0]!.keywords).toHaveLength(16)
+  it('returns undefined for an absent or non-object section', () => {
+    expect(normalizeWhisperCategories(undefined)).toBeUndefined()
+    const warnings: string[] = []
+    expect(normalizeWhisperCategories(['x'], m => warnings.push(m))).toBeUndefined()
+    expect(warnings.join('\n')).toContain('must be an object')
+  })
+})
+
+describe('normalizeWhisperResults', () => {
+  it('keeps known outcomes, keeps an explicit empty pool (mute) and warns on unknown keys', () => {
+    const warnings: string[] = []
+    const pools = normalizeWhisperResults({ pass: ['自定义全绿'], done: [], bogus: ['x'] }, m => warnings.push(m))
+    expect(pools).toEqual({ pass: ['自定义全绿'], done: [] })
+    expect(warnings.join('\n')).toContain('unknown whisper result')
   })
 
-  it('returns an explicit empty array (disables the keyword channel)', () => {
-    expect(normalizeWhisperRules([])).toEqual([])
+  it('returns undefined for an absent or non-object section', () => {
+    expect(normalizeWhisperResults(undefined)).toBeUndefined()
+    const warnings: string[] = []
+    expect(normalizeWhisperResults('x', m => warnings.push(m))).toBeUndefined()
+    expect(warnings.join('\n')).toContain('must be an object')
   })
 })
 
@@ -153,12 +163,22 @@ describe('mergeVoicePacks', () => {
     expect(merged?.panel?.labels).toEqual({ feed: '宠物投喂', hide: '宠物藏' })
   })
 
-  it('lets the pet pack replace whisper sections while the global stays', () => {
-    const global = normalizeVoicePack({ whispers: { generic: ['全局碎碎念'] } })
-    const pet = normalizeVoicePack({ whispers: { rules: [{ keywords: ['测试'], pool: ['宠物全绿'] }] } })
+  it('lets the pet pack replace whisper keys while the global stays', () => {
+    const global = normalizeVoicePack({ whispers: { categories: { thinking: ['全局思考'] }, results: { pass: ['全局全绿'] } } })
+    const pet = normalizeVoicePack({ whispers: { categories: { thinking: ['宠物思考'] } } })
     const merged = mergeVoicePacks(global, pet)
-    expect(merged?.overrides.whispers?.generic).toEqual(['全局碎碎念'])
-    expect(merged?.overrides.whispers?.rules).toEqual([{ keywords: ['测试'], pool: ['宠物全绿'] }])
+    expect(merged?.overrides.whispers?.categories?.thinking).toEqual(['宠物思考'])
+    expect(merged?.overrides.whispers?.results?.pass).toEqual(['全局全绿'])
+  })
+
+  it('warns and ignores the legacy generic / rules whisper fields', () => {
+    const { pack, warnings } = collectWarnings({
+      whispers: { generic: ['老环境池'], rules: [{ keywords: ['测试'], pool: ['老全绿'] }], categories: { thinking: ['新思考'] } },
+    })
+    expect(pack?.overrides.whispers?.categories?.thinking).toEqual(['新思考'])
+    expect(pack?.overrides.whispers?.categories?.generic).toBeUndefined()
+    expect(warnings.join('\n')).toContain('generic')
+    expect(warnings.join('\n')).toContain('rules')
   })
 
   it('returns undefined when every layer is empty', () => {
@@ -200,7 +220,10 @@ describe('voice-pack schema file drift lock', () => {
     const props = schema.properties
     expect(new Set(Object.keys(props.status?.properties ?? {}))).toEqual(new Set(STATUS_SCENES))
     expect(new Set(Object.keys(props.tools?.properties ?? {}))).toEqual(new Set(TOOL_CATEGORIES))
-    expect(new Set(Object.keys(props.whispers?.properties ?? {}))).toEqual(WHISPER_KEYS)
+    const whispers = props.whispers?.properties ?? {}
+    expect(new Set(Object.keys(whispers))).toEqual(WHISPER_KEYS)
+    expect(new Set(Object.keys((whispers.categories as { properties?: Record<string, unknown> })?.properties ?? {}))).toEqual(new Set(WHISPER_CATEGORIES))
+    expect(new Set(Object.keys((whispers.results as { properties?: Record<string, unknown> })?.properties ?? {}))).toEqual(new Set(WHISPER_RESULTS))
     const panel = props.panel?.properties ?? {}
     const labels = (panel.labels as { properties?: Record<string, unknown> } | undefined)?.properties ?? {}
     const stats = (panel.stats as { properties?: Record<string, unknown> } | undefined)?.properties ?? {}

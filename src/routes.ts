@@ -112,15 +112,15 @@ function guard(ctx: Context, req: IncomingMessage, res: ServerResponse): boolean
   return false
 }
 
-/** Wrap one async service call as a GET JSON route. */
-function getRoute(ctx: Context, path: string, run: () => Promise<unknown>): WebRoute {
+/** Wrap one async service call as a GET JSON route (request passed through for query params). */
+function getRoute(ctx: Context, path: string, run: (req: IncomingMessage) => Promise<unknown>): WebRoute {
   return {
     kind: 'exact',
     path,
     handler: (req: IncomingMessage, res: ServerResponse): void => {
       if (!guard(ctx, req, res)) return
       if (!requireMethod(req, res, 'GET')) return
-      run().then((value) => writeJson(res, 200, value), (error) => {
+      run(req).then((value) => writeJson(res, 200, value), (error) => {
         writeJson(res, 500, { ok: false, error: error instanceof Error ? error.message : String(error) })
       })
     },
@@ -525,7 +525,12 @@ function decorationHandler(ctx: Context, registry: PetRegistry, caps: PetAssetCa
 export function makePetRoutes(deps: { service: PetService; ctx: Context; assetCaps?: PetAssetCaps } & PetRuntimeRoots): WebRoute[] {
   const { service, ctx } = deps
   const apiRoutes: WebRoute[] = [
-    getRoute(ctx, PET_API_PREFIX + '/state', () => service.state()),
+    getRoute(ctx, PET_API_PREFIX + '/state', (req) => {
+      // The browser half reports the GUI's current session id so the bubble
+      // stack can lead with the session the user is actually looking at.
+      const current = new URL(req.url ?? '/', 'http://pet.local').searchParams.get('current')
+      return service.state(current === null || current === '' ? undefined : current)
+    }),
     getRoute(ctx, PET_API_PREFIX + '/pets', () => service.pets()),
     getRoute(ctx, PET_API_PREFIX + '/diagnostics', () => service.diagnostics()),
     postRoute(ctx, PET_API_PREFIX + '/interact', (body) => {

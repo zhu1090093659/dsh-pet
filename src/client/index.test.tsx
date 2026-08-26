@@ -110,7 +110,16 @@ function fakeContext(): FakeClientLifecycle {
       },
       register: () => () => {},
     },
-    sessions: undefined,
+    sessions: {
+      list: {
+        getSnapshot: () => ({ current: undefined, byId: {} }),
+        subscribe: (listener: () => void) => {
+          const set = new Set<() => void>([listener])
+          return () => { set.delete(listener) }
+        },
+      },
+      open: () => {},
+    },
   } as unknown as ClientContext
   let disposed = false
   const lifecycle: FakeClientLifecycle = {

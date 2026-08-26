@@ -424,27 +424,18 @@ describe('PetSprite status bubble', () => {
     expect(screen.queryByText('正在使用 grep')).not.toBeNull()
   })
 
-  it('lets the inner whisper take over the status bubble', () => {
-    renderPet({ snapshot: { ...workingSnapshot, whisper: '哼哧哼哧，大脑转得飞快～' } })
-    // The whisper speaks THROUGH the bubble: it replaces (not accompanies)
-    // the status copy, so the pet never shows two bubbles at once.
-    expect(screen.queryByText('哼哧哼哧，大脑转得飞快～')).not.toBeNull()
-    expect(screen.queryByText('正在思考')).toBeNull()
-  })
-
-  it('lets the whisper take over the display session bubble in the stack', () => {
+  it('lets a session whisper take over its own bubble while others stay collapsed', () => {
     const { onOpenSession } = renderPet({
       snapshot: {
         ...workingSnapshot,
-        whisper: '我在这儿陪着你呢，别急别急',
         sessions: [
-          { sessionId: 's-a', animation: 'running', phase: 'thinking', bubble: '正在思考' },
+          { sessionId: 's-a', animation: 'running', phase: 'thinking', bubble: '正在思考', whisper: '我在这儿陪着你呢，别急别急' },
           { sessionId: 's-b', animation: 'running-right', phase: 'tool', bubble: '正在使用 grep' },
         ],
       },
     })
-    // The primary bubble (the display session) speaks the whisper instead
-    // of its status copy; the collapsed extra session hides behind the badge.
+    // The lead session's bubble speaks ITS whisper instead of its status
+    // copy; the collapsed extra session hides behind the badge.
     expect(screen.queryByText('我在这儿陪着你呢，别急别急')).not.toBeNull()
     expect(screen.queryByText('正在思考')).toBeNull()
     expect(screen.queryByText('正在使用 grep')).toBeNull()
@@ -456,9 +447,28 @@ describe('PetSprite status bubble', () => {
     expect(onOpenSession).toHaveBeenCalledWith('s-a')
   })
 
+  it('renders each session whisper on its own expanded bubble', () => {
+    renderPet({
+      snapshot: {
+        ...workingSnapshot,
+        sessions: [
+          { sessionId: 's-a', animation: 'running', phase: 'thinking', bubble: '正在思考', whisper: 'A 的碎碎念' },
+          { sessionId: 's-b', animation: 'running-right', phase: 'tool', bubble: '正在使用 grep', whisper: 'B 的碎碎念' },
+        ],
+      },
+    })
+    fireEvent.pointerOver(screen.getByText('A 的碎碎念').closest('div')!)
+    expect(screen.queryByText('A 的碎碎念')).not.toBeNull()
+    expect(screen.queryByText('B 的碎碎念')).not.toBeNull()
+    expect(screen.queryByText('正在思考')).toBeNull()
+  })
+
   it('lets transient interaction feedback take over the whisper too', () => {
     renderPet({
-      snapshot: { ...workingSnapshot, whisper: '哼哧哼哧，大脑转得飞快～' },
+      snapshot: {
+        ...workingSnapshot,
+        sessions: [{ sessionId: 's-a', animation: 'running', phase: 'thinking', bubble: '正在思考', whisper: '哼哧哼哧，大脑转得飞快～' }],
+      },
       feedback: { text: '摸摸成功', kind: 'pet', at: 1 },
     })
     expect(screen.queryByText('摸摸成功')).not.toBeNull()
@@ -754,7 +764,14 @@ describe('PetSprite status decoration (pet-center M5, #567)', () => {
   })
 
   it('yields the bubble to the whisper (voice moment hides the ornament)', () => {
-    renderPet({ snapshot: { ...snapshot, phase: 'thinking', whisper: '冲了冲了', decoration } })
+    renderPet({
+      snapshot: {
+        ...snapshot,
+        phase: 'thinking',
+        decoration,
+        sessions: [{ sessionId: 's-a', animation: 'running', phase: 'thinking', bubble: '正在思考', whisper: '冲了冲了' }],
+      },
+    })
     expect(ornament()).toBeNull()
     expect(document.body.textContent).toContain('冲了冲了')
   })

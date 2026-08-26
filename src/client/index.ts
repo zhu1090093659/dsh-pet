@@ -36,7 +36,8 @@ import { reportDailyHeartbeat } from './telemetry.ts'
 
 /** The host pet API as the browser sees it (same-origin JSON endpoints). */
 interface PetHttpApi {
-  state(): Promise<PetStateView>
+  /** Poll the host snapshot; the GUI's current session id rides the query. */
+  state(currentSessionId?: string): Promise<PetStateView>
   pets(): Promise<PetDefinition[]>
   interact(kind: PetInteraction): Promise<PetInteractResult>
   setVisible(visible: boolean): Promise<{ ok: true; display: PetDisplayConfig }>
@@ -66,7 +67,8 @@ async function petFetch<T>(path: string, body?: unknown): Promise<T> {
 
 /** The live host API instance (always defined; failures surface per call). */
 const petApi: PetHttpApi = {
-  state: () => petFetch('/api/pet/state'),
+  state: (currentSessionId) => petFetch('/api/pet/state'
+    + (currentSessionId === undefined ? '' : '?current=' + encodeURIComponent(currentSessionId))),
   pets: () => petFetch('/api/pet/pets'),
   interact: (kind) => petFetch('/api/pet/interact', { kind }),
   setVisible: (visible) => petFetch('/api/pet/set-visible', { visible }),
@@ -197,6 +199,20 @@ export function apply(ctx: ClientContext): void {
       const setState = petStore.actions.setState
       const setFeedback = petStore.actions.setFeedback
 
+      // Clicking a session bubble jumps the GUI to that session; the same
+      // sessions face reports which session the user is currently on, so the
+      // host can lead the bubble stack with it. A bubble can outlive its
+      // disposed session by one poll tick, and the sessions service fails
+      // loud on unknown ids, so consult the live list first. The pet's type
+      // program also loads the host-side dsh-session package through the
+      // service types, whose Context merge declares a different 'sessions'
+      // face; pin the browser runtime's outward face here.
+      const sessions = ctx.sessions as unknown as ISessions
+      const currentSessionId = (): string | undefined => {
+        const current = sessions.list.getSnapshot().current
+        return current === undefined ? undefined : String(current)
+      }
+
       // The registry list is fetched lazily with retries baked into the poll
       // cycle: until it lands, the dock entry renders nothing and every 2s
       // tick tries again. After it lands, one list feeds both the sprite and
@@ -218,7 +234,7 @@ export function apply(ctx: ClientContext): void {
         }
         const seq = stateSeq + 1
         stateSeq = seq
-        petApi.state().then((snapshot) => {
+        petApi.state(currentSessionId()).then((snapshot) => {
           if (seq !== stateSeq) return
           setSnapshot(snapshot)
         }, () => {
@@ -261,13 +277,16 @@ export function apply(ctx: ClientContext): void {
         }
       }, 'pet: poll')
 
-      // Clicking a session bubble jumps the GUI to that session. A bubble
-      // can outlive its disposed session by one poll tick, and the sessions
-      // service fails loud on unknown ids, so consult the live list first.
-      // The pet's type program also loads the host-side dsh-session package
-      // through the service types, whose Context merge declares a different
-      // 'sessions' face; pin the browser runtime's outward face here.
-      const sessions = ctx.sessions as unknown as ISessions
+      // A current-session switch should re-order the bubble stack right away,
+      // not on the next 2s tick. Poll only while the tab is visible, as the
+      // poll loop itself does.
+      const disposeSessionWatch = ctx.effect(() => {
+        const unsubscribe = sessions.list.subscribe(() => {
+          if (document.visibilityState === 'visible') pollNow()
+        })
+        return unsubscribe
+      }, 'pet: current-session watch')
+
       const openSession = (sessionId: string): void => {
         const list = sessions.list.getSnapshot()
         if (list.byId[sessionId as SessionId] === undefined) return

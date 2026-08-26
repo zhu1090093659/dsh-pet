@@ -95,6 +95,11 @@ describe('pet routes', () => {
     expect(state.name).toBe('鲸鱼娘')
   })
 
+  it('accepts the current-session query on the state endpoint', async () => {
+    const state = await fetch(url('/api/pet/state?current=s-x')).then(res => res.json()) as { sessions?: unknown[] }
+    expect(state.sessions).toEqual([])
+  })
+
   it('serves structured registry diagnostics (#623)', async () => {
     const res = await fetch(url('/api/pet/diagnostics'))
     expect(res.status).toBe(200)

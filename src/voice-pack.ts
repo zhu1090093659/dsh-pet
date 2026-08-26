@@ -31,8 +31,11 @@
 import {
   STATUS_SCENES,
   TOOL_CATEGORIES,
+  WHISPER_CATEGORIES,
+  WHISPER_RESULTS,
   type VoicePackOverrides,
-  type WhisperRule,
+  type WhisperCategory,
+  type WhisperResult,
 } from './chatter.ts'
 
 /** Schema version this module normalizes (optional field; missing = 1). */
@@ -87,7 +90,7 @@ const PLACEHOLDER_WHITELIST: Partial<Record<PoolKind, readonly string[]>> = {
   stat: ['{rank}', '{n}', '{points}'],
 }
 
-type PoolKind = 'status' | 'tools' | 'toolRemaining' | 'whisperGeneric' | 'whisperRule' | 'label' | 'stat'
+type PoolKind = 'status' | 'tools' | 'toolRemaining' | 'whisperCategory' | 'whisperResult' | 'label' | 'stat'
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -151,51 +154,48 @@ export function normalizePool(
   return pool
 }
 
-/** Normalize the ordered keyword-rule list ([] disables the keyword channel). */
-export function normalizeWhisperRules(
+/** Normalize whisper category pools; a key replaces that category's built-in pool (an explicit empty pool mutes it). */
+export function normalizeWhisperCategories(
   raw: unknown,
   onWarning: (message: string) => void = () => {},
-): WhisperRule[] | undefined {
+): Partial<Record<WhisperCategory, readonly string[]>> | undefined {
   if (raw === undefined) return undefined
-  if (!Array.isArray(raw)) {
-    onWarning('whispers.rules must be an array')
+  if (!isRecord(raw)) {
+    onWarning('whispers.categories must be an object')
     return undefined
   }
-  if (raw.length > VOICE_RULES_MAX) {
-    onWarning('whispers.rules has more than ' + VOICE_RULES_MAX + ' rules; extra rules are ignored')
-  }
-  const rules: WhisperRule[] = []
-  for (const item of raw.slice(0, VOICE_RULES_MAX)) {
-    if (!isRecord(item)) {
-      onWarning('whisper rule must be an object')
+  const pools: Partial<Record<WhisperCategory, readonly string[]>> = {}
+  for (const key of Object.keys(raw)) {
+    if (!(WHISPER_CATEGORIES as readonly string[]).includes(key)) {
+      onWarning('unknown whisper category ' + key + ' ignored')
       continue
     }
-    for (const key of Object.keys(item)) {
-      if (key !== 'keywords' && key !== 'pool') onWarning('unknown whisper rule field ' + key + ' ignored')
-    }
-    const keywordsRaw: unknown = item.keywords
-    const keywords: string[] = []
-    if (Array.isArray(keywordsRaw)) {
-      for (const entry of keywordsRaw.slice(0, VOICE_KEYWORDS_PER_RULE_MAX)) {
-        if (typeof entry !== 'string') {
-          onWarning('non-string keyword dropped')
-          continue
-        }
-        const trimmed = entry.trim().toLowerCase().slice(0, VOICE_KEYWORD_MAX)
-        if (trimmed !== '') keywords.push(trimmed)
-      }
-      if (keywordsRaw.length > VOICE_KEYWORDS_PER_RULE_MAX) {
-        onWarning('rule has more than ' + VOICE_KEYWORDS_PER_RULE_MAX + ' keywords; extra keywords are ignored')
-      }
-    }
-    const pool = normalizePool(item.pool, 'whisperRule', onWarning)
-    if (keywords.length === 0 || pool === undefined || pool.length === 0) {
-      onWarning('whisper rule dropped (needs keywords and a non-empty pool)')
+    const pool = normalizePool(raw[key], 'whisperCategory', onWarning)
+    if (pool !== undefined) pools[key as WhisperCategory] = pool
+  }
+  return Object.keys(pools).length > 0 ? pools : undefined
+}
+
+/** Normalize whisper outcome pools; a key replaces that outcome's built-in pool (an explicit empty pool mutes it). */
+export function normalizeWhisperResults(
+  raw: unknown,
+  onWarning: (message: string) => void = () => {},
+): Partial<Record<WhisperResult, readonly string[]>> | undefined {
+  if (raw === undefined) return undefined
+  if (!isRecord(raw)) {
+    onWarning('whispers.results must be an object')
+    return undefined
+  }
+  const pools: Partial<Record<WhisperResult, readonly string[]>> = {}
+  for (const key of Object.keys(raw)) {
+    if (!(WHISPER_RESULTS as readonly string[]).includes(key)) {
+      onWarning('unknown whisper result ' + key + ' ignored')
       continue
     }
-    rules.push({ keywords, pool })
+    const pool = normalizePool(raw[key], 'whisperResult', onWarning)
+    if (pool !== undefined) pools[key as WhisperResult] = pool
   }
-  return rules
+  return Object.keys(pools).length > 0 ? pools : undefined
 }
 
 /** Normalize the panel block (labels / stats / actions; warn-and-drop). */
@@ -271,7 +271,7 @@ export function normalizePanel(
 export const VOICE_PACK_KEYS = new Set(['$schema', 'voicePackVersion', 'status', 'tools', 'toolRemaining', 'whispers', 'panel'])
 
 /** Allowed whisper-section fields (drift-locked in tests). */
-export const WHISPER_KEYS = new Set(['generic', 'rules'])
+export const WHISPER_KEYS = new Set(['categories', 'results'])
 
 /**
  * Normalize one raw voice.json document into a VoicePack, or undefined when
@@ -340,14 +340,20 @@ export function normalizeVoicePack(
       onWarning('whispers must be an object')
     } else {
       for (const key of Object.keys(whispersRaw)) {
-        if (!WHISPER_KEYS.has(key)) onWarning('unknown whispers field ' + key + ' ignored')
+        if (key === 'generic' || key === 'rules') {
+          // pet M6: keyword and ambient whisper channels are gone; legacy
+          // fields are ignored with a warning, never mapped to the new shape.
+          onWarning('whispers.' + key + ' is no longer supported and was ignored')
+        } else if (!WHISPER_KEYS.has(key)) {
+          onWarning('unknown whispers field ' + key + ' ignored')
+        }
       }
-      const generic = normalizePool(whispersRaw.generic, 'whisperGeneric', onWarning)
-      const rules = normalizeWhisperRules(whispersRaw.rules, onWarning)
-      if (generic !== undefined || rules !== undefined) {
+      const categories = normalizeWhisperCategories(whispersRaw.categories, onWarning)
+      const results = normalizeWhisperResults(whispersRaw.results, onWarning)
+      if (categories !== undefined || results !== undefined) {
         overrides.whispers = {
-          ...(generic === undefined ? {} : { generic }),
-          ...(rules === undefined ? {} : { rules }),
+          ...(categories === undefined ? {} : { categories }),
+          ...(results === undefined ? {} : { results }),
         }
       }
     }

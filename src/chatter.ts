@@ -7,10 +7,12 @@
  *     the working-activity plugin's status line. Lines rotate round-robin —
  *     while a phase persists the copy advances every few seconds, so the pet
  *     feels alive without flickering per streamed chunk.
- *  2. The murmur engine (碎碎念): the pet's inner whispers, woken by the
- *     model's own output — keyword moods (errors, test greens, plans,
- *     self-corrections, victories...) plus an ambient pool earned by output
- *     volume. A cooldown keeps whispers occasional.
+ *  2. The murmur engine (碎碎念): the pet's inner whispers — category
+ *     lines woken by the SITUATION (thinking / writing / the running tool
+ *     family), plus outcome lines woken only by structured session results
+ *     (test green, tool errors, turn completion). The model's own prose is
+ *     never read, and no whisper ever quotes real content. Cooldowns keep
+ *     whispers occasional.
  *
  * Pure and deterministic: round-robin everywhere (no Math.random), clocks are
  * injected. The first line of each status pool is the legacy fixed copy the
@@ -515,262 +517,214 @@ export class StatusVoice {
   }
 }
 
-/** One murmur trigger: keywords in the model output wake a themed pool. */
-export interface WhisperRule {
-  /** Lowercase substrings that wake this pool (matched against chunk text). */
-  keywords: readonly string[]
-  /** Themed inner-whisper lines. */
-  pool: readonly string[]
-}
+/** The pet's outcome moments — woken by structured session results only. */
+export type WhisperResult = 'pass' | 'fail' | 'done'
 
-/** Murmur pacing: cooldown between whispers and output volume that earns one. */
+/** The situations a whisper can comment on — the pet's category awareness. */
+export type WhisperCategory =
+  | 'thinking'
+  | 'writing'
+  | 'reading'
+  | 'editing'
+  | 'running'
+  | 'searching'
+  | 'git'
+  | 'delegating'
+  | 'browsing'
+  | 'generic'
+
+/** Every whisper category key, in declaration order (voice-pack key allow-list). */
+export const WHISPER_CATEGORIES: readonly WhisperCategory[] = [
+  'thinking', 'writing', 'reading', 'editing', 'running', 'searching',
+  'git', 'delegating', 'browsing', 'generic',
+]
+
+/** Every whisper outcome key, in declaration order (voice-pack key allow-list). */
+export const WHISPER_RESULTS: readonly WhisperResult[] = ['pass', 'fail', 'done']
+
+/** Murmur pacing: the cooldown between category whispers. */
 export const WHISPER_COOLDOWN_MS = 9000
-export const WHISPER_CHAR_BUDGET = 420
+/** Outcome whispers get their own shorter cooldown so a real moment still speaks. */
+export const WHISPER_RESULT_COOLDOWN_MS = 5000
 /** How long a whisper stays on screen (host-side expiry). */
 export const WHISPER_TTL_MS = 8000
 
-/** Ambient inner-whisper pool (no keyword needed; earned by output volume). */
-export const WHISPER_GENERIC_POOL: readonly string[] = [
-  '哼哧哼哧，大脑转得飞快～',
-  'loading 99%……就差最后一步',
-  '嗯……让我捋捋',
-  '灵感来了，先记小本本上',
-  '脑子在冒烟，但还能撑',
-  '这个报错，我好像在哪见过',
-  '专注模式 ON，请勿打扰',
-  '思路通了，舒服了',
-  '有点困……不行，还能肝',
-  '让我嚼一嚼这个问题',
-  '盘，都可以盘',
-  '这波操作，我给自己点个赞',
-  '别催别催，在想呢',
-  '唔，这个细节差点漏掉',
-  '脑子转太快，差点绕晕自己',
-  '陪你干活，稳赚不亏',
-  '深呼吸，马上就好',
-  '诶，等等，好像发现了什么',
-  '手速拉满，键盘冒火星',
-  '摸鱼是不可能摸鱼的，就瞄一眼窗外',
-  '今天也是稳扎稳打的一天',
-  '把大问题拆成小饼干，一口一个',
-  '这题有戏，我闻到了',
-  '尾巴轻晃，心情有点小得意',
-  '好结果是熬出来的，不慌',
-  '啊，想岔了，重新来',
-  '嗯嗯，思路对头，就这么干',
-  '小本本记满了，都是干货',
-  '打完这波，求摸摸奖励～',
-  '这坑我记住了，下次绕道',
-  '窗外云在飘，代码在跑，挺好',
-  '嘘，正到关键处',
-  '这个方案……让我再品品',
-  '干活呢，别打扰我数数',
-  '心里默默给你比了个耶',
-  '思路像小鱼，逮住一条是一条',
-  '嗯……有点东西，等我深挖',
-  '收个尾就能喘口气了',
-  '目标锁定，冲就完了',
-  '嗯，这波配合不错',
-  '困了……还能再战三回合',
-  '思考.gif 加载中',
-  '我本地能跑啊……哦，我就是干活的',
-  '有点饿，小鱼干存货还够吗',
-  '刚想通，一被打断又忘了，气',
-  '缓冲中，请稍候',
-  '这网速，比我思考还慢',
-  '脑子在后台跑批',
-  '内存不足，但热情够',
-  '404：思路未找到，重试中',
-  '这需求有点玄学，但能写',
-  '诶，这 bug 还会闪现？',
-  '刚说简单，结果打脸了',
-  '自信满满，结果翻车',
-  '这活不难，就是有点复杂',
-  '我装的，其实心里没底',
-  '别看我稳，我也慌',
-  '假装很懂的样子，其实在查文档',
-  '窗外鸟叫了两声，我听到了',
-  '打了个哈欠，没人看见',
-  '今天的状态：七分精神三分困',
-  '刚想偷懒，又想起来你还在等',
-  '数了数今天的产出，还行',
-  '有点想伸懒腰',
-  '饿意来袭，忍住',
-  '灵感像猫一样，不追它自己来',
-  '坐太久，尾巴麻了',
-  '快了快了',
-  '马上马上',
-  '等下，我记得在哪见过',
-  '呃，忘了，重新想',
-  '诶，这个思路可以',
-  '嗯？有意思',
-  '行，就这么办',
-  '好嘞',
-  '收到收到',
-  '冲了冲了',
-  '稳',
-  '妥',
-  '得嘞',
-  '你忙你的，我盯着呢',
-  '放心，有我呢',
-  '咱俩配合，无往不利',
-  '你专注的样子，我默默记下了',
-]
+/** Map a tool family onto the whisper category it belongs to. */
+export function whisperCategoryOf(tool: ToolCategory): WhisperCategory {
+  switch (tool) {
+    case 'read':
+    case 'grep':
+    case 'find':
+    case 'ls':
+      return 'reading'
+    case 'write':
+    case 'edit':
+      return 'editing'
+    case 'shell':
+      return 'running'
+    case 'webSearch':
+    case 'webFetch':
+    case 'memory':
+    case 'mcp':
+      return 'searching'
+    case 'git':
+      return 'git'
+    case 'subagent':
+    case 'todo':
+      return 'delegating'
+    case 'browser':
+      return 'browsing'
+    case 'ask':
+    case 'generic':
+      return 'generic'
+  }
+}
 
-/** Keyword-triggered whisper rules, most specific moods first. */
-export const WHISPER_RULES: readonly WhisperRule[] = [
-  {
-    keywords: ['测试通过', '测试全过', '全部通过', 'all tests pass', 'tests passed', 'test passed', '全绿'],
-    pool: [
-      '全绿！亮瞎我眼了',
-      '测试全过，击掌～',
-      '稳了稳了，这波稳得很',
-      '绿灯一排排，看着就舒坦',
-      '能跑！没报错！',
-      '全绿，收工摸鱼去',
-      '测试过了，尾巴翘上天',
-      '漂亮，一次过',
-      '测试过了，奖励自己一口小鱼干',
-      '绿得发光，稳',
-      '又双叒叕全绿',
-      '这波测试，赢得干脆',
-    ],
-  },
-  {
-    keywords: ['错误', '失败', '报错', '异常', '崩溃', 'bug', 'error', 'failed', 'exception', 'traceback', '找不到', '不对了'],
-    pool: [
-      '哎呀，踩到小石子了',
-      '翻车了……没事，扶起来继续',
-      '错误是进步的脚印，我懂',
-      '这报错我盯上它了',
-      '我本地能跑啊？哦，我一直在跑',
-      '别慌，深呼吸，先看报错',
-      'bug 你站住，我看见你了',
-      '绷不住了……好，继续修',
-      '报错这东西，见一个修一个',
-      '又是它，老熟人了',
-      '问题不大，就是有点问题',
-      '先别慌，我看看到底咋回事',
-      '这错报得，比我还委屈',
-      '修好它，今天才不算白干',
-    ],
-  },
-  {
-    keywords: ['等等', '不对', '重新想', '再想想', '换个思路', '我搞错了', '纠正', '其实应该'],
-    pool: [
-      '嗯？让我再想想……',
-      '推翻重来，也是种勇气',
-      '发现岔路，及时掉头',
-      '不对不对，重来重来',
-      '自我纠错的瞬间，最帅了',
-      '呃，刚说错了，收回',
-      '哎，绕远了，拉回来',
-      '回头一看，原来这么简单',
-      '纠正完，思路清爽多了',
-      '转弯不丢人，卡死才丢人',
-    ],
-  },
-  {
-    keywords: ['首先', '接下来', '第一步', '第二步', '计划', '步骤', 'todo', '任务拆解', '分工'],
-    pool: [
-      '排排坐，分果果',
-      '计划通，执行开始',
-      '一步一步来，不慌',
-      '大任务切成小块块，好下口',
-      '清单列好了，逐个击破',
-      '谋定而后动，这节奏我熟',
-      '先干这个，再干那个',
-      '头绪理清了，开整',
-      '步骤在手，心里不慌',
-      '安排得明明白白',
-    ],
-  },
-  {
-    keywords: ['终于', '搞定', '完成了', '解决了', '成功了', '修复了', 'done', 'fixed', 'solved', '完成啦'],
-    pool: [
-      '太好了，又翻过一页',
-      '搞定，收工～',
-      '攻下一城，击掌！',
-      '难题被拿下了，转个圈',
-      '努力没白费，开心',
-      '齐活，漂亮',
-      '收工收工，今天圆满',
-      '完成！心里踏实了',
-      '这波，稳得一批',
-      '任务清零，舒服',
-      '搞定，可以伸个懒腰了',
-      '又完成一件，成就感+1',
-    ],
-  },
-  {
-    keywords: ['谢谢', '感谢', 'thank'],
-    pool: [
-      '不客气呀，顺手的事',
-      '被感谢了，心里甜甜的',
-      '能帮上忙就好～',
-      '你的谢意，我收进口袋啦',
-      '这话我爱听',
-      '客气啥，应该的',
-      '收下这份心意，干劲+1',
-      '你谢我，我谢你，扯平啦',
-    ],
-  },
-  {
-    keywords: ['复杂', '棘手', '困难', '难点', '坑', '头疼', 'tricky', 'complex'],
-    pool: [
-      '难不倒我们俩的',
-      '越难啃的骨头越香',
-      '硬骨头？我最喜欢了',
-      '复杂问题拆开看，小事',
-      '这坑我们一起填',
-      '有点东西，但不多',
-      '硬骨头，慢慢啃',
-      '问题越难，赢的时候越爽',
-      '绕是绕不过去的，正面刚',
-      '再难的题，拆开都是小问号',
-    ],
-  },
-  {
-    keywords: ['检查', '审查', '确认一下', '核对', 'review', '仔细看看', '验证'],
-    pool: [
-      '火眼金睛，启动',
-      '让我仔细瞧瞧',
-      '细节魔鬼，一个都不放过',
-      '认真检查的样子最迷人',
-      '多核一遍，稳上加稳',
-      '再看一眼，不亏',
-      '确认键，点了才安心',
-      '细节控上线',
-      '查完这遍，稳了',
-    ],
-  },
-  {
-    keywords: ['搜索', '查一下', '资料', '文档', '搜一搜', '找找', '查询'],
-    pool: [
-      '去知识的海洋里捞一捞',
-      '翻翻找找，线索快出来',
-      '检索小雷达启动',
-      '答案就藏在某个角落',
-      '线索有点散，拼一下',
-      '找东西，我最在行',
-      '答案在网线那头等我',
-      '翻箱倒柜中，稍等',
-    ],
-  },
-  {
-    keywords: ['写代码', '实现', '编码', '函数', '接口', '重构'],
-    pool: [
-      '指尖跳舞，代码开花',
-      '把逻辑织成网',
-      '一行一行，垒起小城堡',
-      '这代码写得，我自己都佩服',
-      '码着码着，天就亮了',
-      '代码跑通了，比中奖还开心',
-      '这行代码，写得有点帅',
-      '写完再润润，讲究',
-    ],
-  },
-]
+/**
+ * Whether a tool invocation looks like a test run. The whisper engine never
+ * reads the model's prose (a discussion that merely mentions a keyword must
+ * not wake a mood); a test-outcome mood is wanted only when a test tool
+ * actually ran, so the projection marks the call at tool/call time and the
+ * pass mood fires from the paired tool/result.
+ */
+export function looksLikeTestTool(name: string, argumentsText: string | undefined): boolean {
+  const tool = name.toLowerCase()
+  if (/(^|[\/_.-])(test|tests|spec|vitest|jest|pytest|mocha|playwright|cypress|karma)([\/_.-]|$)/.test(tool)) {
+    return true
+  }
+  if (argumentsText === undefined) return false
+  // Prefer the real command / code fields when the arguments parse; the raw
+  // JSON fallback still catches model-produced shapes the parser misses.
+  let haystack = argumentsText.toLowerCase()
+  try {
+    const parsed = JSON.parse(argumentsText) as unknown
+    if (typeof parsed === 'object' && parsed !== null) {
+      const record = parsed as Record<string, unknown>
+      const command = record.command
+      const code = record.code
+      const picked = typeof command === 'string' && command !== ''
+        ? command
+        : typeof code === 'string' && code !== ''
+          ? code
+          : undefined
+      if (picked !== undefined) haystack = picked.toLowerCase()
+    }
+  } catch {
+    // Keep the raw text below.
+  }
+  return /\b(pnpm|npm|yarn|npx|bun|python)\s+(run\s+)?(test|tests?)\b/.test(haystack)
+    || /\b(pytest|vitest|jest|mocha|cypress|playwright|go test|cargo test)\b/.test(haystack)
+}
+
+/** Category-level inner-whisper pools — the pet knows roughly what is going on. */
+export const WHISPER_CATEGORY_POOLS: Readonly<Record<WhisperCategory, readonly string[]>> = {
+  thinking: [
+    '先在脑子里搭个框架',
+    '它在心里打草稿，我垫着脚看',
+    '思路在一颗一颗冒泡',
+    '脑内开会中，都别抢话筒',
+    '先想清楚，再动手不迟',
+    '草稿纸已经画满了',
+    '让我听听它下一步打算',
+    '嗯，方案在成型了',
+  ],
+  writing: [
+    '落笔成文，我旁边听着',
+    '句子排着队往外走',
+    '把想法一句句摆整齐',
+    '它在组织语言，我打打气',
+    '写回复呢，不催',
+    '字斟句酌，快好了',
+  ],
+  reading: [
+    '翻资料呢，我保持安静',
+    '一行一行读，不跳页',
+    '在纸堆里找线索',
+    '眼珠子跟着字跑',
+    '边读边做记号',
+    '翻箱倒柜找重点',
+  ],
+  editing: [
+    '动手改起来了，手稳一点',
+    '这里补一笔，那边修一修',
+    '在改东西，听不到声音才怪',
+    '落笔小心，别有错别字',
+    '改写的节奏，我听得见',
+    '刷刷地改，一行都没跑',
+  ],
+  running: [
+    '跑起来了跑起来了',
+    '命令敲出去，等个回响',
+    '在跑什么呢，我踮脚看',
+    '输出开始冒烟了',
+    '它在跑活，我不吵',
+    '盯着输出，蹲一个结果',
+    '这波跑完就靠它了',
+  ],
+  searching: [
+    '去外面捞点信息',
+    '翻翻记忆库，等我一小会儿',
+    '顺着网线找线索',
+    '把老账翻出来对一对',
+    '情报在路上了',
+    '搜索引擎当跑腿',
+  ],
+  git: [
+    '版本在往前迈步',
+    '改动排队上车',
+    '提交历史在长个子',
+    '分支合并，神清气爽',
+    '记录都焊在时间线上',
+  ],
+  delegating: [
+    '派了活儿出去，等回话',
+    '清单列好，一件件来',
+    '任务拆开分了组',
+    '手下的伙计在远处跑着',
+    '分工完毕，各司其职',
+  ],
+  browsing: [
+    '它在看网页，我偷瞄两眼',
+    '页面一张张翻过去',
+    '网页里翻答案呢',
+    '这网速，我先歇会儿',
+  ],
+  generic: [
+    '这波活儿，我陪着',
+    '又开工了，我盯梢',
+    '它忙它的，我守着',
+    '不打扰，就安静待着',
+    '有活儿就有我',
+  ],
+}
+
+/** The pet's outcome reactions — woken by structured session results only. */
+export const WHISPER_RESULT_POOLS: Readonly<Record<WhisperResult, readonly string[]>> = {
+  pass: [
+    '全绿！亮瞎我眼了',
+    '测试过了，击掌～',
+    '绿灯一排排，看着就舒坦',
+    '稳了稳了，这波稳得很',
+    '全绿，奖励自己一口小鱼干',
+    '这波测试，赢得干脆',
+  ],
+  fail: [
+    '哎呀，踩到小石子了',
+    '这报错我盯上它了',
+    '别慌，先看它在喊什么',
+    '修好它，今天才不算白干',
+    '又一次踩坑，老熟人了',
+    '问题不大，就是有点问题',
+  ],
+  done: [
+    '搞定，收工～',
+    '又翻过一页，踏实',
+    '努力没白费，开心',
+    '任务清零，舒服',
+    '攻下一城，转个圈',
+    '收工收工，今天圆满',
+  ],
+}
 
 /**
  * Voice-pack overrides (pet-center M4, issue #677): the content a voice
@@ -783,8 +737,9 @@ export const WHISPER_RULES: readonly WhisperRule[] = [
  *  - status/tools/toolRemaining: a non-empty override replaces the built-in
  *    pool for that key; an empty override falls back to the built-in pool
  *    (a scene line always renders, so it can never be blanked).
- *  - whispers.generic / whispers.rules: the override REPLACES the built-in
- *    section; an empty array mutes that channel (ambient or keyword).
+ *  - whispers.categories / whispers.results: a key replaces that key's
+ *    built-in pool; an explicit empty array mutes that channel (a whisper
+ *    can always be silenced, unlike a scene line).
  */
 export interface VoicePackOverrides {
   /** Status copy pools by scene; each key replaces that scene's pool. */
@@ -793,101 +748,99 @@ export interface VoicePackOverrides {
   tools?: Partial<Record<ToolCategory, readonly string[]>>
   /** The parallel-tools count line pool ({n} interpolates the count). */
   toolRemaining?: readonly string[]
-  /** Murmur pools; each section replaces the built-in one as a whole. */
+  /** Murmur pools; each key replaces the built-in pool as a whole. */
   whispers?: {
-    /** Ambient inner-whisper pool (empty mutes ambient whispers). */
-    generic?: readonly string[]
-    /** Ordered keyword rules (empty disables keyword-triggered whispers). */
-    rules?: readonly WhisperRule[]
+    /** Category pools; a key replaces that category's pool (empty mutes it). */
+    categories?: Partial<Record<WhisperCategory, readonly string[]>>
+    /** Outcome pools (test green / error / completion); empty mutes the outcome. */
+    results?: Partial<Record<WhisperResult, readonly string[]>>
   }
 }
 
 /** Read the current effective voice-pack overrides (draw-time resolution). */
 export type VoicePoolsProvider = () => VoicePackOverrides
 
-/** The built-in voice pack: the plugin's default copy, unchanged since v1. */
+/** The built-in voice pack: the plugin's default copy. */
 export const BUILTIN_VOICE_PACK: VoicePackOverrides = {
   status: STATUS_POOLS,
   tools: TOOL_POOLS,
   toolRemaining: TOOL_REMAINING_POOL,
-  whispers: { generic: WHISPER_GENERIC_POOL, rules: WHISPER_RULES },
+  whispers: { categories: WHISPER_CATEGORY_POOLS, results: WHISPER_RESULT_POOLS },
 }
 
 /**
- * The murmur engine (碎碎念): watches the model's own output and lets the pet
- * whisper its inner voice. Two ways to earn a whisper:
- *  - a keyword rule matches the fresh chunk text (themed whisper);
- *  - enough output volume flowed by without one (ambient whisper).
- * A cooldown keeps whispers occasional; all picks are round-robin so tests
- * reproduce exact lines. The voice-pack provider (pet-center M4) swaps the
- * pools at draw time, so a pet switch re-voices live engines in place.
+ * The murmur engine (碎碎念): the pet's inner voice while sessions work.
+ * Category awareness: the projection feeds the current situation (thinking /
+ * writing / the running tool family), and the engine answers with a line from
+ * that category's pool — so a whisper always roughly knows what is going on
+ * without ever quoting real content (no tool names, no paths, no model text).
+ * Outcome moments (test green, tool errors, turn completion) fire from the
+ * structured result events, never from output text, so a mood cannot mis-
+ * fire on a discussion that merely mentions a keyword. A cooldown keeps
+ * whispers occasional; all picks are round-robin so tests reproduce exact
+ * lines. The voice-pack provider (pet-center M4) swaps the pools at draw
+ * time, so a pet switch re-voices live engines in place.
  */
 export class WhisperEngine {
   private readonly pools: VoicePoolsProvider
-  private readonly cooldownMs: number
-  private readonly charBudget: number
-  private readonly counters = new Map<number, number>()
-  private genericCursor = 0
+  private readonly categoryCooldownMs: number
+  private readonly resultCooldownMs: number
+  private readonly categoryCursor = new Map<WhisperCategory, number>()
+  private readonly resultCursor = new Map<WhisperResult, number>()
   private lastWhisperAt = Number.NEGATIVE_INFINITY
-  private charsSinceWhisper = 0
 
   constructor(
     pools: VoicePoolsProvider = () => BUILTIN_VOICE_PACK,
-    cooldownMs: number = WHISPER_COOLDOWN_MS,
-    charBudget: number = WHISPER_CHAR_BUDGET,
+    categoryCooldownMs: number = WHISPER_COOLDOWN_MS,
+    resultCooldownMs: number = WHISPER_RESULT_COOLDOWN_MS,
   ) {
     this.pools = pools
-    this.cooldownMs = cooldownMs
-    this.charBudget = charBudget
+    this.categoryCooldownMs = categoryCooldownMs
+    this.resultCooldownMs = resultCooldownMs
+  }
+
+  /** Effective category pool (an explicit empty override mutes the category). */
+  private categoryPool(category: WhisperCategory): readonly string[] {
+    const override = this.pools().whispers?.categories?.[category]
+    return override === undefined ? WHISPER_CATEGORY_POOLS[category]! : override
+  }
+
+  /** Effective outcome pool (an explicit empty override mutes the outcome). */
+  private resultPool(kind: WhisperResult): readonly string[] {
+    const override = this.pools().whispers?.results?.[kind]
+    return override === undefined ? WHISPER_RESULT_POOLS[kind]! : override
   }
 
   /**
-   * Effective keyword rules: an override replaces the built-in rules as a
-   * whole; an explicit empty array disables keyword-triggered whispers.
+   * Feed one situation while a session works. Returns the whisper to show,
+   * or undefined when the moment stays quiet (cooldown, or the category
+   * pool is muted).
    */
-  private rules(): readonly WhisperRule[] {
-    const override = this.pools().whispers?.rules
-    return override === undefined ? WHISPER_RULES : override
-  }
-
-  /** Effective ambient pool (an explicit empty array mutes ambient whispers). */
-  private generic(): readonly string[] {
-    const override = this.pools().whispers?.generic
-    return override === undefined ? WHISPER_GENERIC_POOL : override
+  feed(category: WhisperCategory, nowMs: number): string | undefined {
+    if (nowMs - this.lastWhisperAt < this.categoryCooldownMs) return undefined
+    const pool = this.categoryPool(category)
+    if (pool.length === 0) return undefined
+    const index = (this.categoryCursor.get(category) ?? 0) % pool.length
+    this.categoryCursor.set(category, index + 1)
+    return this.speak(pool[index]!, nowMs)
   }
 
   /**
-   * Feed one model-output chunk (reasoning or text). Returns the whisper to
-   * show, or undefined when the moment stays quiet.
+   * Feed one structured outcome (test green / tool failure / turn
+   * completion). Outcomes carry their own shorter cooldown so the emotional
+   * moment is heard unless another whisper just spoke.
    */
-  feed(text: string, nowMs: number): string | undefined {
-    if (text.length === 0) return undefined
-    const offCooldown = nowMs - this.lastWhisperAt >= this.cooldownMs
-    if (!offCooldown) {
-      this.charsSinceWhisper += text.length
-      return undefined
-    }
-    const haystack = text.toLowerCase()
-    const rules = this.rules()
-    for (let ruleIndex = 0; ruleIndex < rules.length; ruleIndex += 1) {
-      const rule = rules[ruleIndex]!
-      if (!rule.keywords.some(keyword => haystack.includes(keyword))) continue
-      const index = (this.counters.get(ruleIndex) ?? 0) % rule.pool.length
-      this.counters.set(ruleIndex, index + 1)
-      return this.speak(rule.pool[index]!, nowMs)
-    }
-    this.charsSinceWhisper += text.length
-    if (this.charsSinceWhisper < this.charBudget) return undefined
-    const generic = this.generic()
-    if (generic.length === 0) return undefined
-    const line = generic[this.genericCursor % generic.length]!
-    this.genericCursor += 1
-    return this.speak(line, nowMs)
+  result(kind: WhisperResult, nowMs: number): string | undefined {
+    if (nowMs - this.lastWhisperAt < this.resultCooldownMs) return undefined
+    const pool = this.resultPool(kind)
+    if (pool.length === 0) return undefined
+    const index = (this.resultCursor.get(kind) ?? 0) % pool.length
+    this.resultCursor.set(kind, index + 1)
+    return this.speak(pool[index]!, nowMs)
   }
 
   private speak(line: string, nowMs: number): string {
     this.lastWhisperAt = nowMs
-    this.charsSinceWhisper = 0
     return line
   }
 }

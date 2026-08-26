@@ -432,14 +432,14 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
   const statusBubble = feedback === null && sessionBubbles.length === 0
     ? snapshot?.bubble
     : undefined
-  // The display session's inner whisper (碎碎念) — short inner-voice copy
-  // woken by the model's output. Instead of a second bubble of its own, a
-  // fresh whisper takes over the display session's bubble (the stack top, or
-  // the single status bubble) and re-tints it, so the pet never wears two
-  // voices at once. Interaction feedback takes over the whole bubble area
-  // while it plays, so whispers yield to it like status copy.
-  const whisper = feedback === null ? snapshot?.whisper : undefined
-  const bubblePresent = feedback !== null || sessionBubbles.length > 0 || statusBubble !== undefined || whisper !== undefined
+  // Each session's inner whisper (碎碎念) rides its own bubble — short
+  // inner-voice copy woken by that session's activity, never the model's or
+  // another session's. Instead of a second bubble of its own, a fresh
+  // whisper takes over its session's bubble and re-tints it, so the pet
+  // never wears two voices at once. Interaction feedback takes over the
+  // whole bubble area while it plays, so whispers yield to it like status
+  // copy.
+  const bubblePresent = feedback !== null || sessionBubbles.length > 0 || statusBubble !== undefined
   const displayName = snapshot?.name ?? definition.displayName
   // The host-served status decoration (M5, #567); absent = text-only bubbles.
   const decoration = snapshot?.decoration
@@ -549,7 +549,7 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
           {feedback.text}
         </div>
       )}
-      {feedback === null && (sessionBubbles.length > 0 || statusBubble !== undefined || whisper !== undefined) && (
+      {feedback === null && (sessionBubbles.length > 0 || statusBubble !== undefined) && (
         <div
           ref={bubbleRef}
           className={styles.bubbleStack}
@@ -557,15 +557,14 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
           onPointerLeave={() => setStackPeek(false)}
         >
           {visibleSessions.map((session, index) => {
-            // The whisper rides the display session's bubble — the stack's
-            // primary entry (DOM-first, rendered bottom-most by the reversed
-            // column so it stays glued to the sprite when extras open above).
-            // The key swap restarts the entrance animation so the mood change
-            // reads as the bubble re-speaking.
-            const speaksWhisper = index === 0 && whisper !== undefined
+            // A session's whisper rides ITS OWN bubble (the stack lead when
+            // the current session has one, any bubble when the stack is
+            // expanded). The key swap restarts the entrance animation so the
+            // mood change reads as the bubble re-speaking.
+            const speaksWhisper = session.whisper !== undefined
             const bubble = (
               <button
-                key={speaksWhisper ? 'whisper:' + whisper : session.sessionId}
+                key={speaksWhisper ? 'whisper:' + session.whisper : session.sessionId}
                 type="button"
                 className={clsx(
                   styles.bubble,
@@ -579,7 +578,7 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
                 {index === 0 && !speaksWhisper && decoration !== undefined && (
                   <StatusOrnament decoration={decoration} phase={phase} />
                 )}
-                {speaksWhisper ? whisper : session.bubble}
+                {session.whisper ?? session.bubble}
               </button>
             )
             // The primary bubble carries the '+N' badge while other sessions
@@ -608,19 +607,17 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
               </span>
             )
           })}
-          {sessionBubbles.length === 0 && (statusBubble !== undefined || whisper !== undefined) && (
-            // The key swap (status copy <-> whisper) restarts the entrance
-            // animation on every mood change.
+          {sessionBubbles.length === 0 && statusBubble !== undefined && (
             <div
-              key={whisper === undefined ? 'status' : 'whisper:' + whisper}
-              className={clsx(styles.bubble, styles.bubbleStatus, whisper !== undefined && styles.bubbleWhisper)}
+              key="status"
+              className={clsx(styles.bubble, styles.bubbleStatus)}
               role="status"
               aria-live="polite"
             >
-              {whisper === undefined && decoration !== undefined && (
+              {decoration !== undefined && (
                 <StatusOrnament decoration={decoration} phase={phase} />
               )}
-              {whisper ?? statusBubble}
+              {statusBubble}
             </div>
           )}
         </div>

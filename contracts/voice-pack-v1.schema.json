@@ -118,36 +118,31 @@
     "whispers": {
       "type": "object",
       "additionalProperties": false,
-      "description": "Murmur pools; each section replaces the built-in one as a whole. An explicit empty array mutes that channel.",
+      "description": "Murmur pools: category pools keyed by the ten WhisperCategory ids plus outcome pools keyed by pass / fail / done. A key replaces that key's built-in pool; an explicit empty array mutes that channel. Legacy generic / rules fields are ignored with a warning.",
       "properties": {
-        "generic": {
-          "$ref": "#/definitions/pool"
+        "categories": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "thinking": { "$ref": "#/definitions/pool" },
+            "writing": { "$ref": "#/definitions/pool" },
+            "reading": { "$ref": "#/definitions/pool" },
+            "editing": { "$ref": "#/definitions/pool" },
+            "running": { "$ref": "#/definitions/pool" },
+            "searching": { "$ref": "#/definitions/pool" },
+            "git": { "$ref": "#/definitions/pool" },
+            "delegating": { "$ref": "#/definitions/pool" },
+            "browsing": { "$ref": "#/definitions/pool" },
+            "generic": { "$ref": "#/definitions/pool" }
+          }
         },
-        "rules": {
-          "type": "array",
-          "maxItems": 32,
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "keywords",
-              "pool"
-            ],
-            "properties": {
-              "keywords": {
-                "type": "array",
-                "maxItems": 16,
-                "items": {
-                  "type": "string",
-                  "maxLength": 40,
-                  "minLength": 1
-                },
-                "description": "Lowercase substrings matched against the model's output."
-              },
-              "pool": {
-                "$ref": "#/definitions/pool"
-              }
-            }
+        "results": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "pass": { "$ref": "#/definitions/pool" },
+            "fail": { "$ref": "#/definitions/pool" },
+            "done": { "$ref": "#/definitions/pool" }
           }
         }
       }

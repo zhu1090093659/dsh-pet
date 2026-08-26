@@ -6,6 +6,7 @@ import { Context } from '@deepseek-ai/cordis'
 import type { Session, SessionEvent, TurnEndReason } from '@deepseek-ai/dsh-session'
 import { loadPetPersist } from '../src/persist.ts'
 import { PetService } from '../src/service.ts'
+import { WHISPER_CATEGORY_POOLS, WHISPER_RESULT_POOLS } from '../src/chatter.ts'
 import { resolvePetManifest, type DecorationEntry, type PetRegistry } from '../src/registry.ts'
 import { normalizeVoicePack } from '../src/voice-pack.ts'
 import { parseDecorationManifest } from '../src/decoration.ts'
@@ -119,12 +120,13 @@ function toolCall(
   id: string,
   name: string,
   seq: number,
+  argumentsText: string = '{}',
 ): SessionEvent<'tool/call'> {
   return {
     type: 'tool/call',
     seq,
     time: seq,
-    data: { turn, step, callId: callId(id), name, arguments: '{}' },
+    data: { turn, step, callId: callId(id), name, arguments: argumentsText },
   }
 }
 
@@ -279,31 +281,32 @@ describe('PetService (rc.6 session events)', () => {
     }
   })
 
-  it('whispers an inner line woken by the model output, then expires it', async () => {
+  it('whispers a thinking line on a reasoning stream, then expires it', async () => {
     const ctx = new Context()
     const dir = tempDir()
     const session = makeSession('s1')
     try {
       const service = new PetService(ctx, { persistDir: dir })
-      // A reasoning chunk whose text matches the error mood wakes a whisper
-      // while the status bubble reports the scene as usual.
+      // The SITUATION wakes the whisper, not the words: a reasoning chunk
+      // speaks the thinking category while the status bubble reports as usual.
       ctx.emit('session/event', session, assistantChunk(1, 1, {
         type: 'reasoning-delta', index: 0, text: '这里有个错误要修',
       }, 1))
       const view = await service.state()
       expect(view.bubble).toBe('正在思考')
-      expect(view.whisper).toBe('哎呀，踩到小石子了')
+      expect(view.sessions?.[0]?.whisper).toBe(WHISPER_CATEGORY_POOLS.thinking[0])
 
-      // The cooldown keeps a second keyword hit quiet right after.
+      // The cooldown keeps the next chunk quiet right after; the same
+      // whisper keeps riding the session's bubble.
       ctx.emit('session/event', session, assistantChunk(1, 1, {
         type: 'reasoning-delta', index: 0, text: '又一个错误',
       }, 2))
-      expect((await service.state()).whisper).toBe('哎呀，踩到小石子了')
+      expect((await service.state()).sessions?.[0]?.whisper).toBe(WHISPER_CATEGORY_POOLS.thinking[0])
 
-      // Past the TTL the whisper leaves the view.
+      // Past the TTL the whisper leaves the session's bubble.
       const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 8100)
       try {
-        expect((await service.state()).whisper).toBeUndefined()
+        expect((await service.state()).sessions?.[0]?.whisper).toBeUndefined()
       } finally {
         clock.mockRestore()
       }
@@ -312,18 +315,23 @@ describe('PetService (rc.6 session events)', () => {
     }
   })
 
-  it('stays silent when the model output carries no whisper trigger', async () => {
+  it('whispers the writing category on a text stream and stays quiet on empty chunks', async () => {
     const ctx = new Context()
     const dir = tempDir()
     const session = makeSession('s1')
     try {
       const service = new PetService(ctx, { persistDir: dir })
       ctx.emit('session/event', session, assistantChunk(1, 1, {
-        type: 'reasoning-delta', index: 0, text: '嗯',
+        type: 'text-delta', index: 0, text: '在整理回复',
       }, 1))
       const view = await service.state()
-      expect(view.bubble).toBe('正在思考')
-      expect(view.whisper).toBeUndefined()
+      expect(view.bubble).toBe('整理回复中')
+      expect(view.sessions?.[0]?.whisper).toBe(WHISPER_CATEGORY_POOLS.writing[0])
+      // An empty chunk stays quiet and does not disturb the bubble.
+      ctx.emit('session/event', session, assistantChunk(1, 1, {
+        type: 'text-delta', index: 0, text: '',
+      }, 2))
+      expect((await service.state()).sessions?.[0]?.whisper).toBe(WHISPER_CATEGORY_POOLS.writing[0])
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
@@ -430,8 +438,14 @@ describe('PetService (rc.6 session events)', () => {
       let view = await service.state()
       expect(view).toMatchObject({ animation: 'running-right', bubble: '正在使用 search' })
       expect(view.sessions).toEqual([
-        { sessionId: 's-b', animation: 'running-right', phase: 'tool', bubble: '正在使用 search' },
-        { sessionId: 's-a', animation: 'running', phase: 'thinking', bubble: '正在思考' },
+        {
+          sessionId: 's-b', animation: 'running-right', phase: 'tool', bubble: '正在使用 search',
+          whisper: WHISPER_CATEGORY_POOLS.reading[0],
+        },
+        {
+          sessionId: 's-a', animation: 'running', phase: 'thinking', bubble: '正在思考',
+          whisper: WHISPER_CATEGORY_POOLS.thinking[0],
+        },
       ])
 
       // A new event on A moves A to the top of the stack.
@@ -441,11 +455,15 @@ describe('PetService (rc.6 session events)', () => {
       view = await service.state()
       expect(view.sessions?.map(session => session.sessionId)).toEqual(['s-a', 's-b'])
 
-      // Disposing B removes only B's bubble.
+      // Disposing B removes only B's bubble; A's earlier thinking whisper
+      // keeps riding its bubble until the TTL.
       ctx.emit('session/disposed', sessionB)
       view = await service.state()
       expect(view.sessions).toEqual([
-        { sessionId: 's-a', animation: 'review', phase: 'review', bubble: '整理回复中' },
+        {
+          sessionId: 's-a', animation: 'review', phase: 'review', bubble: '整理回复中',
+          whisper: WHISPER_CATEGORY_POOLS.thinking[0],
+        },
       ])
 
       ctx.emit('session/disposed', sessionA)
@@ -454,6 +472,117 @@ describe('PetService (rc.6 session events)', () => {
       expect(view).toMatchObject({ animation: 'idle', sessionActive: false })
     } finally {
       rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('leads the bubble stack with the GUI current session when reported', async () => {
+    const ctx = new Context()
+    const dir = tempDir()
+    const sessionA = makeSession('s-a')
+    const sessionB = makeSession('s-b')
+    try {
+      const service = new PetService(ctx, { persistDir: dir })
+
+      ctx.emit('session/event', sessionA, assistantChunk(1, 1, {
+        type: 'reasoning-delta', index: 0, text: 'A',
+      }, 1))
+      ctx.emit('session/event', sessionB, assistantChunk(1, 1, {
+        type: 'reasoning-delta', index: 0, text: 'B',
+      }, 2))
+
+      // B was the most recent event, so it leads without a current report.
+      expect((await service.state()).sessions?.map(session => session.sessionId)).toEqual(['s-b', 's-a'])
+      // The current session leads, no matter which event was most recent.
+      expect((await service.state('s-a')).sessions?.map(session => session.sessionId)).toEqual(['s-a', 's-b'])
+      expect((await service.state('s-b')).sessions?.map(session => session.sessionId)).toEqual(['s-b', 's-a'])
+      // An unknown or absent session falls back to the recent-first order.
+      expect((await service.state('s-missing')).sessions?.map(session => session.sessionId)).toEqual(['s-b', 's-a'])
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('attaches each session whisper to its own bubble', async () => {
+    const ctx = new Context()
+    const dir = tempDir()
+    const sessionA = makeSession('s-a')
+    const sessionB = makeSession('s-b')
+    try {
+      const service = new PetService(ctx, { persistDir: dir })
+
+      ctx.emit('session/event', sessionA, toolCall(1, 1, 'call-a', 'search', 1))
+      ctx.emit('session/event', sessionB, assistantChunk(1, 1, {
+        type: 'reasoning-delta', index: 0, text: 'B',
+      }, 2))
+
+      const view = await service.state('s-a')
+      expect(view.sessions?.[0]).toMatchObject({ sessionId: 's-a', whisper: WHISPER_CATEGORY_POOLS.reading[0] })
+      expect(view.sessions?.[1]).toMatchObject({ sessionId: 's-b', whisper: WHISPER_CATEGORY_POOLS.thinking[0] })
+      // No global whisper rides the view anymore.
+      expect((view as { whisper?: string }).whisper).toBeUndefined()
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('wakes the test-green whisper only from a test tool result', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    const ctx = new Context()
+    const dir = tempDir()
+    const session = makeSession('s-green')
+    try {
+      const service = new PetService(ctx, { persistDir: dir })
+      ctx.emit('session/event', session, toolCall(1, 1, 'call-t', 'run_code', 1, '{"command":"npm test"}'))
+      // 10 s later: category (9 s) and outcome (5 s) cooldowns have elapsed.
+      vi.setSystemTime(10_000)
+      ctx.emit('session/event', session, toolResult(1, 1, 'call-t', 2))
+      const view = await service.state()
+      expect(view.sessions?.[0]?.whisper).toBe(WHISPER_RESULT_POOLS.pass[0])
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+      vi.useRealTimers()
+    }
+  })
+
+  it('wakes the error whisper only from a failed tool result', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    const ctx = new Context()
+    const dir = tempDir()
+    const session = makeSession('s-fail')
+    try {
+      const service = new PetService(ctx, { persistDir: dir })
+      ctx.emit('session/event', session, toolCall(1, 1, 'call-f', 'bash', 1, '{"command":"node server.js"}'))
+      vi.setSystemTime(10_000)
+      ctx.emit('session/event', session, toolResult(1, 1, 'call-f', 2, true, { name: 'boom', code: 'E1' }))
+      const view = await service.state()
+      expect(view.sessions?.[0]?.whisper).toBe(WHISPER_RESULT_POOLS.fail[0])
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+      vi.useRealTimers()
+    }
+  })
+
+  it('wakes the completion whisper only on a completed turn', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(0)
+    const ctx = new Context()
+    const dir = tempDir()
+    const session = makeSession('s-done')
+    try {
+      const service = new PetService(ctx, { persistDir: dir })
+      ctx.emit('session/event', session, turnEnd(1, { kind: 'completed' }, 1))
+      const view = await service.state()
+      expect(view.sessions?.[0]?.whisper).toBe(WHISPER_RESULT_POOLS.done[0])
+      // 10 s later an errored turn wakes the fail mood instead.
+      vi.setSystemTime(10_000)
+      ctx.emit('session/event', session, turnEnd(2, { kind: 'error', error: { message: 'boom', code: 'UNKNOWN' } }, 2))
+      const failed = await service.state()
+      expect(failed.sessions?.[0]?.whisper).toBe(WHISPER_RESULT_POOLS.fail[0])
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+      vi.useRealTimers()
     }
   })
 
@@ -477,8 +606,14 @@ describe('PetService (rc.6 session events)', () => {
       const view = await service.state()
       expect(view).toMatchObject({ animation: 'running-right', bubble: '正在使用 run_code' })
       expect(view.sessions).toEqual([
-        { sessionId: 's-b', animation: 'running-right', phase: 'tool', bubble: '正在使用 search' },
-        { sessionId: 's-a', animation: 'running', phase: 'thinking', bubble: '正在思考' },
+        {
+          sessionId: 's-b', animation: 'running-right', phase: 'tool', bubble: '正在使用 search',
+          whisper: WHISPER_CATEGORY_POOLS.reading[0],
+        },
+        {
+          sessionId: 's-a', animation: 'running', phase: 'thinking', bubble: '正在思考',
+          whisper: WHISPER_CATEGORY_POOLS.thinking[0],
+        },
       ])
       expect(view.sessions?.some(entry => entry.sessionId === 's-child')).toBe(false)
     } finally {
@@ -523,7 +658,10 @@ describe('PetService (rc.6 session events)', () => {
       const view = await service.state()
       expect(view).toMatchObject({ animation: 'running', bubble: '正在思考', sessionActive: true })
       expect(view.sessions).toEqual([
-        { sessionId: 's-a', animation: 'running', phase: 'thinking', bubble: '正在思考' },
+        {
+          sessionId: 's-a', animation: 'running', phase: 'thinking', bubble: '正在思考',
+          whisper: WHISPER_CATEGORY_POOLS.thinking[0],
+        },
       ])
     } finally {
       rmSync(dir, { recursive: true, force: true })
@@ -631,7 +769,10 @@ describe('PetService (rc.6 session events)', () => {
       const view = await service.state()
       // The stopped session leaves no bubble; B keeps reporting its tool work.
       expect(view.sessions).toEqual([
-        { sessionId: 's-b', animation: 'running-right', phase: 'tool', bubble: '正在使用 shell' },
+        {
+          sessionId: 's-b', animation: 'running-right', phase: 'tool', bubble: '正在使用 shell',
+          whisper: WHISPER_CATEGORY_POOLS.running[0],
+        },
       ])
       // The stopped session was the latest event, so the sprite settles to
       // idle while B's bubble stays in the stack.
@@ -694,15 +835,24 @@ describe('PetService (rc.6 session events)', () => {
       }, 1))
       ctx.emit('session/event', active, toolCall(1, 1, 'call-active', 'search', 2))
       expect((await service.state()).sessions).toEqual([
-        { sessionId: 'active', animation: 'running-right', phase: 'tool', bubble: '正在使用 search' },
-        { sessionId: 'failed', animation: 'failed', phase: 'failed', bubble: '执行失败' },
+        {
+          sessionId: 'active', animation: 'running-right', phase: 'tool', bubble: '正在使用 search',
+          whisper: WHISPER_CATEGORY_POOLS.reading[0],
+        },
+        {
+          sessionId: 'failed', animation: 'failed', phase: 'failed', bubble: '执行失败',
+          whisper: WHISPER_RESULT_POOLS.fail[0],
+        },
       ])
 
       vi.advanceTimersByTime(2400)
       const view = await service.state()
       expect(view).toMatchObject({ animation: 'running-right', bubble: '正在使用 search' })
       expect(view.sessions).toEqual([
-        { sessionId: 'active', animation: 'running-right', phase: 'tool', bubble: '正在使用 search' },
+        {
+          sessionId: 'active', animation: 'running-right', phase: 'tool', bubble: '正在使用 search',
+          whisper: WHISPER_CATEGORY_POOLS.reading[0],
+        },
       ])
     } finally {
       vi.useRealTimers()
@@ -1069,7 +1219,7 @@ describe('voice packs in PetService (pet-center M4, issue #677)', () => {
     }
   })
 
-  it('wakes a whisper from the pet pack keyword rules', async () => {
+  it('revoices whisper categories from the pet voice pack', async () => {
     const ctx = new Context()
     const dir = tempDir()
     const session = makeSession('s1')
@@ -1077,13 +1227,13 @@ describe('voice packs in PetService (pet-center M4, issue #677)', () => {
       const service = new PetService(ctx, {
         persistDir: dir,
         registry: voicedRegistry('talker', {
-          whispers: { rules: [{ keywords: ['测试通过'], pool: ['自定义全绿'] }] },
+          whispers: { categories: { thinking: ['自定义思考'] } },
         }),
       })
       ctx.emit('session/event', session, assistantChunk(1, 1, {
-        type: 'reasoning-delta', index: 0, text: '测试通过',
+        type: 'reasoning-delta', index: 0, text: '想想怎么改',
       }, 1))
-      expect((await service.state()).whisper).toBe('自定义全绿')
+      expect((await service.state()).sessions?.[0]?.whisper).toBe('自定义思考')
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }

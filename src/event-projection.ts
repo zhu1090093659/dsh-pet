@@ -5,15 +5,26 @@
  * {@link ProjectionRuntime} per session and feed events in arrival order.
  *
  * Status copy comes from the chatter voice (big rotating pools, per-tool
- * families, real-argument hints), and streamed model output feeds the murmur
- * engine so the pet can whisper its inner voice (碎碎念). The wall clock is
+ * families, real-argument hints), and the projection feeds the murmur engine
+ * (碎碎念) with the SITUATION — thinking/writing during the stream, the
+ * running tool family on tool calls, and the STRUCTURED outcome on
+ * tool/result and turn/end — so the pet's inner voice always roughly knows
+ * what is going on and never mis-fires on output text. The wall clock is
  * injected by the caller, keeping every projection reproducible.
  * @module @linxin666/dsh-pet/event-projection
  */
 
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { PetStateInput } from './state.ts'
-import { StatusVoice, toolArgHint, WhisperEngine, type VoicePoolsProvider } from './chatter.ts'
+import {
+  StatusVoice,
+  toolArgHint,
+  toolCategory,
+  WhisperEngine,
+  whisperCategoryOf,
+  looksLikeTestTool,
+  type VoicePoolsProvider,
+} from './chatter.ts'
 
 /** Runtime shape of the optional legacy activity event. */
 export interface ActivityStatusEventLike {
@@ -25,11 +36,13 @@ export interface ActivityStatusEventLike {
 /** Per-session facts needed to project the official event stream. */
 export interface ProjectionRuntime {
   activeTools: Set<string>
+  /** callIds whose tool looked like a test run, marked at tool/call (pet M6). */
+  testCalls: Set<string>
   officialEventsSeen: boolean
   stepHadFailure: boolean
   /** Round-robin status copy voice (scene-stable, cadence-rotated). */
   voice: StatusVoice
-  /** Inner-whisper engine fed by the model's own streamed output. */
+  /** Inner-whisper engine fed by the projection's situation and outcomes. */
   whispers: WhisperEngine
 }
 
@@ -37,7 +50,7 @@ export interface ProjectionRuntime {
 export interface PetActivityTransition {
   input: PetStateInput
   completedTurn?: number
-  /** A fresh inner whisper woken by this event's model output, when any. */
+  /** A fresh inner whisper woken by this event, when any. */
   whisper?: string
 }
 
@@ -50,6 +63,7 @@ export interface PetActivityTransition {
 export function emptyProjectionRuntime(pools?: VoicePoolsProvider): ProjectionRuntime {
   return {
     activeTools: new Set(),
+    testCalls: new Set(),
     officialEventsSeen: false,
     stepHadFailure: false,
     voice: new StatusVoice(pools),
@@ -81,6 +95,7 @@ export function projectOfficialEvent(
   switch (event.type) {
     case 'turn/start':
       runtime.activeTools.clear()
+      runtime.testCalls.clear()
       runtime.stepHadFailure = false
       return { input: { phase: 'waiting', line: runtime.voice.scene('prepare', nowMs) } }
     case 'step/start':
@@ -90,14 +105,14 @@ export function projectOfficialEvent(
     case 'assistant/chunk': {
       const { chunk } = event.data
       if (chunk.type === 'reasoning-delta' && chunk.text.length > 0) {
-        const whisper = runtime.whispers.feed(chunk.text, nowMs)
+        const whisper = runtime.whispers.feed('thinking', nowMs)
         return {
           input: { phase: 'thinking', line: runtime.voice.scene('thinking', nowMs) },
           ...(whisper === undefined ? {} : { whisper }),
         }
       }
       if (chunk.type === 'text-delta' && chunk.text.length > 0) {
-        const whisper = runtime.whispers.feed(chunk.text, nowMs)
+        const whisper = runtime.whispers.feed('writing', nowMs)
         return {
           input: { phase: 'review', line: runtime.voice.scene('review', nowMs) },
           ...(whisper === undefined ? {} : { whisper }),
@@ -107,8 +122,13 @@ export function projectOfficialEvent(
     }
     case 'assistant/message':
       return { input: { phase: 'review', line: runtime.voice.scene('review', nowMs) } }
-    case 'tool/call':
-      runtime.activeTools.add(String(event.data.callId))
+    case 'tool/call': {
+      const callId = String(event.data.callId)
+      runtime.activeTools.add(callId)
+      // A test-looking call is remembered so its result (the only place the
+      // outcome is known) can wake the test-green mood later.
+      if (looksLikeTestTool(event.data.name, event.data.arguments)) runtime.testCalls.add(callId)
+      const whisper = runtime.whispers.feed(whisperCategoryOf(toolCategory(event.data.name)), nowMs)
       return {
         input: {
           phase: 'tool',
@@ -119,33 +139,54 @@ export function projectOfficialEvent(
             nowMs,
           ),
         },
+        ...(whisper === undefined ? {} : { whisper }),
       }
+    }
     case 'tool/result': {
       const block = event.data.message.content[0]
-      runtime.activeTools.delete(String(event.data.message.source.callId))
-      runtime.stepHadFailure ||= event.data.error !== undefined || block.isError === true
+      const callId = String(event.data.message.source.callId)
+      const failed = event.data.error !== undefined || block.isError === true
+      const wasTest = runtime.testCalls.delete(callId)
+      runtime.activeTools.delete(callId)
+      runtime.stepHadFailure ||= failed
+      const whisper = failed
+        ? runtime.whispers.result('fail', nowMs)
+        : wasTest
+          ? runtime.whispers.result('pass', nowMs)
+          : undefined
+      const whisperSpread = whisper === undefined ? {} : { whisper }
       if (runtime.activeTools.size > 0) {
         return {
           input: {
             phase: 'tool',
             line: runtime.voice.toolRemaining(runtime.activeTools.size, nowMs),
           },
+          ...whisperSpread,
         }
       }
       return runtime.stepHadFailure
-        ? { input: { phase: 'failed', line: runtime.voice.scene('toolFailed', nowMs) } }
-        : { input: { phase: 'thinking', line: runtime.voice.scene('toolResult', nowMs) } }
+        ? { input: { phase: 'failed', line: runtime.voice.scene('toolFailed', nowMs) }, ...whisperSpread }
+        : { input: { phase: 'thinking', line: runtime.voice.scene('toolResult', nowMs) }, ...whisperSpread }
     }
     case 'turn/end': {
       runtime.activeTools.clear()
+      runtime.testCalls.clear()
       switch (event.data.reason.kind) {
-        case 'completed':
+        case 'completed': {
+          const whisper = runtime.whispers.result('done', nowMs)
           return {
             input: { phase: 'done', line: runtime.voice.scene('done', nowMs) },
             completedTurn: event.data.turn,
+            ...(whisper === undefined ? {} : { whisper }),
           }
-        case 'error':
-          return { input: { phase: 'failed', line: runtime.voice.scene('failed', nowMs) } }
+        }
+        case 'error': {
+          const whisper = runtime.whispers.result('fail', nowMs)
+          return {
+            input: { phase: 'failed', line: runtime.voice.scene('failed', nowMs) },
+            ...(whisper === undefined ? {} : { whisper }),
+          }
+        }
         case 'max-tokens':
           return { input: { phase: 'failed', line: runtime.voice.scene('maxTokens', nowMs) } }
         case 'interrupted':
