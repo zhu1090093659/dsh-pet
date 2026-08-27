@@ -54,6 +54,16 @@ describe('RemarkPicker', () => {
     expect(picker.pick('pet')).toBe('专属摸头台词')
     expect(picker.pick('feed')).toBe(BUILTIN_REMARKS.feed[0])
   })
+
+  it('layers pet custom lines over voice pack lines, falling back to built-ins (#1226)', () => {
+    const picker = new RemarkPicker(
+      { pet: ['Pet-level line'] },
+      { pet: ['Voice-level pet line'], feed: ['Voice-level feed line'] },
+    )
+    expect(picker.pick('pet')).toBe('Pet-level line')
+    expect(picker.pick('feed')).toBe('Voice-level feed line')
+    expect(picker.pick('noTreats')).toBe(BUILTIN_REMARKS.noTreats[0])
+  })
 })
 
 describe('normalizePetRemarks', () => {

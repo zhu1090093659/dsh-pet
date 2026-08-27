@@ -32,6 +32,8 @@ export interface LedgerConfig {
   treats?: Partial<TreatConfig>
   /** Per-pet remark pools for the selected pet (custom slots override built-ins). */
   remarks?: PetRemarks
+  /** Voice-pack fallback remark pools (global or pet voice pack). */
+  voiceRemarks?: PetRemarks
 }
 
 /** Result of one ledger interaction (the shape the pet RPC returns). */
@@ -63,7 +65,7 @@ export class PetLedger {
   constructor(persist: PetPersist, config: LedgerConfig = {}) {
     this.affinityConfig = { ...defaultAffinityConfig, ...(config.affinity ?? {}) }
     this.treatConfig = { ...defaultTreatConfig, ...(config.treats ?? {}) }
-    this.picker = new RemarkPicker(config.remarks)
+    this.picker = new RemarkPicker(config.remarks, config.voiceRemarks)
     this.current = persist
   }
 
@@ -124,10 +126,10 @@ export class PetLedger {
 
   /**
    * Swap the reaction pools to another pet's custom remarks (called on pet
-   * selection). Slots the pet does not declare fall back to built-ins.
+   * selection). Slots the pet does not declare fall back to voice packs or built-ins.
    */
-  setRemarks(remarks?: PetRemarks): void {
-    this.picker = new RemarkPicker(remarks)
+  setRemarks(remarks?: PetRemarks, voiceRemarks?: PetRemarks): void {
+    this.picker = new RemarkPicker(remarks, voiceRemarks)
   }
 
   /**

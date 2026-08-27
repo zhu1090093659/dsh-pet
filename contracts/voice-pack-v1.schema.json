@@ -206,6 +206,36 @@
           "description": "Subset of actions to render in canonical order; absent = all three, [] = none."
         }
       }
+    },
+    "remarks": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Pat/feed interaction remark pools (issue #1226). Keyed by pet/petCooldown/feed/feedCooldown/noTreats.",
+      "properties": {
+        "pet": {
+          "$ref": "#/definitions/pool"
+        },
+        "petCooldown": {
+          "$ref": "#/definitions/pool"
+        },
+        "feed": {
+          "$ref": "#/definitions/pool"
+        },
+        "feedCooldown": {
+          "$ref": "#/definitions/pool"
+        },
+        "noTreats": {
+          "$ref": "#/definitions/pool"
+        }
+      }
+    },
+    "ranks": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "maxLength": 80
+      },
+      "description": "Affinity rank name overrides (issue #1226), keyed by tier minimum points or original rank name."
     }
   },
   "definitions": {

@@ -685,7 +685,15 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
             <>
               <div className={styles.rankRow}>
                 <span className={styles.nameCell}>{displayName}</span>
-                <span className={styles.statRank}>{panelStat('rank', 'pet.rank', { rank: snapshot?.affinity.rank ?? '?' })}</span>
+                <span className={styles.statRank}>
+                  {(() => {
+                    const rawRank = snapshot?.affinity.rank ?? '?'
+                    const rankKey = `pet.rank.name.${rawRank}`
+                    const localized = props.t(rankKey as any)
+                    const rankName = localized !== rankKey ? localized : rawRank
+                    return panelStat('rank', 'pet.rank', { rank: rankName })
+                  })()}
+                </span>
               </div>
               <div className={styles.rankRow}>
                 <span className={styles.statTreats}>{panelStat('treats', 'pet.treats', { n: snapshot?.treats.stocked ?? 0 })}</span>

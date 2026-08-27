@@ -184,11 +184,18 @@ export class RemarkPicker {
   private readonly counters = new Map<RemarkKind, number>()
   private readonly pools: Record<RemarkKind, readonly string[]>
 
-  constructor(overrides?: PetRemarks) {
+  constructor(overrides?: PetRemarks, voiceOverrides?: PetRemarks) {
     this.pools = {} as Record<RemarkKind, readonly string[]>
     for (const kind of REMARK_KINDS) {
       const custom = overrides?.[kind]
-      this.pools[kind] = custom !== undefined && custom.length > 0 ? custom : BUILTIN_REMARKS[kind]
+      const voice = voiceOverrides?.[kind]
+      if (custom !== undefined && custom.length > 0) {
+        this.pools[kind] = custom
+      } else if (voice !== undefined && voice.length > 0) {
+        this.pools[kind] = voice
+      } else {
+        this.pools[kind] = BUILTIN_REMARKS[kind]
+      }
     }
   }
 

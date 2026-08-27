@@ -53,6 +53,45 @@ describe('normalizeVoicePack structure', () => {
     expect(warnings.join('\n')).toContain('mystery')
     expect(warnings.join('\n')).toContain('voicePackVersion')
   })
+
+  it('normalizes top-level remarks and ranks (#1226)', () => {
+    const { pack, warnings } = collectWarnings({
+      remarks: {
+        pet: ['Purr~ So comfortable!'],
+        feed: 'Yummy fish!',
+      },
+      ranks: {
+        '0': 'Baby Whale',
+        '幼鲸': 'Little Whale',
+      },
+    })
+    expect(pack).toBeDefined()
+    expect(pack?.remarks?.pet).toEqual(['Purr~ So comfortable!'])
+    expect(pack?.remarks?.feed).toEqual(['Yummy fish!'])
+    expect(pack?.ranks).toEqual({
+      '0': 'Baby Whale',
+      '幼鲸': 'Little Whale',
+    })
+    expect(warnings).toHaveLength(0)
+  })
+
+  it('merges remarks and ranks across layers (#1226)', () => {
+    const base = normalizeVoicePack({
+      remarks: { pet: ['Base pet'], feed: ['Base feed'] },
+      ranks: { '0': 'Base 0', '25': 'Base 25' },
+    })
+    const layer = normalizeVoicePack({
+      remarks: { pet: ['Layer pet'] },
+      ranks: { '0': 'Layer 0' },
+    })
+    const merged = mergeVoicePacks(base, layer)
+    expect(merged?.remarks?.pet).toEqual(['Layer pet'])
+    expect(merged?.remarks?.feed).toEqual(['Base feed'])
+    expect(merged?.ranks).toEqual({
+      '0': 'Layer 0',
+      '25': 'Base 25',
+    })
+  })
 })
 
 describe('normalizePool', () => {

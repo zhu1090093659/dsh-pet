@@ -297,10 +297,12 @@ export class PetService extends Service {
       persist = { ...persist, petId: this.registry.defaultEntry().id }
     }
     const selected = this.registry.byId(persist.petId) ?? this.registry.defaultEntry()
+    const voiceRemarks = mergeVoicePacks(this.registry.globalVoice, selected.voice)?.remarks
     const ledgerConfig: LedgerConfig = {
       affinity: config.affinity,
       treats: config.treats,
       remarks: selected.remarks,
+      voiceRemarks,
     }
     this.ledger = new PetLedger(persist, ledgerConfig)
     this.stateConfig = { ...defaultPetStateConfig, ...(config.state ?? {}) }
@@ -390,7 +392,8 @@ export class PetService extends Service {
     const entry = this.registry.byId(petId)
     if (entry === undefined) return { ok: false, error: 'unknown-pet' }
     this.ledger.setPetId(entry.id)
-    this.ledger.setRemarks(entry.remarks)
+    const voiceRemarks = mergeVoicePacks(this.registry.globalVoice, entry.voice)?.remarks
+    this.ledger.setRemarks(entry.remarks, voiceRemarks)
     this.flush()
     this.syncSettingsFromPet()
     return { ok: true, petId: entry.id }

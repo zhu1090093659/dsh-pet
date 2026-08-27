@@ -176,6 +176,24 @@ describe('PetSprite hide control (#1126)', () => {
   })
 })
 
+describe('PetSprite affinity rank localization (#1226)', () => {
+  it('localizes the rank name in the hover panel when document language is en', () => {
+    document.documentElement.lang = 'en'
+    try {
+      renderPet({
+        snapshot: {
+          ...snapshot,
+          affinity: { ...snapshot.affinity, rank: '幼鲸' },
+        },
+      })
+      fireEvent.pointerOver(screen.getByRole('button', { name: '鲸鱼娘' }))
+      expect(screen.getByText('Affinity Baby Whale')).toBeTruthy()
+    } finally {
+      document.documentElement.lang = 'zh'
+    }
+  })
+})
+
 describe('PetSprite rename input', () => {
   it('submits the draft on Enter outside composition', () => {
     const { onRename } = renderPet()

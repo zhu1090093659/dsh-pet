@@ -37,6 +37,7 @@ import {
   type WhisperCategory,
   type WhisperResult,
 } from './chatter.ts'
+import { normalizePetRemarks, type PetRemarks } from './remarks.ts'
 
 /** Schema version this module normalizes (optional field; missing = 1). */
 export const VOICE_PACK_V1 = 1 as const
@@ -69,6 +70,10 @@ export interface VoicePack {
   overrides: VoicePackOverrides
   /** Hover-panel chrome, when the pack declares any. */
   panel?: PetPanelView
+  /** Pat/feed interaction remark pools (issue #1226). */
+  remarks?: PetRemarks
+  /** Affinity rank name overrides (issue #1226). */
+  ranks?: Record<string, string>
 }
 
 /** Hard caps shared by every pool slot (mirrors the remarks discipline). */
@@ -265,7 +270,7 @@ export function normalizePanel(
 }
 
 /** Voice-pack top-level fields ('$schema' mirrors the schema twin; drift-locked in tests). */
-export const VOICE_PACK_KEYS = new Set(['$schema', 'voicePackVersion', 'status', 'tools', 'toolRemaining', 'whispers', 'panel'])
+export const VOICE_PACK_KEYS = new Set(['$schema', 'voicePackVersion', 'status', 'tools', 'toolRemaining', 'whispers', 'panel', 'remarks', 'ranks'])
 
 /** Allowed whisper-section fields (drift-locked in tests). */
 export const WHISPER_KEYS = new Set(['categories', 'results'])
@@ -356,16 +361,36 @@ export function normalizeVoicePack(
     }
   }
   const panel = raw.panel === undefined ? undefined : normalizePanel(raw.panel, onWarning)
+  const remarks = raw.remarks === undefined ? undefined : normalizePetRemarks(raw.remarks, onWarning)
+  const ranksRaw = raw.ranks
+  let ranks: Record<string, string> | undefined
+  if (ranksRaw !== undefined) {
+    if (!isRecord(ranksRaw)) {
+      onWarning('ranks must be an object')
+    } else {
+      const out: Record<string, string> = {}
+      for (const [key, value] of Object.entries(ranksRaw)) {
+        if (typeof value === 'string' && value.trim() !== '') {
+          out[key] = value.trim().slice(0, VOICE_STAT_MAX)
+        } else {
+          onWarning('invalid rank name for ' + key)
+        }
+      }
+      if (Object.keys(out).length > 0) ranks = out
+    }
+  }
   if (
     overrides.status === undefined && overrides.tools === undefined
     && overrides.toolRemaining === undefined && overrides.whispers === undefined
-    && panel === undefined
+    && panel === undefined && remarks === undefined && ranks === undefined
   ) {
     return undefined
   }
   return {
     overrides,
     ...(panel === undefined ? {} : { panel }),
+    ...(remarks === undefined ? {} : { remarks }),
+    ...(ranks === undefined ? {} : { ranks }),
   }
 }
 
@@ -379,6 +404,8 @@ export function mergeVoicePacks(...layers: (VoicePack | undefined)[]): VoicePack
   const overrides: VoicePackOverrides = {}
   const labels: NonNullable<PetPanelView['labels']> = {}
   const stats: NonNullable<PetPanelView['stats']> = {}
+  let remarks: PetRemarks | undefined
+  let ranks: Record<string, string> | undefined
   let actions: PanelAction[] | undefined
   let panelSeen = false
   let any = false
@@ -401,6 +428,12 @@ export function mergeVoicePacks(...layers: (VoicePack | undefined)[]): VoicePack
       if (layer.panel.stats !== undefined) Object.assign(stats, layer.panel.stats)
       if (layer.panel.actions !== undefined) actions = layer.panel.actions
     }
+    if (layer.remarks !== undefined) {
+      remarks = { ...(remarks ?? {}), ...layer.remarks }
+    }
+    if (layer.ranks !== undefined) {
+      ranks = { ...(ranks ?? {}), ...layer.ranks }
+    }
   }
   if (!any) return undefined
   const panel: PetPanelView = {
@@ -412,5 +445,7 @@ export function mergeVoicePacks(...layers: (VoicePack | undefined)[]): VoicePack
   return {
     overrides,
     ...(panelSeen && !panelEmpty ? { panel } : {}),
+    ...(remarks !== undefined ? { remarks } : {}),
+    ...(ranks !== undefined ? { ranks } : {}),
   }
 }

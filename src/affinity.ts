@@ -56,6 +56,19 @@ export const AFFINITY_RANKS = [
   { min: 100_000, name: '鲸生共渡', emoji: '*********' },
 ] as const
 
+/** English translations for the 9 built-in affinity rank names (#1226). */
+export const AFFINITY_RANKS_EN: Readonly<Record<string, string>> = {
+  '幼鲸': 'Baby Whale',
+  '伙伴': 'Companion',
+  '挚友': 'Close Friend',
+  '深海羁绊': 'Deep Sea Bond',
+  '心有灵犀': 'Kindred Spirit',
+  '传说羁绊': 'Legendary Bond',
+  '神话羁绊': 'Mythic Bond',
+  '永恒之契': 'Eternal Covenant',
+  '鲸生共渡': 'Lifelong Companion',
+}
+
 /** Interaction tuning (all in points / ms). */
 export interface AffinityConfig {
   /** Points per completed turn. */
