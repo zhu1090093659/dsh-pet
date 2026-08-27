@@ -8,6 +8,18 @@
  * phase-mapped track. Rendering never throws: a broken track list degrades
  * to the first decodable frame, and the 1.2 s stall watchdog re-kicks the
  * playback chain after timer throttling.
+ *
+ * Frame presentation has two modes picked once at mount by capability
+ * probing:
+ * - Canvas bitmap buffer (default where createImageBitmap/fetch/2D context
+ *   exist): every frame is decoded exactly once into an ImageBitmap during
+ *   the warm pass and drawn onto one <canvas> - steady-state playback issues
+ *   zero DOM mutations and zero re-decodes (measured hotspot: swapping
+ *   <img>.src per frame drove image decode + invalidation every tick).
+ * - Classic <img> fallback (jsdom/tests or missing APIs): identical to the
+ *   historical behavior - cache-warm Image elements plus guarded src swaps,
+ *   so environments without modern decoding keep working unchanged.
+ *
  * @module @linxin666/dsh-pet/client/renderers/frames2d
  */
 
@@ -69,6 +81,12 @@ function validateFrames2dConfig(config: unknown): PetFrames2dConfig {
   return { tracks, phases: phases as PetFrames2dConfig['phases'] }
 }
 
+interface DecodedFrame {
+  source: ImageBitmap | HTMLImageElement
+  width: number
+  height: number
+}
+
 export const frames2dRenderer: PetRenderer<PetFrames2dConfig> = {
   id: 'frames2d',
   apiVersion: PET_RENDERER_API_VERSION,
@@ -79,23 +97,78 @@ export const frames2dRenderer: PetRenderer<PetFrames2dConfig> = {
       && typeof window.matchMedia === 'function'
       && window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
-    const img = document.createElement('img')
-    img.dataset.dshPetFrames2d = ctx.petId
-    img.alt = ''
-    img.draggable = false
-    img.style.width = '100%'
-    img.style.height = '100%'
-    img.style.objectFit = 'contain'
-    img.style.pointerEvents = 'none'
-    ctx.container.appendChild(img)
-
-    // Warm the browser cache for every frame up front (same-origin, small
-    // webp files); playback itself swaps img.src without React state.
-    for (const track of Object.values(config.tracks)) {
-      for (const url of track.frames) {
-        const pre = new Image()
-        pre.src = url
+    // Capability probe: the canvas path needs decode-to-bitmap, same-origin
+    // fetch, and a real 2D context (jsdom returns null and falls back below).
+    let canvas: HTMLCanvasElement | null = null
+    let context2d: CanvasRenderingContext2D | null = null
+    let img: HTMLImageElement | null = null
+    try {
+      if (typeof createImageBitmap === 'function' && typeof fetch === 'function') {
+        const probe = document.createElement('canvas')
+        const c2d = probe.getContext('2d')
+        if (c2d !== null) {
+          canvas = probe
+          context2d = c2d
+        }
       }
+    } catch {
+      canvas = null
+      context2d = null
+    }
+
+    if (canvas !== null && context2d !== null) {
+      canvas.dataset.dshPetFrames2d = ctx.petId
+      canvas.draggable = false
+      canvas.style.width = '100%'
+      canvas.style.height = '100%'
+      canvas.style.objectFit = 'contain'
+      canvas.style.pointerEvents = 'none'
+      ctx.container.appendChild(canvas)
+    } else {
+      img = document.createElement('img')
+      img.dataset.dshPetFrames2d = ctx.petId
+      img.alt = ''
+      img.draggable = false
+      img.style.width = '100%'
+      img.style.height = '100%'
+      img.style.objectFit = 'contain'
+      img.style.pointerEvents = 'none'
+      ctx.container.appendChild(img)
+    }
+
+    // Decode cache: one concurrent decode per URL, memoized forever (frames
+    // are tiny same-origin webp files; failures resolve undefined and keep
+    // the last painted frame instead of breaking playback).
+    const decoding = new Map<string, Promise<DecodedFrame | undefined>>()
+    const decodedAll: Promise<void>[] = []
+    const loadFrame = (url: string): Promise<DecodedFrame | undefined> => {
+      const cached = decoding.get(url)
+      if (cached !== undefined) return cached
+      const job: Promise<DecodedFrame | undefined> = (async () => {
+        try {
+          const response = await fetch(url)
+          if (!response.ok) throw new Error('http ' + response.status)
+          const bitmap = await createImageBitmap(await response.blob())
+          return { source: bitmap, width: bitmap.width, height: bitmap.height }
+        } catch {
+          // Fail-open: classic Image decode keeps non-modern runtimes alive.
+          return await new Promise<DecodedFrame | undefined>((resolve) => {
+            try {
+              const pre = new Image()
+              pre.onload = (): void => {
+                resolve(pre.naturalWidth > 0 ? { source: pre, width: pre.naturalWidth, height: pre.naturalHeight } : undefined)
+              }
+              pre.onerror = (): void => resolve(undefined)
+              pre.src = url
+            } catch {
+              resolve(undefined)
+            }
+          })
+        }
+      })()
+      decoding.set(url, job)
+      decodedAll.push(job.then(() => undefined, () => undefined))
+      return job
     }
 
     let disposed = false
@@ -105,16 +178,42 @@ export const frames2dRenderer: PetRenderer<PetFrames2dConfig> = {
     let frameIndex = 0
     let lastAdvance = Date.now()
     let override: string | undefined
+    let drawToken = 0
+    let lastDrawnUrl: string | undefined
 
     const trackForPhase = (phase: ActivityPhase): string => {
       const mapped = config.phases[phase]
       return mapped !== undefined && config.tracks[mapped] !== undefined ? mapped : config.phases.idle
     }
 
+    /** Canvas path: paints the newest requested frame; stale draws drop out. */
+    const paintCanvas = (url: string): void => {
+      if (context2d === null || canvas === null) return
+      const myToken = ++drawToken
+      void loadFrame(url).then((frame) => {
+        if (disposed || frame === undefined || myToken !== drawToken) return
+        if (lastDrawnUrl === url) return
+        lastDrawnUrl = url
+        // Resizing clears the canvas, so size only when it actually differs.
+        if (canvas.width !== frame.width || canvas.height !== frame.height) {
+          canvas.width = frame.width
+          canvas.height = frame.height
+        } else {
+          context2d.clearRect(0, 0, canvas.width, canvas.height)
+        }
+        context2d.drawImage(frame.source as CanvasImageSource, 0, 0)
+      }).catch(() => { /* keep last frame */ })
+    }
+
     const show = (trackId: string, index: number): void => {
       const def = config.tracks[trackId]
       const url = def?.frames[index]
-      if (url !== undefined && img.getAttribute('src') !== url) img.src = url
+      if (url === undefined) return
+      if (img !== null) {
+        if (img.getAttribute('src') !== url) img.src = url
+        return
+      }
+      paintCanvas(url)
     }
 
     const schedule = (ms: number): void => {
@@ -180,6 +279,13 @@ export const frames2dRenderer: PetRenderer<PetFrames2dConfig> = {
       }, WATCHDOG_MS)
     }
 
+    // Warm pass: decode every frame up front (tiny same-origin webp files)
+    // so loops and phase switches never wait on a first decode - same intent
+    // as the historical Image-cache warm loop, now feeding the decode cache.
+    for (const warmTrack of Object.values(config.tracks)) {
+      for (const warmUrl of warmTrack.frames) void loadFrame(warmUrl)
+    }
+
     play(track)
 
     let disposedOnce = false
@@ -190,7 +296,21 @@ export const frames2dRenderer: PetRenderer<PetFrames2dConfig> = {
       unsubscribe()
       if (timer !== undefined) clearTimeout(timer)
       if (watchdog !== undefined) clearInterval(watchdog)
-      img.remove()
+      // Release decoded bitmaps after pending decodes settle; close() is
+      // browser-only, so guard it for exotic hosts.
+      void Promise.allSettled(decodedAll).then(() => {
+        for (const job of decoding.values()) {
+          void job.then((frame) => {
+            try {
+              const maybeClose = (frame?.source as { close?: () => void } | undefined)?.close
+              if (typeof maybeClose === 'function' && frame !== undefined) maybeClose.call(frame.source)
+            } catch { /* already released */ }
+          }).catch(() => { /* never rejects anyway */ })
+        }
+        decoding.clear()
+      })
+      canvas?.remove()
+      img?.remove()
     }
     ctx.onCleanup(dispose)
 

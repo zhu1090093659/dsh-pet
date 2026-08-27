@@ -135,3 +135,104 @@ describe('frames2dRenderer', () => {
     expect(container.querySelector('img')).toBeNull()
   })
 })
+
+describe('frames2dRenderer canvas bitmap path', () => {
+  // The canvas branch needs createImageBitmap + fetch + a real 2D context;
+  // jsdom has none of them, so each test installs fakes and restores after.
+  const flush = async (): Promise<void> => {
+    await Promise.resolve()
+    await Promise.resolve()
+    await Promise.resolve()
+  }
+
+  let draws = 0
+  const bitmaps: { width: number; height: number; close: ReturnType<typeof vi.fn> }[] = []
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    document.body.innerHTML = ''
+    draws = 0
+    bitmaps.length = 0
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, blob: async () => ({}) })))
+    vi.stubGlobal('createImageBitmap', vi.fn(async () => {
+      const bmp = { width: 32, height: 32, close: vi.fn() }
+      bitmaps.push(bmp)
+      return bmp
+    }))
+    ;(HTMLCanvasElement.prototype as unknown as { getContext: unknown }).getContext = () => ({
+      clearRect: () => {},
+      drawImage: () => {
+        draws += 1
+      },
+    })
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    Reflect.deleteProperty(HTMLCanvasElement.prototype as unknown as Record<string, unknown>, 'getContext')
+    vi.useRealTimers()
+  })
+
+  function canvasSetup() {
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const ctx: PetRendererContext = {
+      petId: 'miku',
+      assetBase: '/pet/miku',
+      container,
+      phase: createPhaseStream('idle'),
+      interact: () => {},
+      onCleanup: () => {},
+    }
+    return { ctx, container }
+  }
+
+  it('mounts a canvas instead of an img and paints advanced frames via drawImage', async () => {
+    const { ctx, container } = canvasSetup()
+    const handle = frames2dRenderer.mount(ctx, frames2dRenderer.validateConfig(CONFIG)) as Frames2dRendererHandle
+    expect(container.querySelector('canvas')).not.toBeNull()
+    expect(container.querySelector('img')).toBeNull()
+    await flush()
+    // Warm pass decoded every configured frame exactly once; the first frame
+    // of the idle track painted during mount.
+    expect(bitmaps.length).toBe(6)
+    const paintsAtMount = draws
+    expect(paintsAtMount).toBeGreaterThanOrEqual(1)
+    vi.advanceTimersByTime(100)
+    await flush()
+    expect(draws).toBeGreaterThan(paintsAtMount)
+    handle.dispose()
+  })
+
+  it('sizes the backing store from decoded dimensions and releases bitmaps on dispose', async () => {
+    const { ctx, container } = canvasSetup()
+    const handle = frames2dRenderer.mount(ctx, frames2dRenderer.validateConfig(CONFIG)) as Frames2dRendererHandle
+    await flush()
+    const canvas = container.querySelector('canvas')!
+    expect(canvas.width).toBe(32)
+    expect(canvas.height).toBe(32)
+    handle.dispose()
+    await flush()
+    for (const bmp of bitmaps) expect(bmp.close).toHaveBeenCalled()
+  })
+
+  it('keeps painting through a phase switch without touching the DOM tree', async () => {
+    const { container } = canvasSetup()
+    const stream = createPhaseStream('idle')
+    const ctx: PetRendererContext = {
+      petId: 'miku', assetBase: '/pet/miku', container, phase: stream, interact: () => {}, onCleanup: () => {},
+    }
+    const handle = frames2dRenderer.mount(ctx, frames2dRenderer.validateConfig(CONFIG)) as Frames2dRendererHandle
+    await flush()
+    const nodesBefore = container.querySelectorAll('*').length
+    stream.push('thinking' as ActivityPhase)
+    expect(handle.currentTrack()).toBe('work')
+    await flush()
+    vi.advanceTimersByTime(100)
+    await flush()
+    // Steady-state playback is DOM-mutation-free: no element added or removed.
+    expect(container.querySelectorAll('*').length).toBe(nodesBefore)
+    expect(draws).toBeGreaterThanOrEqual(3)
+    handle.dispose()
+  })
+})
