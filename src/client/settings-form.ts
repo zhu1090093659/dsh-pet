@@ -142,12 +142,6 @@ export interface BatchResult {
   message?: string
 }
 
-/** The optional batch surface the bridge scope adds over the SettingsScope contract. */
-interface BatchedSettingsScope {
-  /** Write every operation in one scope mutation, reporting per-field success. */
-  mutate: (writes: BatchedWrite[]) => Promise<BatchResult>
-}
-
 /** Constraints a numeric field's accepted drafts must satisfy, mirroring the host schema. */
 export interface NumberConstraints {
   /** The accepted value must be a whole number. */
@@ -343,34 +337,27 @@ export class CardForm<T> {
     this.failed = false
     this.failedReason = undefined
     this.publish()
-    const landed = new Set<string>()
-    const batch = this.batchedScope()
-    if (batch !== undefined) {
-      const result = await batch.mutate(plannedWrites)
-      if (result.ok) {
-        for (const field of result.fields) {
-          if (field.landed) landed.add(field.field)
-        }
-      } else {
-        this.failedReason = result.message
-      }
-    } else {
-      for (const item of valid) {
-        if (await item.run!()) landed.add(item.field)
-      }
+    // One atomic namespace mutation: the 0.1.2 scope contract takes ordered
+    // path operations, so the whole staged batch is validated, persisted, and
+    // recovered together. Per-field landing flags are gone with the old
+    // compat batch surface — either every write lands or none does.
+    const ops: Array<{ op: 'set'; path: string[]; value: string | number | boolean } | { op: 'unset'; path: string[] }> = valid.map(item => item.op.op === 'set'
+      ? { op: 'set', path: [item.field], value: (item.op as { value: string | number | boolean }).value }
+      : { op: 'unset', path: [item.field] })
+    let failedReason: string | undefined
+    try {
+      await this.scope.mutate(ops)
+    } catch (error) {
+      failedReason = error instanceof Error ? error.message : String(error)
     }
+    const landedAll = failedReason === undefined
     for (const [field, before] of pending) {
-      if (landed.has(field) && this.staged.get(field) === before) this.staged.delete(field)
+      if (landedAll && this.staged.get(field) === before) this.staged.delete(field)
     }
     this.saving = false
-    this.failed = landed.size !== pending.size
+    this.failed = !landedAll
+    this.failedReason = failedReason
     this.publish()
-  }
-
-  /** The scope's batch surface when it supports one; undefined conservatively otherwise. */
-  private batchedScope(): BatchedSettingsScope | undefined {
-    const candidate = this.scope as unknown as BatchedSettingsScope | undefined
-    return typeof candidate?.mutate === 'function' ? candidate : undefined
   }
 
   /**
