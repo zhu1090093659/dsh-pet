@@ -63,6 +63,7 @@ class FakeScope implements SettingsScope<PetSettings> {
     delete (this.user as Record<string, unknown>)[field]
     this.reflect()
   })
+  mutate = vi.fn(async () => {})
   constructor(value: PetSettings) {
     this.value = value
     this.base = value
