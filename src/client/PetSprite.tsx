@@ -16,6 +16,7 @@ import clsx from 'clsx'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { PetDisplayConfig } from '../persist.ts'
 import type { PetStateView } from '../service.ts'
+import { announcementFresh, type PetAnnouncement } from '../announce.ts'
 import type { PetDefinition } from '../registry.ts'
 import type { DecorationView } from '../contracts/status-decoration.ts'
 import type { PetFeedback } from './pet-store.ts'
@@ -173,6 +174,52 @@ function StatusOrnament(props: { decoration: DecorationView; phase: ActivityPhas
         backgroundPosition: '0px 0px',
       }}
     />
+  )
+}
+
+/**
+ * The announcement bubble (dsh-usage linkage): a dedicated, specially
+ * designed surface for sibling-plugin facts — a balance pill or a plan-quota
+ * card with a tone-tinted accent, a mini meter for percent windows, and the
+ * reset instant. It rides the top of the session bubble stack (column-reverse
+ * puts the DOM-last child farthest from the sprite) and persists for its TTL
+ * instead of the short feedback pop.
+ */
+function UsageAnnouncementBubble(props: { announcement: PetAnnouncement }): ReactNode {
+  const { announcement } = props
+  const tone = announcement.tone === 'low'
+    ? styles.bubbleUsageLow
+    : announcement.tone === 'warn'
+      ? styles.bubbleUsageWarn
+      : styles.bubbleUsageOk
+  return (
+    <div
+      className={clsx(styles.bubble, styles.bubbleUsage, tone)}
+      role="status"
+      aria-live="polite"
+      data-dsh-pet-announcement={announcement.source}
+    >
+      <span className={styles.bubbleUsageHead}>
+        <span className={styles.bubbleUsageTitle}>{announcement.title}</span>
+        {announcement.kind === 'balance' && announcement.amount !== undefined && (
+          <span className={styles.bubbleUsageValue}>{announcement.amount}</span>
+        )}
+        {announcement.kind === 'plan' && announcement.percent !== undefined && (
+          <span className={styles.bubbleUsageValue}>{Math.round(announcement.percent) + '%'}</span>
+        )}
+      </span>
+      {announcement.kind === 'plan' && announcement.percent !== undefined && (
+        <span className={styles.bubbleUsageMeter}>
+          <span
+            className={styles.bubbleUsageMeterFill}
+            style={{ width: Math.min(100, Math.max(0, announcement.percent)) + '%' }}
+          />
+        </span>
+      )}
+      {announcement.note !== undefined && (
+        <span className={styles.bubbleUsageNote}>{announcement.note}</span>
+      )}
+    </div>
   )
 }
 
@@ -432,6 +479,13 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
   const statusBubble = feedback === null && sessionBubbles.length === 0
     ? snapshot?.bubble
     : undefined
+  // The freshest plugin-authored announcement (dsh-usage linkage): a
+  // dedicated, specially styled bubble above the session stack. The host
+  // already TTL-filters; this client-side check covers the last poll tick.
+  const announcement = snapshot?.announcement
+  const usageAnnouncement = feedback === null && announcement !== undefined && announcementFresh(announcement, Date.now())
+    ? announcement
+    : undefined
   // Each session's inner whisper (碎碎念) rides its own bubble — short
   // inner-voice copy woken by that session's activity, never the model's or
   // another session's. Instead of a second bubble of its own, a fresh
@@ -439,7 +493,7 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
   // never wears two voices at once. Interaction feedback takes over the
   // whole bubble area while it plays, so whispers yield to it like status
   // copy.
-  const bubblePresent = feedback !== null || sessionBubbles.length > 0 || statusBubble !== undefined
+  const bubblePresent = feedback !== null || sessionBubbles.length > 0 || statusBubble !== undefined || usageAnnouncement !== undefined
   const displayName = snapshot?.name ?? definition.displayName
   // The host-served status decoration (M5, #567); absent = text-only bubbles.
   const decoration = snapshot?.decoration
@@ -549,7 +603,7 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
           {feedback.text}
         </div>
       )}
-      {feedback === null && (sessionBubbles.length > 0 || statusBubble !== undefined) && (
+      {feedback === null && (sessionBubbles.length > 0 || statusBubble !== undefined || usageAnnouncement !== undefined) && (
         <div
           ref={bubbleRef}
           className={styles.bubbleStack}
@@ -620,6 +674,7 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
               {statusBubble}
             </div>
           )}
+          {usageAnnouncement !== undefined && <UsageAnnouncementBubble announcement={usageAnnouncement} />}
         </div>
       )}
       {hovered && dragRef.current === null && (
