@@ -79,6 +79,14 @@ export interface PetSpriteProps {
   onGameplayMenu?: () => void
   /** Disable the drag gesture (gameplay work mode blocks dragging). */
   dragDisabled?: boolean
+  /**
+   * DOM node the floating chrome portals into. Defaults to document.body
+   * (the legacy behavior); the plugin apply passes its owning root (the
+   * [data-dsh-plugin="pet"] container) so the root owns the whole surface
+   * and a root-keyed suppressor (the portrait mobile layer) hides the pet
+   * as one unit instead of missing the portaled sprite.
+   */
+  portalTarget?: Element
   /** Locale translate seat (namespace-bound). */
   t: TranslateNS<typeof NS>
 }
@@ -793,5 +801,5 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
     </div>
   )
 
-  return createPortal(float, document.body)
+  return createPortal(float, props.portalTarget ?? document.body)
 }
