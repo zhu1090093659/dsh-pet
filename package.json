@@ -47,7 +47,7 @@
   "license": "Apache-2.0",
   "dsh": {
     "engines": {
-      "dsh": ">=0.1.2-alpha.1"
+      "dsh": ">=0.1.2-alpha.3"
     },
     "bundle": {
       "patch": "./cordis.patch.yml"
