@@ -26,24 +26,25 @@ describe('jyn pet manifest', () => {
 
   it('declares all tracks with 40ms default duration', () => {
     if (!res.ok) throw new Error('manifest rejected')
-    expect(Object.keys(res.manifest.frames2d.tracks).sort()).toEqual(
+    const frames2d = res.manifest.frames2d!
+    expect(Object.keys(frames2d.tracks).sort()).toEqual(
       ['anyejinjin-angry', 'anyejinjin-idle', 'idle', 'lanhainishang-idle', 'lanhainishang-lift-skirt', 'shy', 'shy2', 'shy3', 'sleep', 'sleeping', 'work', 'work-fail', 'work-success'],
     )
     for (const t of ['shy', 'shy2', 'shy3']) {
-      expect(res.manifest.frames2d.tracks[t].loop).toBe(false)
-      expect(res.manifest.frames2d.tracks[t].fallback).toBe('idle')
+      expect(frames2d.tracks[t].loop).toBe(false)
+      expect(frames2d.tracks[t].fallback).toBe('idle')
     }
     for (const t of ['work-success', 'work-fail']) {
-      expect(res.manifest.frames2d.tracks[t].loop).toBe(false)
-      expect(res.manifest.frames2d.tracks[t].fallback).toBe('work')
+      expect(frames2d.tracks[t].loop).toBe(false)
+      expect(frames2d.tracks[t].fallback).toBe('work')
     }
-    expect(res.manifest.frames2d.tracks.work.loop ?? true).toBe(true)
+    expect(frames2d.tracks.work.loop ?? true).toBe(true)
     // sleep intro is one-shot and settles into the sleeping loop.
-    expect(res.manifest.frames2d.tracks.sleep.loop).toBe(false)
-    expect(res.manifest.frames2d.tracks.sleep.fallback).toBe('sleeping')
-    expect(res.manifest.frames2d.tracks.sleeping.loop ?? true).toBe(true)
-    expect(res.manifest.frames2d.defaultFrameMs).toBe(40)
-    expect(res.manifest.frames2d.phases.idle).toBe('idle')
+    expect(frames2d.tracks.sleep.loop).toBe(false)
+    expect(frames2d.tracks.sleep.fallback).toBe('sleeping')
+    expect(frames2d.tracks.sleeping.loop ?? true).toBe(true)
+    expect(frames2d.defaultFrameMs).toBe(40)
+    expect(frames2d.phases.idle).toBe('idle')
   })
 
   it('declares the anyejinjin skin with a looping idleTrack', () => {
@@ -146,7 +147,7 @@ describe('jyn pet manifest', () => {
     const zones = res.manifest.gameplay?.touch?.zones ?? []
     const body = zones.find(z => z.name === 'body')
     expect(body).toBeDefined()
-    expect(body?.y1 - body!.y0).toBeCloseTo(1 / 3, 2)
+    expect(body!.y1 - body!.y0).toBeCloseTo(1 / 3, 2)
     const shy2Branch = body?.branches.find(b => b.state === 'shy2')
     expect(shy2Branch?.probability).toBeCloseTo(0.3, 6)
     expect(shy2Branch?.stateMs).toBeGreaterThan(0)
@@ -157,7 +158,7 @@ describe('jyn pet manifest', () => {
     const zones = res.manifest.gameplay?.touch?.zones ?? []
     const legs = zones.find(z => z.name === 'legs')
     expect(legs).toBeDefined()
-    expect(legs?.y1 - legs!.y0).toBeCloseTo(1 / 3, 2)
+    expect(legs!.y1 - legs!.y0).toBeCloseTo(1 / 3, 2)
     const shy3Branch = legs?.branches.find(b => b.state === 'shy3')
     expect(shy3Branch?.probability).toBeCloseTo(0.3, 6)
     expect(shy3Branch?.stateMs).toBeGreaterThan(0)
