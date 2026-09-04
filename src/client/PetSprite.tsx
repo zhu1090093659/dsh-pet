@@ -21,7 +21,7 @@ import type { PetDefinition } from '../registry.ts'
 import type { DecorationView } from '../contracts/status-decoration.ts'
 import type { PetFeedback } from './pet-store.ts'
 import { framePosition, rowOfTrack, trimTrack } from './spritesheet.ts'
-import { sequenceFrameAt } from './sequences.ts'
+import { createSequenceTimeline } from './sequences.ts'
 import { animationForPhase, type ActivityPhase, type PetAnimation } from '../state.ts'
 import { NS } from './locales.ts'
 import styles from './pet.module.css'
@@ -339,6 +339,20 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
     const reduceMotion = typeof window !== 'undefined'
       && window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches === true
     const sequence = animation === animationForPhase(phase) ? sequences?.[phase] : undefined
+    // Sequence state hoisted into the effect scope: the cumulative duration
+    // table and each item's trimmed track would otherwise be recomputed every
+    // tick (map/reduce plus two slices per frame), the same waste the
+    // single-track branch below avoids.
+    const timeline = sequence === undefined ? undefined : createSequenceTimeline(sequence, tracks)
+    const sequenceItems = sequence === undefined ? undefined : new Map(
+      sequence.map(itemAnimation => {
+        const itemRow = rowOfTrack(itemAnimation)
+        return [itemAnimation, {
+          row: itemRow,
+          track: trimTrack(tracks[itemAnimation], rows[itemRow] ?? tracks[itemAnimation].frames.length),
+        }]
+      }),
+    )
     const leadAnimation = sequence?.[0] ?? animation
     const row = rowOfTrack(leadAnimation)
     const track = trimTrack(tracks[leadAnimation], rows[row] ?? tracks[leadAnimation].frames.length)
@@ -357,16 +371,12 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
     const tick = (ts: number): void => {
       const delta = ts - last
       last = ts
-      if (sequence !== undefined) {
+      if (timeline !== undefined && sequenceItems !== undefined) {
         sequenceElapsed += delta
-        const current = sequenceFrameAt(sequence, tracks, sequenceElapsed)
-        const currentRow = rowOfTrack(current.animation)
-        const currentTrack = trimTrack(
-          tracks[current.animation],
-          rows[currentRow] ?? tracks[current.animation].frames.length,
-        )
-        const col = currentTrack.frames[current.frameIndex]!
-        const pos = framePosition(cell, currentRow, col, scaleRef.current)
+        const current = timeline.frameAt(sequenceElapsed)
+        const item = sequenceItems.get(current.animation)!
+        const col = item.track.frames[current.frameIndex]!
+        const pos = framePosition(cell, item.row, col, scaleRef.current)
         const posStr = pos.x + 'px ' + pos.y + 'px'
         if (posStr !== lastPosStr) {
           lastPosStr = posStr
