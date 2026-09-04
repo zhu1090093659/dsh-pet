@@ -190,21 +190,37 @@ function applyImpl(ctx: Context, config: PetConfig = {}): void {
     }
   }
   ctx.inject(['settings'], (settingsCtx) => {
-    settingsCtx.settings.installSection(
-      ctx,
-      PET_SETTINGS_NAMESPACE as SettingsNamespace,
-      makePetSettingsSchema(service.selectedPetId()),
-      base,
-      {
-        setSource: (source) => { current = source },
-        onChange: () => {
+    try {
+      const schema = makePetSettingsSchema(service.selectedPetId())
+      if (typeof settingsCtx.settings?.installSection === 'function') {
+        settingsCtx.settings.installSection(
+          ctx,
+          PET_SETTINGS_NAMESPACE as SettingsNamespace,
+          schema,
+          base,
+          {
+            setSource: (source) => { current = source },
+            onChange: () => {
+              const section = current()
+              service.applySettingsSection(section)
+              service.setEnabled(section.enabled ?? true)
+              syncRoutes()
+            },
+          },
+        )
+      } else if (typeof settingsCtx.settings?.register === 'function') {
+        const scope = settingsCtx.settings.register(PET_SETTINGS_NAMESPACE as SettingsNamespace, schema, { base })
+        current = () => scope?.get?.() ?? base
+        scope?.watch?.(() => {
           const section = current()
           service.applySettingsSection(section)
           service.setEnabled(section.enabled ?? true)
           syncRoutes()
-        },
-      },
-    )
+        })
+      }
+    } catch {
+      // Defensive fallback against settings registration differences
+    }
   })
   syncRoutes()
 }
