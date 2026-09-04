@@ -66,6 +66,14 @@ export function createPetStore(): EngineStoreHandle<PetUiState, PetUiActions> {
     }),
     actions: {
       setSnapshot: (draft, snapshot) => {
+        // The 2 s poll republishes the full snapshot even while the pet is
+        // idle. Skipping an unchanged payload keeps immer's produce at zero
+        // modifications, so zustand never notifies and the whole sprite tree
+        // skips the re-render. Equality is JSON-based and skip-only: both
+        // sides come from the same host serializer, and any mismatch falls
+        // through to the normal publish — the failure mode is one extra
+        // render, never a stale pet.
+        if (draft.state === 'ready' && draft.error === null && sameSnapshot(draft.snapshot, snapshot)) return
         draft.snapshot = snapshot
         draft.state = 'ready'
         draft.error = null
@@ -88,6 +96,16 @@ export function createPetStore(): EngineStoreHandle<PetUiState, PetUiActions> {
 }
 
 export type { PetInteraction }
+
+/**
+ * Content equality for consecutive poll snapshots. JSON compare, not field
+ * enumeration: an exact string match is the only way to skip the publish, so
+ * a missed field can never freeze the UI — it can only cost the render the
+ * optimization exists to save.
+ */
+function sameSnapshot(previous: PetStateView | null, next: PetStateView): boolean {
+  return previous !== null && JSON.stringify(previous) === JSON.stringify(next)
+}
 
 /**
  * A live pet store instance (one per host, owned by the plugin apply body —
