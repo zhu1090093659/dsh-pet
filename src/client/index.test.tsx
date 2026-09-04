@@ -61,6 +61,8 @@ interface FakeClientLifecycle {
   dispose(): void
   settingsListenerCount(): number
   emitSettings(): void
+  sessionsListenerCount(): number
+  setEnabled(enabled: boolean): void
 }
 
 const activeLifecycles: FakeClientLifecycle[] = []
@@ -73,11 +75,13 @@ afterEach(() => {
 function fakeContext(): FakeClientLifecycle {
   const disposers: (() => void)[] = []
   const settingsListeners = new Set<() => void>()
+  const sessionListeners = new Set<() => void>()
+  let settingsValue: { enabled?: boolean } | undefined
   const scope = {
     getSnapshot: () => ({
       status: 'ready',
       writable: true,
-      value: undefined,
+      value: settingsValue,
       base: undefined,
       user: {},
       revision: 1,
@@ -114,8 +118,8 @@ function fakeContext(): FakeClientLifecycle {
       list: {
         getSnapshot: () => ({ current: undefined, byId: {} }),
         subscribe: (listener: () => void) => {
-          const set = new Set<() => void>([listener])
-          return () => { set.delete(listener) }
+          sessionListeners.add(listener)
+          return () => { sessionListeners.delete(listener) }
         },
       },
       open: () => {},
@@ -133,6 +137,8 @@ function fakeContext(): FakeClientLifecycle {
     emitSettings: () => {
       for (const listener of settingsListeners) listener()
     },
+    sessionsListenerCount: () => sessionListeners.size,
+    setEnabled: (enabled: boolean) => { settingsValue = { enabled } },
   }
   activeLifecycles.push(lifecycle)
   return lifecycle
@@ -207,5 +213,27 @@ describe('pet client apply', () => {
     const roots = document.body.querySelectorAll('[data-dsh-pet-root]')
     expect(roots).toHaveLength(1)
     expect(stale.isConnected).toBe(false)
+  })
+
+  it('unsubscribes the session watch when the pet is disabled from settings', () => {
+    const lifecycle = fakeContext()
+    apply(lifecycle.ctx)
+    // The poll loop and the current-session watch both subscribe through
+    // ctx.effect, so exactly one sessions.list listener is live per mount.
+    expect(lifecycle.sessionsListenerCount()).toBe(1)
+
+    // Toggling the plugin off tears the UI down without disposing the fiber:
+    // the session watch must go with it, or every later session-store
+    // notification keeps polling a dead pet forever.
+    lifecycle.setEnabled(false)
+    lifecycle.emitSettings()
+    expect(lifecycle.sessionsListenerCount()).toBe(0)
+    expect(document.body.querySelectorAll('[data-dsh-pet-root]')).toHaveLength(0)
+
+    // Re-enabling mounts a fresh UI with a fresh watch.
+    lifecycle.setEnabled(true)
+    lifecycle.emitSettings()
+    expect(lifecycle.sessionsListenerCount()).toBe(1)
+    expect(document.body.querySelectorAll('[data-dsh-pet-root]')).toHaveLength(1)
   })
 })

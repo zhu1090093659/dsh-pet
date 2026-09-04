@@ -403,6 +403,7 @@ export function apply(ctx: ClientContext): void {
         petRoot.unmount()
         container.remove()
         disposePoll()
+        disposeSessionWatch()
         disposeUi = undefined
       }
       // The slot teardown is the takeover hook a later apply body runs; it
