@@ -98,6 +98,19 @@ function mimeFor(file: string): string {
   return MIME_BY_EXT[file.slice(dot).toLowerCase()] ?? 'application/octet-stream'
 }
 
+/** Weak validator from size + mtime, shared by the three file routes. */
+function weakEtag(stat: { size: number; mtimeMs: number }): string {
+  return '"' + stat.size.toString(16) + '-' + Math.round(stat.mtimeMs).toString(16) + '"'
+}
+
+/** Answer 304 when If-None-Match matches the etag; true when handled. */
+function revalidated(req: IncomingMessage, res: ServerResponse, etag: string): boolean {
+  if (req.headers['if-none-match'] !== etag) return false
+  res.writeHead(304, { etag, 'cache-control': 'no-cache' })
+  res.end()
+  return true
+}
+
 /** Require the method or answer 405. */
 function requireMethod(req: IncomingMessage, res: ServerResponse, method: string): boolean {
   if (req.method === method) return true
@@ -267,8 +280,10 @@ function assetHandler(ctx: Context, registry: PetRegistry, caps: PetAssetCaps): 
     const cap = rest.length === 1 && rest[0] === MANIFEST_FILE
       ? caps.manifest
       : IMAGE_EXTENSIONS.has(extensionOf(rel)) ? caps.image : caps.model
+    let stat: ReturnType<typeof statSync>
     try {
-      if (statSync(resolved).size > cap) {
+      stat = statSync(resolved)
+      if (stat.size > cap) {
         res.writeHead(413)
         res.end()
         return
@@ -278,11 +293,18 @@ function assetHandler(ctx: Context, registry: PetRegistry, caps: PetAssetCaps): 
       res.end()
       return
     }
+    // 'no-cache' forces revalidation before every reuse, and the validator
+    // lets repeat requests settle as 304 — atlases and frames are the largest
+    // payloads the plugin serves (up to the 20 MB image cap), and without a
+    // validator every remount or page load would re-download them in full.
+    const etag = weakEtag(stat)
+    if (revalidated(req, res, etag)) return
     return readFile(resolved).then((body) => {
       res.writeHead(200, {
         'content-type': mimeFor(resolved),
         'content-length': String(body.byteLength),
         'cache-control': 'no-cache',
+        etag,
       })
       if (req.method === 'HEAD') {
         res.end()
@@ -373,8 +395,10 @@ function runtimeHandler(ctx: Context, roots: { runtimeDir: string; vendorDir: st
       res.end()
       return
     }
+    let stat: ReturnType<typeof statSync>
     try {
-      if (statSync(resolved).size > PET_RUNTIME_CAP) {
+      stat = statSync(resolved)
+      if (stat.size > PET_RUNTIME_CAP) {
         res.writeHead(413)
         res.end()
         return
@@ -384,11 +408,17 @@ function runtimeHandler(ctx: Context, roots: { runtimeDir: string; vendorDir: st
       res.end()
       return
     }
+    // Same validator as the asset routes: the Cubism Core and vendor bundle
+    // ride every page load of a live2d pet, so revalidation should settle as
+    // 304 instead of re-downloading the full bodies.
+    const etag = weakEtag(stat)
+    if (revalidated(req, res, etag)) return
     return readFile(resolved).then((body) => {
       res.writeHead(200, {
         'content-type': name.endsWith('.map') ? 'application/json' : 'application/javascript; charset=utf-8',
         'content-length': String(body.byteLength),
         'cache-control': 'no-cache',
+        etag,
       })
       if (req.method === 'HEAD') {
         res.end()
@@ -496,12 +526,8 @@ function decorationHandler(ctx: Context, registry: PetRegistry, caps: PetAssetCa
     // validator lets repeat requests settle as 304 — the ornament remounts
     // on whisper and display-session flips, and without a validator each
     // remount would re-download the full strip body.
-    const etag = '"' + stat.size.toString(16) + '-' + Math.round(stat.mtimeMs).toString(16) + '"'
-    if (req.headers['if-none-match'] === etag) {
-      res.writeHead(304, { etag, 'cache-control': 'no-cache' })
-      res.end()
-      return
-    }
+    const etag = weakEtag(stat)
+    if (revalidated(req, res, etag)) return
     readFile(resolved).then((body) => {
       res.writeHead(200, {
         'content-type': mimeFor(resolved),

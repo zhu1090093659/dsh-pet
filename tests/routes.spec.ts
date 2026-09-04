@@ -120,6 +120,23 @@ describe('pet routes', () => {
     }
   })
 
+  it('revalidates assets with the ETag instead of re-downloading the body', async () => {
+    const first = await fetch(url('/pet/whale-girl/spritesheet.webp'))
+    expect(first.status).toBe(200)
+    const etag = first.headers.get('etag')
+    expect(etag).not.toBeNull()
+    const cached = await fetch(url('/pet/whale-girl/spritesheet.webp'), {
+      headers: { 'if-none-match': etag! },
+    })
+    expect(cached.status).toBe(304)
+    expect(await cached.arrayBuffer()).toHaveProperty('byteLength', 0)
+    const stale = await fetch(url('/pet/whale-girl/spritesheet.webp'), {
+      headers: { 'if-none-match': '"bogus"' },
+    })
+    expect(stale.status).toBe(200)
+    expect(stale.headers.get('etag')).toBe(etag)
+  })
+
   it('serves the manifest and optional preview media', async () => {
     const manifest = await fetch(url('/pet/whale-girl/pet.json')).then(res => res.json()) as { id: string; spritesheetPath: string }
     expect(manifest.id).toBe('whale-girl')
@@ -345,8 +362,57 @@ describe('decoration routes (pet-center M5, #567)', () => {
     }
   })
 })
-describe('post body failure contract (shared readJsonBody migration)', () => {
-  it('accepts a valid JSON object body through the shared reader', async () => {
+describe('runtime routes', () => {
+  it('revalidates runtime files with the ETag instead of re-downloading', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'dsh-pet-runtime-'))
+    try {
+      const runtimeDir = join(root, '.runtime')
+      const vendorDir = join(root, 'lib')
+      mkdirSync(runtimeDir, { recursive: true })
+      mkdirSync(vendorDir, { recursive: true })
+      writeFileSync(join(runtimeDir, 'live2dcubismcore.min.js'), 'core()', 'utf8')
+      writeFileSync(join(vendorDir, 'live2d-vendor.js'), 'vendor()', 'utf8')
+      const ctx = new Context()
+      const runtimeRoutes = makePetRoutes({
+        service, ctx, runtimeDir, vendorDir,
+      })
+      const srv = createServer((req, res) => {
+        const pathname = (req.url ?? '').split('?')[0]!
+        for (const route of runtimeRoutes) {
+          if (route.kind === 'prefix' && (pathname === route.path || pathname.startsWith(route.path + '/'))) {
+            void route.handler(req, res)
+            return
+          }
+        }
+        res.writeHead(404)
+        res.end()
+      })
+      srv.listen(0, '127.0.0.1')
+      await once(srv, 'listening')
+      try {
+        const runtimePort = (srv.address() as AddressInfo).port
+        for (const name of ['live2dcubismcore.min.js', 'live2d-vendor.js']) {
+          const base = 'http://127.0.0.1:' + runtimePort + '/api/pet/runtime/' + name
+          const first = await fetch(base)
+          expect(first.status).toBe(200)
+          const etag = first.headers.get('etag')
+          expect(etag).not.toBeNull()
+          const cached = await fetch(base, { headers: { 'if-none-match': etag! } })
+          expect(cached.status).toBe(304)
+          expect(await cached.arrayBuffer()).toHaveProperty('byteLength', 0)
+          const stale = await fetch(base, { headers: { 'if-none-match': '"nope"' } })
+          expect(stale.status).toBe(200)
+        }
+      } finally {
+        await new Promise<void>((resolve) => srv.close(() => resolve()))
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('post body failure contract (shared readJsonBody migration)', () => {  it('accepts a valid JSON object body through the shared reader', async () => {
     const res = await fetch(url('/api/pet/interact'), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
