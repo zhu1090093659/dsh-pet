@@ -66,13 +66,29 @@ function extensionOf(file: string): string {
 }
 
 /**
+ * Realpaths of containment bases, resolved once per base instead of once per
+ * request: every asset/runtime/decoration request used to pay a base
+ * realpathSync on the hot path. Bases are registry entry directories and the
+ * runtime roots — an immutable, registry-bounded set. Only successes are
+ * cached (a missing base keeps failing per request), and a symlinked base
+ * re-pointed mid-process fails containment until restart, which is the
+ * deny-safe direction.
+ */
+const REAL_BASE_CACHE = new Map<string, string>()
+
+/**
  * realpath containment: resolve both sides and require the candidate to stay
  * inside the base directory. A pet directory (or an atlas/preview inside it)
- * that is a symlink escaping its root is rejected, never followed.
+ * that is a symlink escaping its root is rejected, never followed. The
+ * candidate is realpath'ed live on every call; only the base side is cached.
  */
 export function containedRealpath(base: string, candidate: string): string | undefined {
   try {
-    const realBase = realpathSync(base)
+    let realBase = REAL_BASE_CACHE.get(base)
+    if (realBase === undefined) {
+      realBase = realpathSync(base)
+      REAL_BASE_CACHE.set(base, realBase)
+    }
     const realCandidate = realpathSync(candidate)
     return realCandidate === realBase || realCandidate.startsWith(realBase + sep)
       ? realCandidate
@@ -190,6 +206,13 @@ function dirAliases(registry: PetRegistry): Map<string, PetEntry> {
  */
 function assetHandler(ctx: Context, registry: PetRegistry, caps: PetAssetCaps): WebRoute['handler'] {
   const aliases = dirAliases(registry)
+  // The servable match is a Set probe instead of a linear scan: a full live2d
+  // closure routinely exceeds a hundred files, each fetched through this
+  // handler per mount. The registry is an immutable snapshot, so the sets are
+  // built once per handler.
+  const servableById = new Map<string, ReadonlySet<string>>(
+    registry.entries.map(entry => [entry.id, new Set(entry.servable)]),
+  )
   return ((req: IncomingMessage, res: ServerResponse) => {
     if (!guard(ctx, req, res)) return
     if (req.method !== 'GET' && req.method !== 'HEAD') {
@@ -244,7 +267,7 @@ function assetHandler(ctx: Context, registry: PetRegistry, caps: PetAssetCaps): 
       const manifestFile = join(entry.dir, MANIFEST_FILE)
       file = existsSync(manifestFile) ? manifestFile : undefined
       if (file === undefined) synthesized = true
-    } else if (rest.length > 0 && entry.servable.includes(rel)) {
+    } else if (rest.length > 0 && servableById.get(entry.id)?.has(rel)) {
       file = join(entry.dir, rel)
     } else if (rest.length === 2 && rest[0] === PREVIEW_DIR && PREVIEW_PATTERN.test(rest[1]!)) {
       const preview = join(entry.dir, PREVIEW_DIR, rest[1]!)
