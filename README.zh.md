@@ -164,7 +164,9 @@ Live2D 清单把七个活动相位映射到模型的动作组：
 
 frames2d 宠物不用图集，直接交付目录式帧序列：`thumb/<track>/<frame>.webp`，帧时长取文件名 `_<ms>` 尾缀或轨道的 `frameMs` 列表（默认 200ms，范围 16–5000）。清单把七个活动相位映射到轨道；`drag` 轨道跟随外壳的拖拽手势；非循环轨道播完进入 `fallback`（默认 idle 轨道），入睡/睡熟这类"引子 + 循环"拆分（sleep-intro → sleep）就是纯清单数据。
 
-frames2d 宠物可声明 `gameplay` 块——从 miku 桌宠泛化而来的可选玩法层：属性条（`stats`，按分钟衰减，另有打工中与空闲变体）、统一的小鱼干货币（玩法收入与商店支出都走宠物面板那条小鱼干库存，上限 20 条：`work` 成功、`passiveIncome` 与彩票奖品发放小鱼干，商品也以小鱼干标价扣款，无独立钱包页）、加权 `idleDirector`（每 `intervalMs` 掷骰演出小动作，连续落空 `maxMiss` 次必演）、`hitBox` 内的 `touch` 触摸分区（分支掷骰：效果 + 轨道保持 + 台词气泡）、`work` 打工循环（宿主裁决 tick，成功/失败结果轨道）、`sleep` 睡觉循环（惰性恢复）、`passiveIncome` 被动收入，以及 `shop` 商店（商品可带效果或分档抽奖）。所有掷骰与记账由宿主权威裁决（`POST /api/pet/gameplay/*`），状态按宠物持久化在 `pet.json`，沿用小鱼干经济的惰性结算纪律。浏览器半侧为声明了该块的宠物自动渲染玩法菜单卡（属性条、打工/睡觉开关、商店网格）。
+frames2d 块还可声明 **skins**（皮肤）：可选的 `{ id, label, idleTrack }` 数组。选中某皮肤后，宠物"回待机"的目标（idle 相位、未映射相位、以及一切回 idle 的 fallback）都切到该皮肤的 `idleTrack`——休息外观随皮肤切换，而玩法轨道（shy/work/sleep…）仍挂在默认资产上。每个皮肤还可声明 `clickActions`——仅对该皮肤生效的概率掷骰点击反应（`{ track, probability, phrases? }`）：皮肤激活时点击按声明顺序依次掷骰，命中则播一次命中轨道，未命中回落普通点击加成（绝不落入默认触摸分区）。
+
+frames2d 宠物可声明 `gameplay` 块——从 miku 桌宠泛化而来的可选玩法层：属性条（`stats`，按分钟衰减，另有打工中与空闲变体）、统一的小鱼干货币（玩法收入与商店支出都走宠物面板那条小鱼干库存，上限 20 条：`work` 成功、`passiveIncome` 与彩票奖品发放小鱼干，商品也以小鱼干标价扣款，无独立钱包页）、加权 `idleDirector`（每 `intervalMs` 掷骰演出小动作，连续落空 `maxMiss` 次必演）、`hitBox` 内的 `touch` 触摸分区（分支掷骰：效果 + 轨道保持 + 台词气泡）、`work` 打工循环（宿主裁决 tick，成功/失败结果轨道）、`sleep` 睡觉循环（惰性恢复）、`lowEnergy` 低能量自动动画（命名字段低于 `threshold` 时保持 `track`，直到恢复到 `recover`；若工作/睡觉/拖拽/触摸已占用画面则不接管）、`passiveIncome` 被动收入，以及 `shop` 商店（商品可带效果或分档抽奖）。所有掷骰与记账由宿主权威裁决（`POST /api/pet/gameplay/*`），状态按宠物持久化在 `pet.json`，沿用小鱼干经济的惰性结算纪律。浏览器半侧为声明了该块的宠物自动渲染玩法菜单卡（属性条、打工/睡觉开关、皮肤选择、商店网格）。精灵显示尺寸范围为 32–1024 px。
 
 **Miku 宠物**（stushansusu 涂山苏苏以 MIT 贡献；初音未来角色权利归 Crypton Future Media，受 Piapro 角色许可约束——见 THIRD_PARTY_NOTICES.md）是 frames2d 玩法的参考实现。它只经**创意工坊**分发（不打进 npm 包）：从工坊宠物列表安装后落在 `$DSH_HOME/pets/miku/`。
 
@@ -205,6 +207,7 @@ frames2d 宠物可声明 `gameplay` 块——从 miku 桌宠泛化而来的可�
 | 注册表 id | 选择器名称 | 来源 |
 |---|---|---|
 | `blue-throated-bee-eater` | 蓝喉蜂虎 | 贡献者以 Apache-2.0 贡献的伙伴插画（12 张同角色 AI 立绘素材，配色取蓝喉蜂虎皮肤同源；由 docs/archive/blue-throated-bee-eater-pet/gen-pet.py 组装，各轨道独立姿态：栖枝/飞行/正面悬停/挥翅/降落/垂头/歪头/昂首；饲料以「小蜜蜂」命名） |
+| `jyn` | 女仆鲸鱼娘 | frames2d 玩法宠物（stushansusu 以 MIT 贡献）：带打工/睡觉/触摸玩法与两款可选皮肤（暗夜鎏金 / 蓝海霓裳）的女仆鲸鱼同桌宠，每款皮肤各带一个概率掷骰点击动作 |
 | `ouo-neko` | OUO Neko | `Pessimist0906` 以 MIT 许可证贡献的粉色樱花猫耳伙伴 |
 | `whale-girl` | 鲸鱼娘（原版） | 仓库原有的鲸鱼娘图集 |
 | `whale-girl-refined` | 鲸鱼娘（精致版） | 以鲸鱼娘设计方向为基础，经 AI 辅助二次创作、修复和细节精修的衍生版本 |
