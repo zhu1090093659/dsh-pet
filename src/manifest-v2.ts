@@ -120,6 +120,13 @@ export interface PetManifestSkin {
    * its track once if hit. Misses fall through to the regular touch zones.
    */
   clickActions?: PetManifestSkinClickAction[]
+  /**
+   * Optional gameplay-track overrides: gameplay state name (e.g. 'sleep' or
+   * 'work') -> a declared track the skin swaps in while selected. Lets a skin
+   * restyle a gameplay loop (e.g. its own sleep animation) without touching
+   * the default pet's tracks.
+   */
+  gameplayTracks?: Record<string, string>
 }
 
 /** One probability-rolled tap action a skin may declare. */
@@ -187,13 +194,15 @@ export const KNOWN_FRAMES2D = new Set(['dir', 'defaultFrameMs', 'tracks', 'phase
 /** frames2d track field allow-list (drift-locked to the schema file). */
 export const KNOWN_FRAMES2D_TRACK = new Set(['frames', 'frameMs', 'loop', 'fallback'])
 /** frames2d skin entry field allow-list (drift-locked to the schema file). */
-export const KNOWN_SKIN = new Set(['id', 'label', 'idleTrack', 'clickActions'])
+export const KNOWN_SKIN = new Set(['id', 'label', 'idleTrack', 'clickActions', 'gameplayTracks'])
 /** frames2d skin click-action field allow-list (drift-locked to the schema file). */
 export const KNOWN_SKIN_CLICK = new Set(['track', 'probability', 'phrases'])
 /** Max selectable skins a frames2d manifest may declare. */
 export const FRAMES2D_MAX_SKINS = 16
 /** Max click actions one skin may declare. */
 export const FRAMES2D_MAX_SKIN_CLICKS = 8
+/** Max gameplay-state overrides one skin may declare. */
+export const FRAMES2D_MAX_SKIN_GAMEPLAY = 8
 /** Max spoken lines one skin click action may declare. */
 const SKIN_CLICK_MAX_PHRASES = 5
 /** Max length of one spoken line. */
@@ -573,7 +582,37 @@ function parseFrames2dBlock(raw: unknown, diag: Diagnostics): PetManifestFrames2
             if (resolved.length > 0) clickActions = resolved
           }
         }
-        skins.push({ id, label, idleTrack, ...(clickActions === undefined ? {} : { clickActions }) })
+        // Optional gameplay-track overrides: gameplay state name -> declared
+        // track swapped in while this skin is selected (e.g. a skin variant of
+        // the sleep loop). State names mirror gameplay blocks (sleep/work...);
+        // values must reference declared tracks.
+        let gameplayTracks: Record<string, string> | undefined
+        if (entry.gameplayTracks !== undefined) {
+          if (!isRecord(entry.gameplayTracks)) {
+            diag.error(field + '.gameplayTracks must be an object mapping gameplay state names to tracks')
+          } else {
+            const states = Object.keys(entry.gameplayTracks)
+            if (states.length === 0 || states.length > FRAMES2D_MAX_SKIN_GAMEPLAY) {
+              diag.error(field + '.gameplayTracks must map 1..' + FRAMES2D_MAX_SKIN_GAMEPLAY + ' gameplay states')
+            } else {
+              const resolvedTracks: Record<string, string> = {}
+              for (const state of states) {
+                if (!/^[a-z0-9][a-z0-9-]*$/.test(state)) {
+                  diag.error(field + '.gameplayTracks key ' + JSON.stringify(state) + ' must be a lowercase kebab state name')
+                  continue
+                }
+                const gTrack = entry.gameplayTracks[state as keyof typeof entry.gameplayTracks]
+                if (typeof gTrack !== 'string' || !validTrackName(gTrack) || tracks[gTrack] === undefined) {
+                  diag.error(field + '.gameplayTracks[' + JSON.stringify(state) + '] must name a declared frames2d track')
+                  continue
+                }
+                resolvedTracks[state] = gTrack
+              }
+              if (Object.keys(resolvedTracks).length > 0) gameplayTracks = resolvedTracks
+            }
+          }
+        }
+        skins.push({ id, label, idleTrack, ...(clickActions === undefined ? {} : { clickActions }), ...(gameplayTracks === undefined ? {} : { gameplayTracks }) })
       }
       if (skins.length > 0) block.skins = skins
     }

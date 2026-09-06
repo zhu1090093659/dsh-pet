@@ -50,6 +50,8 @@ export interface Frames2dSkinConfig {
   idleTrack: string
   /** Click actions exclusive to this skin (roll by probability; miss → touch zones). */
   clickActions?: Frames2dSkinClickActionConfig[]
+  /** Gameplay-state overrides (state -> track) swapped in while selected. */
+  gameplayTracks?: Record<string, string>
 }
 
 /** One probability-rolled tap action a skin may declare. */
@@ -129,7 +131,22 @@ function validateFrames2dConfig(config: unknown): PetFrames2dConfig {
         }
         if (kept.length > 0) clickActions = kept
       }
-      resolved.push({ id: skin.id, label: skin.label, idleTrack: skin.idleTrack, ...(clickActions === undefined ? {} : { clickActions }) })
+      let gameplayTracks: Record<string, string> | undefined
+      if (isRecord(skin.gameplayTracks)) {
+        const kept: Record<string, string> = {}
+        for (const [state, trackName] of Object.entries(skin.gameplayTracks)) {
+          if (typeof trackName !== 'string' || trackName === '' || tracks[trackName] === undefined) continue
+          kept[state] = trackName
+        }
+        if (Object.keys(kept).length > 0) gameplayTracks = kept
+      }
+      resolved.push({
+        id: skin.id,
+        label: skin.label,
+        idleTrack: skin.idleTrack,
+        ...(clickActions === undefined ? {} : { clickActions }),
+        ...(gameplayTracks === undefined ? {} : { gameplayTracks }),
+      })
     }
     if (resolved.length > 0) skins = resolved
   }

@@ -37,7 +37,7 @@ export const zh = {
   'pet.gameplay.menu': '玩法',
   'pet.gameplay.work': '打工',
   'pet.gameplay.stopWork': '收工',
-  'pet.gameplay.sleep': '睡觉',
+  'pet.gameplay.sleep': '休息',
   'pet.gameplay.wake': '起床',
   'pet.gameplay.shop': '商店',
   'pet.gameplay.skin': '皮肤',

@@ -389,6 +389,17 @@
                     }
                   }
                 }
+              },
+              "gameplayTracks": {
+                "type": "object",
+                "minProperties": 1,
+                "maxProperties": 8,
+                "description": "Optional gameplay-state overrides: gameplay state name (e.g. 'sleep' or 'work') -> a declared frames2d track swapped in while this skin is selected (e.g. a skin variant of the sleep loop).",
+                "additionalProperties": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "A declared frames2d track."
+                }
               }
             }
           }

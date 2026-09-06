@@ -42,6 +42,7 @@
         "loop": false,
         "fallback": "idle"
       },
+      "anyejinjin-rest": {},
       "lanhainishang-idle": {},
       "lanhainishang-lift-skirt": {
         "loop": false,
@@ -66,7 +67,10 @@
             "track": "anyejinjin-angry",
             "probability": 0.3
           }
-        ]
+        ],
+        "gameplayTracks": {
+          "sleep": "anyejinjin-rest"
+        }
       },
       {
         "id": "lanhainishang",

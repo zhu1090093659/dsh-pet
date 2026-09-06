@@ -28,7 +28,7 @@ describe('jyn pet manifest', () => {
     if (!res.ok) throw new Error('manifest rejected')
     const frames2d = res.manifest.frames2d!
     expect(Object.keys(frames2d.tracks).sort()).toEqual(
-      ['anyejinjin-angry', 'anyejinjin-idle', 'bingjing-gongzhu-idle', 'bingjing-gongzhu-staff', 'idle', 'lanhainishang-idle', 'lanhainishang-lift-skirt', 'shy', 'shy2', 'shy3', 'sleep', 'sleeping', 'work', 'work-fail', 'work-success'],
+      ['anyejinjin-angry', 'anyejinjin-idle', 'anyejinjin-rest', 'bingjing-gongzhu-idle', 'bingjing-gongzhu-staff', 'idle', 'lanhainishang-idle', 'lanhainishang-lift-skirt', 'shy', 'shy2', 'shy3', 'sleep', 'sleeping', 'work', 'work-fail', 'work-success'],
     )
     for (const t of ['shy', 'shy2', 'shy3']) {
       expect(frames2d.tracks[t].loop).toBe(false)
@@ -72,6 +72,17 @@ describe('jyn pet manifest', () => {
     expect(track).toBeDefined()
     expect(track?.loop).toBe(false)
     expect(track?.fallback).toBe('idle')
+  })
+
+  it('anyejinjin skin overrides the sleep gameplay track with its rest loop', () => {
+    if (!res.ok) throw new Error('manifest rejected')
+    const skins = res.manifest.frames2d?.skins
+    const skin = skins?.find(s => s.id === 'anyejinjin')
+    expect(skin?.gameplayTracks).toBeDefined()
+    expect(skin?.gameplayTracks?.['sleep']).toBe('anyejinjin-rest')
+    const rest = res.manifest.frames2d?.tracks['anyejinjin-rest']
+    expect(rest).toBeDefined()
+    expect(rest?.loop ?? true).toBe(true)
   })
 
   it('declares the lanhainishang skin with a looping idleTrack', () => {
@@ -190,7 +201,7 @@ describe('jyn pet manifest', () => {
       idle: 78, shy: 73, shy2: 73, shy3: 73,
       work: 70, 'work-success': 70, 'work-fail': 70,
       sleep: 51, sleeping: 77,
-      'anyejinjin-idle': 74, 'anyejinjin-angry': 70,
+      'anyejinjin-idle': 74, 'anyejinjin-angry': 70, 'anyejinjin-rest': 64,
       'lanhainishang-idle': 74, 'lanhainishang-lift-skirt': 73,
       'bingjing-gongzhu-idle': 74, 'bingjing-gongzhu-staff': 70,
     }

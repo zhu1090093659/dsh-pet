@@ -227,6 +227,8 @@ export interface PetSkinDefinition {
   idleTrack: string
   /** Click actions exclusive to this skin (roll by probability; miss → touch zones). */
   clickActions?: PetSkinClickActionDefinition[]
+  /** Gameplay-state overrides (state -> track) swapped in while selected. */
+  gameplayTracks?: Record<string, string>
 }
 
 /** One probability-rolled tap action a skin may declare. */
@@ -764,7 +766,21 @@ function resolveFrames2dEntry(
         }
         if (kept.length > 0) clickActions = kept
       }
-      resolved.push({ ...skin, ...(clickActions === undefined ? {} : { clickActions }) })
+      // Gameplay track overrides: drop entries whose track did not survive.
+      let gameplayTracks: Record<string, string> | undefined
+      if (skin.gameplayTracks !== undefined) {
+        const kept: Record<string, string> = {}
+        for (const [state, gTrack] of Object.entries(skin.gameplayTracks)) {
+          if (tracks[gTrack] === undefined) {
+            record('warning', 'pet ' + manifest.id + ': frames2d skin ' + JSON.stringify(skin.id)
+              + ' gameplay track override ' + JSON.stringify(state) + ' -> ' + JSON.stringify(gTrack) + ' dropped')
+            continue
+          }
+          kept[state] = gTrack
+        }
+        if (Object.keys(kept).length > 0) gameplayTracks = kept
+      }
+      resolved.push({ ...skin, ...(clickActions === undefined ? {} : { clickActions }), ...(gameplayTracks === undefined ? {} : { gameplayTracks }) })
     }
     if (resolved.length > 0) skins = resolved
   }

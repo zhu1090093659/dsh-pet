@@ -314,13 +314,17 @@ export function GameplayHud(props: {
   }, [definition.id, def, view?.mode])
 
   // Sleep loop: hold the sleep track; restore is host-side (lazy settle).
+  // While a skin with a gameplayTracks.sleep override is selected, the skin's
+  // own track replaces the default sleep track (e.g. a skin-specific doze).
   useEffect(() => {
     const sleep = def?.sleep
     if (def === undefined || sleep === undefined || view?.mode !== 'sleep') return undefined
-    bus.setTrack?.(sleep.state)
+    const skinGameplay = definition.frames2d?.skins?.find(skin => skin.id === skinIdRef.current)?.gameplayTracks
+    const hold = skinGameplay?.['sleep'] ?? sleep.state
+    bus.setTrack?.(hold)
     return () => bus.setTrack?.(undefined)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the loop keys on the mode value
-  }, [definition.id, def, view?.mode])
+  }, [definition.id, def, view?.mode, skinId])
 
   if (def === undefined || view === undefined) return null
 
