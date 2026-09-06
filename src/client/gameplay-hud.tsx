@@ -89,7 +89,6 @@ export function GameplayHud(props: {
   const touchLockUntilRef = useRef(0)
   const missRef = useRef(0)
   const busyRef = useRef(false)
-  const lowHeldRef = useRef(false)
 
   // Dynamic-key lookups (stat ids / currency ids are manifest data).
   const tr = props.t as unknown as (key: string, values?: Record<string, string | number>) => string
@@ -251,7 +250,6 @@ export function GameplayHud(props: {
       if (phaseRef.current !== 'idle') return
       if (modeRef.current !== null || draggingRef.current) return
       if (Date.now() < touchLockUntilRef.current) return
-      if (lowHeldRef.current) return // low-energy drowsy owns the visual
       let pickedAct: { track: string; weight: number; phrases?: string[] } | undefined
       if (missRef.current >= director.maxMiss) {
         // Forced act: pick among the acts only.
@@ -323,39 +321,6 @@ export function GameplayHud(props: {
     return () => bus.setTrack?.(undefined)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the loop keys on the mode value
   }, [definition.id, def, view?.mode])
-
-  // Low-energy auto-animation: while the named stat sits below its threshold
-  // (and the pet is neither working/sleeping nor being dragged or touched)
-  // maintain the drowsy track; it recovers to the phase map once the stat
-  // reaches the recover bound or the pet enters another gameplay mode. Uses
-  // an interval (not just a poll delta) so a brief touch/drag override
-  // re-asserts rather than leaving the pet stuck on a stale override.
-  useEffect(() => {
-    const le = def?.lowEnergy
-    if (def === undefined || le === undefined) return undefined
-    const timer = window.setInterval(() => {
-      if (view?.mode !== null) return // work/sleep loops own the override
-      if (draggingRef.current) return // drag track owns it while dragging
-      if (Date.now() < touchLockUntilRef.current) return // let a touch animation finish
-      const value = view?.stats?.[le.stat] ?? le.recover
-      const shouldHold = value < le.threshold
-      if (shouldHold) {
-        lowHeldRef.current = true
-        bus.setTrack?.(le.track)
-      } else if (lowHeldRef.current) {
-        lowHeldRef.current = false
-        bus.setTrack?.(undefined)
-      }
-    }, 1000)
-    return () => {
-      window.clearInterval(timer)
-      if (lowHeldRef.current) {
-        lowHeldRef.current = false
-        bus.setTrack?.(undefined)
-      }
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- one loop per pet definition
-  }, [definition.id, def])
 
   if (def === undefined || view === undefined) return null
 
