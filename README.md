@@ -207,7 +207,7 @@ Host-side sibling plugins can push one structured announcement through the `pet`
 | Registry id | Selector label | Source |
 |---|---|---|
 | `blue-throated-bee-eater` | 蓝喉蜂虎 | Companion art contributed by the repository contributor under Apache-2.0 (12 AI-illustrated pose references in the palette of the blue-throated-bee-eater skin; composed by docs/archive/blue-throated-bee-eater-pet/gen-pet.py with per-track standalone poses: perched, flight, front hover, waving, landing, droop, tilt, review; ship 小蜜蜂 as the treat name) |
-| `jyn` | 女仆鲸鱼娘 | Frames2d gameplay pet (contributed by stushansusu under MIT): maid-whale desktop pet with work/sleep/touch gameplay and two selectable skins (暗夜鎏金 / 蓝海霓裳), each with a probability-rolled click action |
+| `jyn` | 女仆鲸鱼娘 | Frames2d gameplay pet (contributed by stushansusu under MIT): maid-whale desktop pet with work/sleep/touch gameplay and three selectable skins (暗夜鎏金 / 蓝海霓裳 / 冰晶公主), each with a probability-rolled click action; 暗夜鎏金 also swaps its own rest loop into the sleep gameplay | (docs(dsh-pet): list three jyn skins in the registry rows and re-record pairing)
 | `ouo-neko` | OUO Neko | Pink-sakura cat-eared companion contributed by `Pessimist0906` under MIT |
 | `whale-girl` | 鲸鱼娘（原版） | The repository's original whale-girl atlas |
 | `whale-girl-refined` | 鲸鱼娘（精致版） | An AI-assisted derivative with repaired and refined details, based on the whale-girl design direction |
