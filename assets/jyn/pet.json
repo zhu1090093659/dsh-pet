@@ -46,6 +46,11 @@
       "lanhainishang-lift-skirt": {
         "loop": false,
         "fallback": "idle"
+      },
+      "bingjing-gongzhu-idle": {},
+      "bingjing-gongzhu-staff": {
+        "loop": false,
+        "fallback": "idle"
       }
     },
     "phases": {
@@ -70,6 +75,17 @@
         "clickActions": [
           {
             "track": "lanhainishang-lift-skirt",
+            "probability": 0.3
+          }
+        ]
+      },
+      {
+        "id": "bingjing-gongzhu",
+        "label": "冰晶公主",
+        "idleTrack": "bingjing-gongzhu-idle",
+        "clickActions": [
+          {
+            "track": "bingjing-gongzhu-staff",
             "probability": 0.3
           }
         ]

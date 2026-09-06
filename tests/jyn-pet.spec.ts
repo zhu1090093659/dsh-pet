@@ -28,7 +28,7 @@ describe('jyn pet manifest', () => {
     if (!res.ok) throw new Error('manifest rejected')
     const frames2d = res.manifest.frames2d!
     expect(Object.keys(frames2d.tracks).sort()).toEqual(
-      ['anyejinjin-angry', 'anyejinjin-idle', 'idle', 'lanhainishang-idle', 'lanhainishang-lift-skirt', 'shy', 'shy2', 'shy3', 'sleep', 'sleeping', 'work', 'work-fail', 'work-success'],
+      ['anyejinjin-angry', 'anyejinjin-idle', 'bingjing-gongzhu-idle', 'bingjing-gongzhu-staff', 'idle', 'lanhainishang-idle', 'lanhainishang-lift-skirt', 'shy', 'shy2', 'shy3', 'sleep', 'sleeping', 'work', 'work-fail', 'work-success'],
     )
     for (const t of ['shy', 'shy2', 'shy3']) {
       expect(frames2d.tracks[t].loop).toBe(false)
@@ -106,6 +106,27 @@ describe('jyn pet manifest', () => {
     expect(angry).toBeUndefined()
   })
 
+  it('declares the bingjing-gongzhu skin with a looping idleTrack', () => {
+    if (!res.ok) throw new Error('manifest rejected')
+    const skins = res.manifest.frames2d?.skins
+    expect(skins).toBeDefined()
+    const skin = skins?.find(s => s.id === 'bingjing-gongzhu')
+    expect(skin).toBeDefined()
+    expect(skin?.label).toBe('冰晶公主')
+    expect(skin?.idleTrack).toBe('bingjing-gongzhu-idle')
+    const idleTrack = res.manifest.frames2d?.tracks[skin!.idleTrack]
+    expect(idleTrack).toBeDefined()
+    expect(idleTrack?.loop ?? true).toBe(true)
+    // The bingjing-gongzhu skin declares the staff click action at 30%.
+    const action = skin?.clickActions?.find(a => a.track === 'bingjing-gongzhu-staff')
+    expect(action).toBeDefined()
+    expect(action?.probability).toBeCloseTo(0.3, 6)
+    const track = res.manifest.frames2d?.tracks[action!.track]
+    expect(track).toBeDefined()
+    expect(track?.loop).toBe(false)
+    expect(track?.fallback).toBe('idle')
+  })
+
   it('work gameplay block: 50%, success anim once then back to work', () => {
     if (!res.ok) throw new Error('manifest rejected')
     const work = res.manifest.gameplay?.work
@@ -169,8 +190,9 @@ describe('jyn pet manifest', () => {
       idle: 78, shy: 73, shy2: 73, shy3: 73,
       work: 70, 'work-success': 70, 'work-fail': 70,
       sleep: 51, sleeping: 77,
-      'anyejinjin-idle': 77, 'anyejinjin-angry': 70,
-      'lanhainishang-idle': 77, 'lanhainishang-lift-skirt': 73,
+      'anyejinjin-idle': 74, 'anyejinjin-angry': 70,
+      'lanhainishang-idle': 74, 'lanhainishang-lift-skirt': 73,
+      'bingjing-gongzhu-idle': 74, 'bingjing-gongzhu-staff': 70,
     }
     for (const [track, expected] of Object.entries(counts)) {
       const files = readdirSync(join(JYN_DIR, 'thumb', track)).filter(f => f.endsWith('.webp'))
