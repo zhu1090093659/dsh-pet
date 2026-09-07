@@ -204,6 +204,7 @@ frames2d 宠物可声明 `gameplay` 块——从 miku 桌宠泛化而来的可�
 
 | 注册表 id | 选择器名称 | 来源 |
 |---|---|---|
+| `blue-throated-bee-eater` | 蓝喉蜂虎 | 贡献者以 Apache-2.0 贡献的伙伴插画（12 张同角色 AI 立绘素材，配色取蓝喉蜂虎皮肤同源；由 docs/archive/blue-throated-bee-eater-pet/gen-pet.py 组装，各轨道独立姿态：栖枝/飞行/正面悬停/挥翅/降落/垂头/歪头/昂首；饲料以「小蜜蜂」命名） |
 | `ouo-neko` | OUO Neko | `Pessimist0906` 以 MIT 许可证贡献的粉色樱花猫耳伙伴 |
 | `whale-girl` | 鲸鱼娘（原版） | 仓库原有的鲸鱼娘图集 |
 | `whale-girl-refined` | 鲸鱼娘（精致版） | 以鲸鱼娘设计方向为基础，经 AI 辅助二次创作、修复和细节精修的衍生版本 |
@@ -223,6 +224,16 @@ Miku 宠物有意不随包内置：它是 frames2d 玩法宠物，经创意工�
 | waving | review | failed | 左右移动 |
 |---|---|---|---|
 | ![waving](assets/whale/previews/waving.gif) | ![review](assets/whale/previews/review.gif) | ![failed](assets/whale/previews/failed.gif) | ![running-left](assets/whale/previews/running-left.gif) ![running-right](assets/whale/previews/running-right.gif) |
+
+内置的**蓝喉蜂虎**宠物随附同一套状态预览：
+
+| idle | waiting | running | jumping |
+|---|---|---|---|
+| ![idle](assets/blue-throated-bee-eater/previews/idle.gif) | ![waiting](assets/blue-throated-bee-eater/previews/waiting.gif) | ![running](assets/blue-throated-bee-eater/previews/running.gif) | ![jumping](assets/blue-throated-bee-eater/previews/jumping.gif) |
+
+| waving | review | failed | 左右移动 |
+|---|---|---|---|
+| ![waving](assets/blue-throated-bee-eater/previews/waving.gif) | ![review](assets/blue-throated-bee-eater/previews/review.gif) | ![failed](assets/blue-throated-bee-eater/previews/failed.gif) | ![running-left](assets/blue-throated-bee-eater/previews/running-left.gif) ![running-right](assets/blue-throated-bee-eater/previews/running-right.gif) |
 
 社区贡献的**星夜人偶**宠物（仅经创意工坊分发，Theater-ahyeon 以 CC-BY-NC-SA-4.0 贡献）随附同一套状态预览：
 
@@ -259,6 +270,7 @@ dsh-pet/
 |-- assets/whale/            # 内置原版鲸鱼娘（manifest + 图集 + 预览）
 |-- assets/whale-refined/    # 内置精致版鲸鱼娘注册表变体
 |-- assets/ouo-neko/         # 内置 OUO Neko v2 宠物（11 行图集 + 预览）
+|-- assets/blue-throated-bee-eater/  # 内置蓝喉蜂虎宠物（9 行图集 + 预览）
 `-- cordis.patch.yml         # bundle 补丁：插入宠物插件行
 ```
 
