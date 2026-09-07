@@ -153,8 +153,7 @@
       "running",
       "running-left",
       "running",
-      "running-right",
-      "running"
+      "running-right"
     ],
     "review": [
       "review",
@@ -167,10 +166,10 @@
     "done": [
       "jumping",
       "waving",
-      "jumping",
+      "idle",
       "waving",
-      "jumping",
-      "idle"
+      "idle",
+      "waving"
     ],
     "failed": [
       "failed",
@@ -192,14 +191,14 @@
       "羽冠要留给我自己理。"
     ],
     "feed": [
-      "嘿嘿，蜜蜂！……等等，这是小鱼干？",
-      "谢啦！爱吃蜜蜂的家伙也吃零食。"
+      "嘿嘿，小蜜蜂！谢啦！",
+      "最爱的小蜜蜂来啦～"
     ],
     "feedCooldown": [
       "吃饱啦，翅膀都收起来了。"
     ],
     "noTreats": [
-      "小鱼干没了……那我自己去抓两只蜜蜂吧。"
+      "小蜜蜂没了……那我自己去抓两只吧。"
     ]
   }
 }
