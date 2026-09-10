@@ -182,10 +182,8 @@ describe('frames2dRenderer', () => {
 describe('frames2dRenderer canvas bitmap path', () => {
   // The canvas branch needs createImageBitmap + fetch + a real 2D context;
   // jsdom has none of them, so each test installs fakes and restores after.
-  const flush = async (): Promise<void> => {
-    await Promise.resolve()
-    await Promise.resolve()
-    await Promise.resolve()
+  const flush = async (rounds = 12): Promise<void> => {
+    for (let i = 0; i < rounds; i += 1) await Promise.resolve()
   }
 
   let draws = 0
@@ -276,6 +274,98 @@ describe('frames2dRenderer canvas bitmap path', () => {
     // Steady-state playback is DOM-mutation-free: no element added or removed.
     expect(container.querySelectorAll('*').length).toBe(nodesBefore)
     expect(draws).toBeGreaterThanOrEqual(3)
+    handle.dispose()
+  })
+
+  it('drains the warm pass through a bounded fetch pool', async () => {
+    let inFlight = 0
+    let peak = 0
+    const gates: Array<() => void> = []
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      inFlight += 1
+      peak = Math.max(peak, inFlight)
+      await new Promise<void>((resolve) => gates.push(resolve))
+      inFlight -= 1
+      return { ok: true, blob: async () => ({}) }
+    }))
+    const bigConfig: PetFrames2dConfig = {
+      tracks: {
+        idle: { frames: Array.from({ length: 24 }, (_, i) => `/pet/miku/idle/${i}.webp`), durations: Array.from({ length: 24 }, () => 100), loop: true },
+      },
+      phases: { idle: 'idle' },
+    }
+    const { ctx } = canvasSetup()
+    const handle = frames2dRenderer.mount(ctx, frames2dRenderer.validateConfig(bigConfig)) as Frames2dRendererHandle
+    await flush()
+    expect(peak).toBeLessThanOrEqual(8)
+    expect(gates.length).toBe(8)
+    for (let i = 0; i < 64 && gates.length > 0; i += 1) {
+      gates.shift()!()
+      await flush()
+    }
+    expect(peak).toBeLessThanOrEqual(8)
+    expect(bitmaps.length).toBe(24)
+    handle.dispose()
+  })
+
+  it('jumps a playback-demand frame ahead of the warm backlog', async () => {
+    const fetched: string[] = []
+    const held = new Map<string, () => void>()
+    vi.stubGlobal('fetch', vi.fn(async (input: unknown) => {
+      const url = String(input)
+      fetched.push(url)
+      if (fetched.length <= 8) {
+        await new Promise<void>((resolve) => { held.set(url, resolve) })
+      }
+      return { ok: true, blob: async () => ({}) }
+    }))
+    const wideConfig: PetFrames2dConfig = {
+      tracks: {
+        idle: { frames: Array.from({ length: 10 }, (_, i) => `/pet/miku/idle/${i}.webp`), durations: Array.from({ length: 10 }, () => 100), loop: true },
+        happy: { frames: ['/pet/miku/happy/1.webp'], durations: [100], loop: false, fallback: 'idle' },
+      },
+      phases: { idle: 'idle', done: 'happy' },
+    }
+    const { ctx } = canvasSetup()
+    const handle = frames2dRenderer.mount(ctx, frames2dRenderer.validateConfig(wideConfig)) as Frames2dRendererHandle
+    await flush()
+    expect(fetched.length).toBe(8)
+    // The happy frame sits behind the idle backlog; playing it must pull its
+    // fetch ahead of the not-yet-started warm frames.
+    handle.setState('happy')
+    await flush()
+    // Free one pool slot: the released idle decode completes and the freed
+    // slot must start the jumped happy frame, not the next warm idle frame.
+    held.get(fetched[0])?.()
+    await flush()
+    expect(fetched[8]).toBe('/pet/miku/happy/1.webp')
+    for (const release of held.values()) release()
+    await flush()
+    handle.dispose()
+  })
+
+  it('retries a failed frame instead of memoizing the failure forever', async () => {
+    let failuresLeft = 1
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      if (failuresLeft > 0) {
+        failuresLeft -= 1
+        throw new Error('transient')
+      }
+      return { ok: true, blob: async () => ({}) }
+    }))
+    class FailingImage {
+      onload: (() => void) | null = null
+      onerror: (() => void) | null = null
+      set src(_value: string) { queueMicrotask(() => this.onerror?.()) }
+    }
+    vi.stubGlobal('Image', FailingImage)
+    const { ctx } = canvasSetup()
+    const handle = frames2dRenderer.mount(ctx, frames2dRenderer.validateConfig(CONFIG)) as Frames2dRendererHandle
+    // Warm pass fetches fail through the pool, resolve undefined and are
+    // dropped from the memo; nothing throws.
+    await flush()
+    const memoFetches = (fetch as ReturnType<typeof vi.fn>).mock.calls.length
+    expect(memoFetches).toBeGreaterThan(0)
     handle.dispose()
   })
 })

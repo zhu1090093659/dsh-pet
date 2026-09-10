@@ -213,33 +213,73 @@ export const frames2dRenderer: PetRenderer<PetFrames2dConfig> = {
     // the last painted frame instead of breaking playback).
     const decoding = new Map<string, Promise<DecodedFrame | undefined>>()
     const decodedAll: Promise<void>[] = []
-    const loadFrame = (url: string): Promise<DecodedFrame | undefined> => {
+    // All frame fetches funnel through a small pool. Full-library warm passes
+    // on large pets fire 1100+ requests at once, which trips the browser's
+    // in-flight request limit (net::ERR_INSUFFICIENT_RESOURCES) and fails
+    // whole batches of frames while starving the rest of the page. Playback
+    // demand jumps ahead of the warm backlog.
+    const FRAME_POOL_LIMIT = 8
+    const frameQueue: Array<{ url: string; release: () => void }> = []
+    let activeFrames = 0
+
+    const decodeFrame = async (url: string): Promise<DecodedFrame | undefined> => {
+      try {
+        const response = await fetch(url)
+        if (!response.ok) throw new Error('http ' + response.status)
+        const bitmap = await createImageBitmap(await response.blob())
+        return { source: bitmap, width: bitmap.width, height: bitmap.height }
+      } catch {
+        // Fail-open: classic Image decode keeps non-modern runtimes alive.
+        return await new Promise<DecodedFrame | undefined>((resolve) => {
+          try {
+            const pre = new Image()
+            pre.onload = (): void => {
+              resolve(pre.naturalWidth > 0 ? { source: pre, width: pre.naturalWidth, height: pre.naturalHeight } : undefined)
+            }
+            pre.onerror = (): void => resolve(undefined)
+            pre.src = url
+          } catch {
+            resolve(undefined)
+          }
+        })
+      }
+    }
+
+    const pumpFrames = (): void => {
+      while (activeFrames < FRAME_POOL_LIMIT && frameQueue.length > 0) {
+        const queued = frameQueue.shift()!
+        activeFrames += 1
+        queued.release()
+      }
+    }
+
+    const loadFrame = (url: string, jump = false): Promise<DecodedFrame | undefined> => {
+      // Jump first: warm-enqueued frames already carry their memo, so a
+      // playback demand must reorder the unstarted entry before the cache
+      // lookup short-circuits.
+      if (jump) {
+        const index = frameQueue.findIndex((queued) => queued.url === url)
+        if (index > 0) frameQueue.unshift(frameQueue.splice(index, 1)[0]!)
+      }
       const cached = decoding.get(url)
       if (cached !== undefined) return cached
-      const job: Promise<DecodedFrame | undefined> = (async () => {
-        try {
-          const response = await fetch(url)
-          if (!response.ok) throw new Error('http ' + response.status)
-          const bitmap = await createImageBitmap(await response.blob())
-          return { source: bitmap, width: bitmap.width, height: bitmap.height }
-        } catch {
-          // Fail-open: classic Image decode keeps non-modern runtimes alive.
-          return await new Promise<DecodedFrame | undefined>((resolve) => {
-            try {
-              const pre = new Image()
-              pre.onload = (): void => {
-                resolve(pre.naturalWidth > 0 ? { source: pre, width: pre.naturalWidth, height: pre.naturalHeight } : undefined)
-              }
-              pre.onerror = (): void => resolve(undefined)
-              pre.src = url
-            } catch {
-              resolve(undefined)
-            }
-          })
-        }
-      })()
+      let release!: () => void
+      const gate = new Promise<void>((resolve) => { release = resolve })
+      const job: Promise<DecodedFrame | undefined> = gate.then(() => (disposed ? undefined : decodeFrame(url)))
+      job.then(
+        (frame) => { if (frame === undefined) decoding.delete(url) },
+        () => decoding.delete(url),
+      )
+      void job.finally(() => {
+        activeFrames -= 1
+        pumpFrames()
+      })
       decoding.set(url, job)
       decodedAll.push(job.then(() => undefined, () => undefined))
+      const entry = { url, release }
+      if (jump) frameQueue.unshift(entry)
+      else frameQueue.push(entry)
+      pumpFrames()
       return job
     }
 
@@ -268,7 +308,7 @@ export const frames2dRenderer: PetRenderer<PetFrames2dConfig> = {
     const paintCanvas = (url: string): void => {
       if (context2d === null || canvas === null) return
       const myToken = ++drawToken
-      void loadFrame(url).then((frame) => {
+      void loadFrame(url, true).then((frame) => {
         if (disposed || frame === undefined || myToken !== drawToken) return
         if (lastDrawnUrl === url) return
         lastDrawnUrl = url
@@ -363,7 +403,15 @@ export const frames2dRenderer: PetRenderer<PetFrames2dConfig> = {
     // Warm pass: decode every frame up front (tiny same-origin webp files)
     // so loops and phase switches never wait on a first decode - same intent
     // as the historical Image-cache warm loop, now feeding the decode cache.
-    for (const warmTrack of Object.values(config.tracks)) {
+    // Phase-reachable tracks enqueue first so early switches never trail the
+    // full warm backlog; demand loads jump the queue regardless.
+    const warmTrackIds: string[] = [
+      ...new Set([...Object.values(config.phases), config.phases.idle]),
+    ]
+    for (const warmTrack of [...warmTrackIds, ...Object.keys(config.tracks)].map(
+      (id) => config.tracks[id],
+    )) {
+      if (warmTrack === undefined) continue
       for (const warmUrl of warmTrack.frames) void loadFrame(warmUrl)
     }
 
@@ -378,7 +426,9 @@ export const frames2dRenderer: PetRenderer<PetFrames2dConfig> = {
       if (timer !== undefined) clearTimeout(timer)
       if (watchdog !== undefined) clearInterval(watchdog)
       // Release decoded bitmaps after pending decodes settle; close() is
-      // browser-only, so guard it for exotic hosts.
+      // browser-only, so guard it for exotic hosts. Queued-but-unstarted
+      // frames release immediately as no-ops so the settle barrier drains.
+      for (const queued of frameQueue.splice(0)) queued.release()
       void Promise.allSettled(decodedAll).then(() => {
         for (const job of decoding.values()) {
           void job.then((frame) => {
