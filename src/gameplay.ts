@@ -572,6 +572,10 @@ export interface PetGameplayState {
   mode: 'work' | 'sleep' | null
   /** Epoch ms of the last lazy settle. */
   settledAt: number
+  /** Accumulated remainder ms towards the next passive income tick. */
+  incomeCarryMs?: number
+  /** Accumulated remainder ms towards the next sleep restore tick. */
+  restoreCarryMs?: number
 }
 
 /** Fresh state for one pet: stats at their initial (default max), no currency. */
@@ -624,7 +628,10 @@ export function settleGameplay(
     }
   }
   if (manifest.passiveIncome !== undefined) {
-    const ticks = Math.floor(elapsedMs / manifest.passiveIncome.intervalMs)
+    const incomeElapsed = elapsedMs + (state.incomeCarryMs ?? 0)
+    const interval = manifest.passiveIncome.intervalMs
+    const ticks = Math.floor(incomeElapsed / interval)
+    state.incomeCarryMs = incomeElapsed % interval
     if (ticks > 0) {
       const currency = manifest.passiveIncome.currency
       state.currencies[currency] = (state.currencies[currency] ?? 0) + ticks * manifest.passiveIncome.amount
@@ -632,12 +639,17 @@ export function settleGameplay(
     }
   }
   if (state.mode === 'sleep' && manifest.sleep !== undefined) {
-    const ticks = Math.floor(elapsedMs / manifest.sleep.restore.intervalMs)
+    const restoreElapsed = elapsedMs + (state.restoreCarryMs ?? 0)
+    const interval = manifest.sleep.restore.intervalMs
+    const ticks = Math.floor(restoreElapsed / interval)
+    state.restoreCarryMs = restoreElapsed % interval
     if (ticks > 0) {
       const stat = manifest.sleep.restore.stat
       state.stats[stat] = (state.stats[stat] ?? 0) + ticks * manifest.sleep.restore.amount
       changed = true
     }
+  } else {
+    state.restoreCarryMs = 0
   }
   state.settledAt = now
   clampGameplay(state, manifest)
