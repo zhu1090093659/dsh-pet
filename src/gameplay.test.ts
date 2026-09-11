@@ -185,6 +185,42 @@ describe('gameplay engine', () => {
     expect(state.settledAt).toBe(600_000)
   })
 
+  it('preserves remainder carry across frequent polling intervals for passive income and sleep restore (#1478)', () => {
+    const state = initialGameplayState(def, 0)
+    state.stats.energy = 20
+    state.mode = 'sleep'
+    // Simulate 30 frequent settles every 2,000 ms (total 60,000 ms = 1 min).
+    // Passive income interval: 60,000 ms -> should grant 1 coin on 30th settle.
+    // Sleep restore interval: 30,000 ms (+4 energy each) -> should grant on 15th and 30th settle.
+    let now = 0
+    for (let i = 1; i <= 30; i++) {
+      now += 2_000
+      settleGameplay(state, def, now, { sessionActive: true })
+      if (i < 15) {
+        expect(state.stats.energy).toBeCloseTo(20 - (i * 2 / 60) * 0.25, 4)
+        expect(state.currencies.coins ?? 0).toBe(0)
+      } else if (i === 15) {
+        // At 30,000 ms: first sleep tick hits (+4 energy)
+        expect(state.stats.energy).toBeCloseTo(20 - 0.125 + 4, 4)
+        expect(state.currencies.coins ?? 0).toBe(0)
+      } else if (i < 30) {
+        expect(state.stats.energy).toBeCloseTo(20 - (i * 2 / 60) * 0.25 + 4, 4)
+        expect(state.currencies.coins ?? 0).toBe(0)
+      }
+    }
+    // At 60,000 ms (30th tick): second sleep tick hits (+4 energy = +8 total), passive income hits (+1 coin)
+    expect(state.stats.energy).toBeCloseTo(20 - 0.25 + 8, 4)
+    expect(state.currencies.coins).toBe(1)
+    expect(state.incomeCarryMs).toBe(0)
+    expect(state.restoreCarryMs).toBe(0)
+
+    // Leaving sleep mode clears restoreCarryMs
+    state.restoreCarryMs = 10_000
+    state.mode = null
+    settleGameplay(state, def, now + 1_000, { sessionActive: true })
+    expect(state.restoreCarryMs).toBe(0)
+  })
+
   it('applies the working decay variant while working and idle decay without a session', () => {
     const state = initialGameplayState(def, 0)
     state.mode = 'work'

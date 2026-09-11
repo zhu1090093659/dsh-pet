@@ -130,12 +130,19 @@ function loadGameplay(parsed: PetPersistDocument): Record<string, PetGameplaySta
         currencies[key] = Math.min(GAMEPLAY_LOAD_CURRENCY_CAP, Math.max(0, Math.floor(value)))
       }
     }
-    result[petId] = {
+    const item: PetGameplayState = {
       stats,
       currencies,
       mode: record.mode === 'work' || record.mode === 'sleep' ? record.mode : null,
       settledAt: clamp(finiteNum(record.settledAt, 0), Number.MAX_SAFE_INTEGER),
     }
+    if (typeof record.incomeCarryMs === 'number' && Number.isFinite(record.incomeCarryMs)) {
+      item.incomeCarryMs = Math.max(0, record.incomeCarryMs)
+    }
+    if (typeof record.restoreCarryMs === 'number' && Number.isFinite(record.restoreCarryMs)) {
+      item.restoreCarryMs = Math.max(0, record.restoreCarryMs)
+    }
+    result[petId] = item
   }
   return result
 }
