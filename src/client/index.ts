@@ -51,6 +51,7 @@ interface PetHttpApi {
   setConfig(patch: Partial<PetDisplayConfig>): Promise<{ ok: true; display: PetDisplayConfig }>
   setName(name: string): Promise<{ ok: true; name: string } | { ok: false; error: string }>
   setPet(petId: string): Promise<{ ok: true; petId: string } | { ok: false; error: string }>
+  setSkin(skin?: string): Promise<{ ok: boolean; error?: string; skin?: string }>
   gameplayTouch(zone?: string): Promise<PetGameplayVerbResult>
   gameplaySetMode(mode: 'work' | 'sleep' | null): Promise<PetGameplayVerbResult>
   gameplayWorkTick(): Promise<PetGameplayVerbResult>
@@ -82,6 +83,7 @@ const petApi: PetHttpApi = {
   setConfig: (patch) => petFetch('/api/pet/set-config', patch),
   setName: (name) => petFetch('/api/pet/set-name', { name }),
   setPet: (petId) => petFetch('/api/pet/set-pet', { petId }),
+  setSkin: (skin) => petFetch('/api/pet/set-skin', skin === undefined ? {} : { skin }),
   gameplayTouch: (zone) => petFetch('/api/pet/gameplay/touch', zone === undefined ? {} : { zone }),
   gameplaySetMode: (mode) => petFetch('/api/pet/gameplay/mode', { mode }),
   gameplayWorkTick: () => petFetch('/api/pet/gameplay/work-tick', {}),
@@ -371,6 +373,11 @@ export function apply(ctx: ClientContext): void {
         },
         gameplay: {
           touch: (zone) => petApi.gameplayTouch(zone),
+          setSkin: (skin) => petApi.setSkin(skin).then((result) => {
+            if (result.ok) pollNow()
+            return result
+          }, () => ({ ok: false, error: 'transport' })),
+          
           setMode: async (mode) => {
             if (mode === 'work') lastWorkTickAt = 0
             return petApi.gameplaySetMode(mode)

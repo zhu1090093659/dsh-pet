@@ -603,6 +603,11 @@ export function makePetRoutes(deps: { service: PetService; ctx: Context; assetCa
       if (typeof name !== 'string') return Promise.reject(new Error('invalid-name'))
       return service.setName(name)
     }),
+    postRoute(ctx, PET_API_PREFIX + '/set-skin', (body) => {
+      const skin = body.skin
+      if (skin !== undefined && typeof skin !== 'string') return Promise.reject(new Error('invalid-skin'))
+      return service.setSkin(skin === undefined || skin === '' ? undefined : skin)
+    }),
     postRoute(ctx, PET_API_PREFIX + '/set-pet', (body) => {
       const petId = body.petId
       if (typeof petId !== 'string') return Promise.reject(new Error('invalid-pet'))

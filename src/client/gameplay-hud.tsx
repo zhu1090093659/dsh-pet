@@ -25,6 +25,11 @@ export interface GameplayApi {
   setMode: (mode: 'work' | 'sleep' | null) => Promise<PetGameplayVerbResult>
   workTick: () => Promise<PetGameplayVerbResult>
   buy: (item: string) => Promise<PetGameplayVerbResult>
+  /**
+   * Persist the selected skin for the current pet (host-authoritative;
+   * `undefined` restores the pet's default look).
+   */
+  setSkin: (skin: string | undefined) => Promise<{ ok: boolean; error?: string }>
 }
 
 /**
@@ -70,6 +75,8 @@ export function GameplayHud(props: {
   const def = definition.gameplay
   const view = ui.snapshot?.gameplay
   const phase = ui.snapshot?.phase ?? 'idle'
+  // Host-persisted skin selection for this pet (undefined = default look).
+  const persistedSkin = ui.snapshot?.skin
 
   const [open, setOpen] = useState(false)
   const [page, setPage] = useState<HudPage>('root')
@@ -352,10 +359,40 @@ export function GameplayHud(props: {
     void api.setMode(next).then(applyResult, () => undefined)
   }
 
+  // Skin selection is persisted host-side (per pet): re-seed the menu from
+  // every fresh state view, so a page reload or client restart keeps the last
+  // choice instead of snapping back to the default look.
+  useEffect(() => {
+    setSkinId(persistedSkin)
+  }, [definition.id, persistedSkin])
+
+  // Push the resolved base idle track into the renderer whenever the pet or
+  // the selection changes. The frames2d visual mounts ahead of this HUD, so
+  // its channel is already registered and a restored skin paints right away.
+  useEffect(() => {
+    const skin = definition.frames2d?.skins?.find(candidate => candidate.id === skinId)
+    bus.setIdleTrack?.(skin?.idleTrack)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one push per selection
+  }, [definition.id, skinId])
+
   const skins = definition.frames2d?.skins
+  /** The base idle track one skin id resolves to (undefined = default look). */
+  const skinTrackOf = (id: string | undefined): string | undefined =>
+    id === undefined ? undefined : definition.frames2d?.skins?.find(candidate => candidate.id === id)?.idleTrack
+
   const selectSkin = (skin: PetSkinDefinition | undefined): void => {
     setSkinId(skin?.id)
     bus.setIdleTrack?.(skin?.idleTrack)
+    // The host owns the choice: a refusal (unknown skin) restores both the
+    // menu highlight and the renderer to the value it still serves.
+    const restore = (): void => {
+      setSkinId(persistedSkin)
+      bus.setIdleTrack?.(skinTrackOf(persistedSkin))
+    }
+    void api.setSkin(skin?.id).then((result) => {
+      if (result.ok) return
+      restore()
+    }, restore)
   }
 
   return (

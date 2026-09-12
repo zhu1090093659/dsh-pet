@@ -48,6 +48,12 @@ export interface PetPersist {
    * to its manifest displayName, so only user renames are stored here.
    */
   names: Record<string, string>
+  /**
+   * Per-pet selected frames2d skin id (keyed by pet id). Skin ids are manifest
+   * data, so a stale entry (skin renamed or removed, pet swapped) is ignored
+   * when the state view is built instead of pinning an unresolvable track.
+   */
+  skins: Record<string, string>
   affinity: AffinityState
   /** Treat (小鱼干) stock ledger. */
   treats: TreatLedger
@@ -63,6 +69,7 @@ export function emptyPersist(): PetPersist {
   return {
     petId: DEFAULT_PET_ID,
     names: {},
+    skins: {},
     affinity: emptyAffinity(),
     treats: emptyTreatLedger(),
     display: { ...defaultDisplayConfig },
@@ -98,6 +105,19 @@ function loadPetNames(parsed: PetPersistDocument): Record<string, string> {
     names[id] = name.slice(0, PET_NAME_MAX_LENGTH)
   }
   return names
+}
+
+/** Sanitize the per-pet skin selection map (string keys, non-empty trimmed values). */
+function loadPetSkins(parsed: PetPersistDocument): Record<string, string> {
+  const skins: Record<string, string> = {}
+  if (typeof parsed.skins !== 'object' || parsed.skins === null) return skins
+  for (const [id, value] of Object.entries(parsed.skins as Record<string, unknown>)) {
+    if (id === '' || typeof value !== 'string') continue
+    const skin = value.trim()
+    if (skin === '') continue
+    skins[id] = skin
+  }
+  return skins
 }
 
 /** Clamp one count/score into [0, max]. */
@@ -192,6 +212,7 @@ export function loadPetPersist(dir: string = petHomeDir()): PetPersist {
     return {
       petId,
       names,
+      skins: loadPetSkins(parsed),
       affinity,
       treats,
       display,
