@@ -354,6 +354,8 @@ describe('GameplayHud', () => {
     const bus: GameplayBus = { setTrack: vi.fn(), setIdleTrack }
     render(<GameplayHud definition={def} store={store} api={api} bus={bus} drag={createDragStream()} t={t} />)
     expect(setIdleTrack).toHaveBeenLastCalledWith('lanhainishang-idle')
+    // Latched on the bus too, so a later (re)mount re-applies it.
+    expect(bus.idleTrack).toBe('lanhainishang-idle')
     // Restoring is read-only: mounting never writes the choice back.
     expect(setSkin).not.toHaveBeenCalled()
   })

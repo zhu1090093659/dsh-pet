@@ -42,6 +42,13 @@ export interface GameplayBus {
   setTrack?: (track?: string) => void
   /** Swap the pet's base idle track (skin switch); undefined restores default. */
   setIdleTrack?: (track?: string) => void
+  /**
+   * The base idle track the HUD wants right now, latched on the bus so a
+   * renderer that registers late (or remounts: hidden/summoned, StrictMode's
+   * double mount) still applies the restored skin instead of snapping back to
+   * the default look. Mutating it never requires a re-render.
+   */
+  idleTrack?: string
   tap?: (fx: number, fy: number) => void
   /**
    * Card open/close request from the chrome (the hover panel's 玩法 action):
@@ -367,13 +374,17 @@ export function GameplayHud(props: {
   }, [definition.id, persistedSkin])
 
   // Push the resolved base idle track into the renderer whenever the pet or
-  // the selection changes. The frames2d visual mounts ahead of this HUD, so
-  // its channel is already registered and a restored skin paints right away.
+  // the selection changes. The value is latched on the bus first: the visual
+  // may register later, or remount later (hidden/summoned), and reads the
+  // latch back on activation so a restored skin never falls back to default.
   useEffect(() => {
     const skin = definition.frames2d?.skins?.find(candidate => candidate.id === skinId)
+    bus.idleTrack = skin?.idleTrack
     bus.setIdleTrack?.(skin?.idleTrack)
+    // persistedSkin rides the deps so the host's value also re-pushes on
+    // arrival (a renderer that mounted early still converges).
     // eslint-disable-next-line react-hooks/exhaustive-deps -- one push per selection
-  }, [definition.id, skinId])
+  }, [definition.id, skinId, persistedSkin])
 
   const skins = definition.frames2d?.skins
   /** The base idle track one skin id resolves to (undefined = default look). */
