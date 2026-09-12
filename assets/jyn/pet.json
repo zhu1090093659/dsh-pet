@@ -50,6 +50,7 @@
       },
       "bingjing-gongzhu-idle": {},
       "bingjing-gongzhu-rest": {},
+      "bingjing-gongzhu-work": {},
       "bingjing-gongzhu-staff": {
         "loop": false,
         "fallback": "idle"
@@ -111,7 +112,8 @@
           }
         ],
         "gameplayTracks": {
-          "sleep": "bingjing-gongzhu-rest"
+          "sleep": "bingjing-gongzhu-rest",
+          "work": "bingjing-gongzhu-work"
         }
       }
     ]

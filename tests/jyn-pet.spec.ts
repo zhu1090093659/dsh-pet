@@ -28,7 +28,7 @@ describe('jyn pet manifest', () => {
     if (!res.ok) throw new Error('manifest rejected')
     const frames2d = res.manifest.frames2d!
     expect(Object.keys(frames2d.tracks).sort()).toEqual(
-      ['anyejinjin-angry', 'anyejinjin-idle', 'anyejinjin-rest', 'bingjing-gongzhu-angry', 'bingjing-gongzhu-idle', 'bingjing-gongzhu-rest', 'bingjing-gongzhu-staff', 'bingjing-gongzhu-tsundere', 'idle', 'lanhainishang-idle', 'lanhainishang-lift-skirt', 'shy', 'shy2', 'shy3', 'sleep', 'sleeping', 'work', 'work-fail', 'work-success'],
+      ['anyejinjin-angry', 'anyejinjin-idle', 'anyejinjin-rest', 'bingjing-gongzhu-angry', 'bingjing-gongzhu-idle', 'bingjing-gongzhu-rest', 'bingjing-gongzhu-staff', 'bingjing-gongzhu-tsundere', 'bingjing-gongzhu-work', 'idle', 'lanhainishang-idle', 'lanhainishang-lift-skirt', 'shy', 'shy2', 'shy3', 'sleep', 'sleeping', 'work', 'work-fail', 'work-success'],
     )
     for (const t of ['shy', 'shy2', 'shy3']) {
       expect(frames2d.tracks[t].loop).toBe(false)
@@ -131,7 +131,7 @@ describe('jyn pet manifest', () => {
     // Click-action probabilities are asserted by the dedicated split test below.
   })
 
-  it('bingjing-gongzhu skin overrides the sleep gameplay track with its rest loop', () => {
+  it('bingjing-gongzhu skin overrides the sleep and work gameplay tracks', () => {
     if (!res.ok) throw new Error('manifest rejected')
     const skins = res.manifest.frames2d?.skins
     const skin = skins?.find(s => s.id === 'bingjing-gongzhu')
@@ -140,7 +140,12 @@ describe('jyn pet manifest', () => {
     const rest = res.manifest.frames2d?.tracks['bingjing-gongzhu-rest']
     expect(rest).toBeDefined()
     expect(rest?.loop ?? true).toBe(true)
-    // Other skins keep the default sleep intro.
+    // Work: the skin plays its own work loop while the mode is 'work'.
+    expect(skin?.gameplayTracks?.['work']).toBe('bingjing-gongzhu-work')
+    const work = res.manifest.frames2d?.tracks['bingjing-gongzhu-work']
+    expect(work).toBeDefined()
+    expect(work?.loop ?? true).toBe(true)
+    // Other skins keep the default sleep intro and default work loop.
     const other = skins?.find(s => s.id === 'lanhainishang')
     expect(other?.gameplayTracks).toBeUndefined()
   })
@@ -242,6 +247,7 @@ describe('jyn pet manifest', () => {
       'lanhainishang-idle': 74, 'lanhainishang-lift-skirt': 73,
       'bingjing-gongzhu-idle': 74, 'bingjing-gongzhu-staff': 70,
       'bingjing-gongzhu-angry': 69, 'bingjing-gongzhu-tsundere': 66, 'bingjing-gongzhu-rest': 65,
+      'bingjing-gongzhu-work': 74,
     }
     for (const [track, expected] of Object.entries(counts)) {
       const files = readdirSync(join(JYN_DIR, 'thumb', track)).filter(f => f.endsWith('.webp'))

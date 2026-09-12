@@ -471,6 +471,35 @@ describe('GameplayHud', () => {
     expect(h.store.getSnapshot().snapshot?.gameplay?.mode).toBe('work')
   })
 
+  it('plays the skin work track while the mode is work when the skin declares one', async () => {
+    const def = petDefinition()
+    def.frames2d!.tracks['skin-work'] = { frames: ['/pet/miku/skin-work_1.webp'], durations: [200], loop: true }
+    def.frames2d!.skins = [
+      { id: 'skin', label: 'Skin', idleTrack: 'idle', gameplayTracks: { work: 'skin-work' } },
+    ]
+    const store = createPetStore().create()
+    store.actions.setSnapshot(snapshot(gameplayView({ mode: 'work' }), 'skin'))
+    const setTrack = vi.fn()
+    const bus: GameplayBus = { setTrack }
+    const api = {
+      touch: vi.fn(), setMode: vi.fn(),
+      workTick: vi.fn(async () => ({ ok: true, outcome: 'fail' as const, view: gameplayView({ mode: 'work' }) })),
+      buy: vi.fn(), setSkin: vi.fn(async () => ({ ok: true })),
+    } as unknown as Harness['api']
+    render(<GameplayHud definition={def} store={store} api={api} bus={bus} drag={createDragStream()} t={t} />)
+    // The mode hold uses the skin's own work loop, not the manifest track.
+    expect(setTrack).toHaveBeenCalledWith('skin-work')
+    await act(async () => {
+      vi.advanceTimersByTime(10_000)
+    })
+    // Result states resolve through the same override table (default here).
+    expect(setTrack).toHaveBeenCalledWith('fail')
+    await act(async () => {
+      vi.advanceTimersByTime(2000)
+    })
+    expect(setTrack).toHaveBeenLastCalledWith('skin-work')
+  })
+
   it('holds the sleep track and wakes on drag', async () => {
     const h = harness(gameplayView({ mode: 'sleep' }))
     expect(h.setTrack).toHaveBeenCalledWith('sleep')

@@ -298,11 +298,15 @@ export function GameplayHud(props: {
 
   // Work loop: hold the work track, adjudicate one round per tick, play the
   // result track for its hold window, then resume. Leaving the mode
-  // releases the override so the phase mapping takes over.
+  // releases the override so the phase mapping takes over. A skin that
+  // declares gameplayTracks for the work states plays its own art instead.
   useEffect(() => {
     const work = def?.work
     if (def === undefined || work === undefined || view?.mode !== 'work') return undefined
-    bus.setTrack?.(work.state)
+    const skinGameplay = definition.frames2d?.skins?.find(skin => skin.id === skinIdRef.current)?.gameplayTracks
+    /** The state's track, swapped for the skin's override when it declares one. */
+    const trackOf = (state: string): string => skinGameplay?.[state] ?? state
+    bus.setTrack?.(trackOf(work.state))
     let resultTimer = 0
     const timer = window.setInterval(() => {
       if (busyRef.current) return
@@ -311,11 +315,11 @@ export function GameplayHud(props: {
         busyRef.current = false
         applyResult(result)
         if (result.ok !== true || result.outcome === undefined) return
-        const resultTrack = result.outcome === 'success' ? work.successState : work.failState
+        const resultTrack = trackOf(result.outcome === 'success' ? work.successState : work.failState)
         const hold = result.outcome === 'success' ? work.resultMs?.success ?? 1300 : work.resultMs?.fail ?? 1900
         bus.setTrack?.(resultTrack)
         resultTimer = window.setTimeout(() => {
-          if (modeRef.current === 'work') bus.setTrack?.(work.state)
+          if (modeRef.current === 'work') bus.setTrack?.(trackOf(work.state))
         }, hold)
       }, () => { busyRef.current = false })
     }, work.tickMs)
@@ -324,8 +328,8 @@ export function GameplayHud(props: {
       window.clearTimeout(resultTimer)
       bus.setTrack?.(undefined)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- the loop keys on the mode value
-  }, [definition.id, def, view?.mode])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the loop keys on the mode and the selected skin
+  }, [definition.id, def, view?.mode, skinId])
 
   // Sleep loop: hold the sleep track; restore is host-side (lazy settle).
   // While a skin with a gameplayTracks.sleep override is selected, the skin's
