@@ -84,6 +84,7 @@ function injected(): PetInjected {
       setMode: vi.fn(),
       workTick: vi.fn(),
       buy: vi.fn(),
+      setSkin: vi.fn(async () => ({ ok: true })),
     },
   }
 }
