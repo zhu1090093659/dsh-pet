@@ -471,6 +471,27 @@ describe('GameplayHud', () => {
     expect(h.store.getSnapshot().snapshot?.gameplay?.mode).toBe('work')
   })
 
+  it('drops a late work adjudication once the mode has been left', async () => {
+    // #1495: the tick RPC can still be in flight when the user exits work mode;
+    // its result must not write the work view back or play the result track.
+    const h = harness(gameplayView({ mode: 'work' }))
+    let resolveTick: ((result: PetGameplayVerbResult) => void) | undefined
+    h.api.workTick.mockImplementationOnce(() => new Promise<PetGameplayVerbResult>((resolve) => { resolveTick = resolve }))
+    await act(async () => {
+      vi.advanceTimersByTime(10_000)
+    })
+    expect(h.api.workTick).toHaveBeenCalledTimes(1)
+    await act(async () => {
+      h.setView(gameplayView({ mode: null }))
+    })
+    await act(async () => {
+      resolveTick?.({ ok: true, outcome: 'success', view: gameplayView({ mode: 'work' }) })
+      await Promise.resolve()
+    })
+    expect(h.store.getSnapshot().snapshot?.gameplay?.mode).toBeNull()
+    expect(h.setTrack).not.toHaveBeenCalledWith('success')
+  })
+
   it('drives the skin work loop and its skin result animation on the shared 10s rule', async () => {
     // A skin supplies its own work / result art, but the adjudication rule
     // (10s tick, 50% roll, result hold) stays the pet-level gameplay.work rule.

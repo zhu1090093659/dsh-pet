@@ -32,6 +32,7 @@ import type { PetDefinition } from '../registry.ts'
 import { createElement } from 'react'
 import { createRoot } from 'react-dom/client'
 import { createPetStore, type PetStoreInstance } from './pet-store.ts'
+import { createWorkTickGate } from './work-tick-gate.ts'
 import { PetDockEntry, type PetInjected } from './PetDockEntry.tsx'
 import { defaultPetRendererRegistry } from './renderers/registry.ts'
 import { live2dRenderer } from './renderers/live2d.ts'
@@ -125,16 +126,19 @@ declare module '@deepseek-ai/cordis' {
  * @param ctx - client root context.
  */
 
+/** The page-wide work-tick gate; its window follows the active pet's cadence. */
+const workTickGate = createWorkTickGate()
+
 /**
- * Module-wide work-tick throttle (ms). Hot reloads can leave several
- * GameplayHud instances alive, each running its own 10s work interval;
- * without a shared gate every interval would call workTick and each stale
- * call re-rolls, re-grants treats and re-plays the success/fail track, so
- * the outcome appears to play several times per window. This shared marker
- * accepts the first adjudication of a window and silently suppresses the
- * duplicates that follow. Reset when (re-)entering work mode.
+ * The work cadence the active pet declares, when its registry entry is known.
+ * @param store - the pet store holding the host snapshot and the registry list.
+ * @returns the configured `gameplay.work.tickMs`, or undefined when unknown.
  */
-let lastWorkTickAt = 0
+function activeWorkTickMs(store: PetStoreInstance): number | undefined {
+  const state = store.getSnapshot()
+  const definition = state.pets.find((entry) => entry.id === state.snapshot?.pet.id)
+  return definition?.gameplay?.work?.tickMs
+}
 
 export function apply(ctx: ClientContext): void {
   // Anonymous install heartbeat (docs/telemetry.md): one beat per browser per
@@ -379,17 +383,16 @@ export function apply(ctx: ClientContext): void {
           }, () => ({ ok: false, error: 'transport' })),
           
           setMode: async (mode) => {
-            if (mode === 'work') lastWorkTickAt = 0
+            if (mode === 'work') workTickGate.reset()
             return petApi.gameplaySetMode(mode)
           },
           workTick: async () => {
             // One adjudication per tick window, page-wide: suppress stale
-            // duplicate intervals (HMR) re-playing the result track.
-            const now = Date.now()
-            if (now - lastWorkTickAt < 8500) {
+            // duplicate intervals (HMR) re-playing the result track. The window
+            // is the pet's own cadence, so a shorter tickMs is not downgraded.
+            if (!workTickGate.allow(activeWorkTickMs(petStore))) {
               return { ok: true } as PetGameplayVerbResult
             }
-            lastWorkTickAt = now
             return petApi.gameplayWorkTick()
           },
           buy: (item) => petApi.gameplayBuy(item),

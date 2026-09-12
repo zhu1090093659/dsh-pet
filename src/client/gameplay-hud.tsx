@@ -313,6 +313,10 @@ export function GameplayHud(props: {
       busyRef.current = true
       void api.workTick().then((result) => {
         busyRef.current = false
+        // Leaving work mode while the adjudication is in flight drops the late
+        // result: writing it back would show work rewards and play the result
+        // track for a mode the user has already left (#1495).
+        if (modeRef.current !== 'work') return
         applyResult(result)
         if (result.ok !== true || result.outcome === undefined) return
         const resultTrack = trackOf(result.outcome === 'success' ? work.successState : work.failState)
