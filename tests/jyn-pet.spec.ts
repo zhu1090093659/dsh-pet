@@ -28,7 +28,7 @@ describe('jyn pet manifest', () => {
     if (!res.ok) throw new Error('manifest rejected')
     const frames2d = res.manifest.frames2d!
     expect(Object.keys(frames2d.tracks).sort()).toEqual(
-      ['anyejinjin-angry', 'anyejinjin-idle', 'anyejinjin-rest', 'bingjing-gongzhu-idle', 'bingjing-gongzhu-staff', 'idle', 'lanhainishang-idle', 'lanhainishang-lift-skirt', 'shy', 'shy2', 'shy3', 'sleep', 'sleeping', 'work', 'work-fail', 'work-success'],
+      ['anyejinjin-angry', 'anyejinjin-idle', 'anyejinjin-rest', 'bingjing-gongzhu-angry', 'bingjing-gongzhu-idle', 'bingjing-gongzhu-rest', 'bingjing-gongzhu-staff', 'bingjing-gongzhu-tsundere', 'idle', 'lanhainishang-idle', 'lanhainishang-lift-skirt', 'shy', 'shy2', 'shy3', 'sleep', 'sleeping', 'work', 'work-fail', 'work-success'],
     )
     for (const t of ['shy', 'shy2', 'shy3']) {
       expect(frames2d.tracks[t].loop).toBe(false)
@@ -128,14 +128,51 @@ describe('jyn pet manifest', () => {
     const idleTrack = res.manifest.frames2d?.tracks[skin!.idleTrack]
     expect(idleTrack).toBeDefined()
     expect(idleTrack?.loop ?? true).toBe(true)
-    // The bingjing-gongzhu skin declares the staff click action at 30%.
-    const action = skin?.clickActions?.find(a => a.track === 'bingjing-gongzhu-staff')
-    expect(action).toBeDefined()
-    expect(action?.probability).toBeCloseTo(0.3, 6)
-    const track = res.manifest.frames2d?.tracks[action!.track]
-    expect(track).toBeDefined()
-    expect(track?.loop).toBe(false)
-    expect(track?.fallback).toBe('idle')
+    // Click-action probabilities are asserted by the dedicated split test below.
+  })
+
+  it('bingjing-gongzhu skin overrides the sleep gameplay track with its rest loop', () => {
+    if (!res.ok) throw new Error('manifest rejected')
+    const skins = res.manifest.frames2d?.skins
+    const skin = skins?.find(s => s.id === 'bingjing-gongzhu')
+    expect(skin?.gameplayTracks).toBeDefined()
+    expect(skin?.gameplayTracks?.['sleep']).toBe('bingjing-gongzhu-rest')
+    const rest = res.manifest.frames2d?.tracks['bingjing-gongzhu-rest']
+    expect(rest).toBeDefined()
+    expect(rest?.loop ?? true).toBe(true)
+    // Other skins keep the default sleep intro.
+    const other = skins?.find(s => s.id === 'lanhainishang')
+    expect(other?.gameplayTracks).toBeUndefined()
+  })
+
+  it('bingjing-gongzhu skin splits its three click actions evenly', () => {
+    if (!res.ok) throw new Error('manifest rejected')
+    const skins = res.manifest.frames2d?.skins
+    const skin = skins?.find(s => s.id === 'bingjing-gongzhu')
+    const actions = skin?.clickActions ?? []
+    expect(actions.map(a => a.track)).toEqual([
+      'bingjing-gongzhu-staff',
+      'bingjing-gongzhu-angry',
+      'bingjing-gongzhu-tsundere',
+    ])
+    for (const action of actions) {
+      // Even split: ~1/3 each (the last entry absorbs the float remainder).
+      expect(action.probability).toBeCloseTo(1 / 3, 3)
+      const track = res.manifest.frames2d?.tracks[action.track]
+      expect(track).toBeDefined()
+      expect(track?.loop).toBe(false)
+      expect(track?.fallback).toBe('idle')
+    }
+    // The cumulative roll consumes the unit interval, so every click plays
+    // exactly one of the three actions (no plain-boost remainder).
+    const total = actions.reduce((sum, a) => sum + a.probability, 0)
+    expect(total).toBeCloseTo(1, 6)
+    expect(total).toBeGreaterThanOrEqual(1 - 1e-9)
+    // Skin actions never leak onto other skins.
+    const other = skins?.find(s => s.id === 'anyejinjin')
+    for (const action of actions) {
+      expect(other?.clickActions?.find(a => a.track === action.track)).toBeUndefined()
+    }
   })
 
   it('work gameplay block: 50%, success anim once then back to work', () => {
@@ -204,6 +241,7 @@ describe('jyn pet manifest', () => {
       'anyejinjin-idle': 74, 'anyejinjin-angry': 70, 'anyejinjin-rest': 64,
       'lanhainishang-idle': 74, 'lanhainishang-lift-skirt': 73,
       'bingjing-gongzhu-idle': 74, 'bingjing-gongzhu-staff': 70,
+      'bingjing-gongzhu-angry': 69, 'bingjing-gongzhu-tsundere': 66, 'bingjing-gongzhu-rest': 65,
     }
     for (const [track, expected] of Object.entries(counts)) {
       const files = readdirSync(join(JYN_DIR, 'thumb', track)).filter(f => f.endsWith('.webp'))
