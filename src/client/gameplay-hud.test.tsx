@@ -471,11 +471,18 @@ describe('GameplayHud', () => {
     expect(h.store.getSnapshot().snapshot?.gameplay?.mode).toBe('work')
   })
 
-  it('plays the skin work track while the mode is work when the skin declares one', async () => {
+  it('drives the skin work loop and its skin result animation on the shared 10s rule', async () => {
+    // A skin supplies its own work / result art, but the adjudication rule
+    // (10s tick, 50% roll, result hold) stays the pet-level gameplay.work rule.
     const def = petDefinition()
     def.frames2d!.tracks['skin-work'] = { frames: ['/pet/miku/skin-work_1.webp'], durations: [200], loop: true }
+    def.frames2d!.tracks['skin-success'] = { frames: ['/pet/miku/skin-ok_1.webp'], durations: [200], loop: false, fallback: 'skin-work' }
     def.frames2d!.skins = [
-      { id: 'skin', label: 'Skin', idleTrack: 'idle', gameplayTracks: { work: 'skin-work' } },
+      {
+        id: 'skin', label: 'Skin', idleTrack: 'idle',
+        // The override key is the manifest's successState ('success' in this fixture).
+        gameplayTracks: { work: 'skin-work', success: 'skin-success' },
+      },
     ]
     const store = createPetStore().create()
     store.actions.setSnapshot(snapshot(gameplayView({ mode: 'work' }), 'skin'))
@@ -483,7 +490,7 @@ describe('GameplayHud', () => {
     const bus: GameplayBus = { setTrack }
     const api = {
       touch: vi.fn(), setMode: vi.fn(),
-      workTick: vi.fn(async () => ({ ok: true, outcome: 'fail' as const, view: gameplayView({ mode: 'work' }) })),
+      workTick: vi.fn(async () => ({ ok: true, outcome: 'success' as const, view: gameplayView({ mode: 'work' }) })),
       buy: vi.fn(), setSkin: vi.fn(async () => ({ ok: true })),
     } as unknown as Harness['api']
     render(<GameplayHud definition={def} store={store} api={api} bus={bus} drag={createDragStream()} t={t} />)
@@ -492,12 +499,19 @@ describe('GameplayHud', () => {
     await act(async () => {
       vi.advanceTimersByTime(10_000)
     })
-    // Result states resolve through the same override table (default here).
-    expect(setTrack).toHaveBeenCalledWith('fail')
+    // One adjudication per 10s window, then the skin's own result animation.
+    expect(api.workTick).toHaveBeenCalledTimes(1)
+    expect(setTrack).toHaveBeenCalledWith('skin-success')
     await act(async () => {
-      vi.advanceTimersByTime(2000)
+      vi.advanceTimersByTime(1300)
     })
+    // The result holds for resultMs, then the skin work loop resumes ...
     expect(setTrack).toHaveBeenLastCalledWith('skin-work')
+    await act(async () => {
+      vi.advanceTimersByTime(10_000)
+    })
+    // ... and the next 10s round adjudicates again.
+    expect(api.workTick).toHaveBeenCalledTimes(2)
   })
 
   it('holds the sleep track and wakes on drag', async () => {

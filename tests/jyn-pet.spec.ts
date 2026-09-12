@@ -28,7 +28,7 @@ describe('jyn pet manifest', () => {
     if (!res.ok) throw new Error('manifest rejected')
     const frames2d = res.manifest.frames2d!
     expect(Object.keys(frames2d.tracks).sort()).toEqual(
-      ['anyejinjin-angry', 'anyejinjin-idle', 'anyejinjin-rest', 'bingjing-gongzhu-angry', 'bingjing-gongzhu-idle', 'bingjing-gongzhu-rest', 'bingjing-gongzhu-staff', 'bingjing-gongzhu-tsundere', 'bingjing-gongzhu-work', 'idle', 'lanhainishang-idle', 'lanhainishang-lift-skirt', 'shy', 'shy2', 'shy3', 'sleep', 'sleeping', 'work', 'work-fail', 'work-success'],
+      ['anyejinjin-angry', 'anyejinjin-idle', 'anyejinjin-rest', 'bingjing-gongzhu-angry', 'bingjing-gongzhu-idle', 'bingjing-gongzhu-rest', 'bingjing-gongzhu-staff', 'bingjing-gongzhu-tsundere', 'bingjing-gongzhu-work', 'bingjing-gongzhu-work-fail', 'bingjing-gongzhu-work-success', 'idle', 'lanhainishang-idle', 'lanhainishang-lift-skirt', 'shy', 'shy2', 'shy3', 'sleep', 'sleeping', 'work', 'work-fail', 'work-success'],
     )
     for (const t of ['shy', 'shy2', 'shy3']) {
       expect(frames2d.tracks[t].loop).toBe(false)
@@ -140,11 +140,26 @@ describe('jyn pet manifest', () => {
     const rest = res.manifest.frames2d?.tracks['bingjing-gongzhu-rest']
     expect(rest).toBeDefined()
     expect(rest?.loop ?? true).toBe(true)
-    // Work: the skin plays its own work loop while the mode is 'work'.
+    // Work: the skin plays its own work loop while the mode is 'work', and its
+    // own result animations settle back into that loop (fallback), while the
+    // 10s adjudication itself stays the shared gameplay.work rule.
     expect(skin?.gameplayTracks?.['work']).toBe('bingjing-gongzhu-work')
     const work = res.manifest.frames2d?.tracks['bingjing-gongzhu-work']
     expect(work).toBeDefined()
     expect(work?.loop ?? true).toBe(true)
+    expect(skin?.gameplayTracks?.['work-success']).toBe('bingjing-gongzhu-work-success')
+    expect(skin?.gameplayTracks?.['work-fail']).toBe('bingjing-gongzhu-work-fail')
+    for (const [track, state] of [['bingjing-gongzhu-work-success', 'work-success'], ['bingjing-gongzhu-work-fail', 'work-fail']] as const) {
+      const result = res.manifest.frames2d?.tracks[track]
+      expect(result, state).toBeDefined()
+      expect(result?.loop).toBe(false)
+      // Result animations fall back into the skin's own work loop, not the default one.
+      expect(result?.fallback).toBe('bingjing-gongzhu-work')
+    }
+    // The adjudication rule is pet-level and shared by every skin.
+    const rule = res.manifest.gameplay?.work
+    expect(rule?.tickMs).toBe(10000)
+    expect(rule?.successProbability).toBeCloseTo(0.5, 6)
     // Other skins keep the default sleep intro and default work loop.
     const other = skins?.find(s => s.id === 'lanhainishang')
     expect(other?.gameplayTracks).toBeUndefined()
@@ -248,6 +263,7 @@ describe('jyn pet manifest', () => {
       'bingjing-gongzhu-idle': 74, 'bingjing-gongzhu-staff': 70,
       'bingjing-gongzhu-angry': 69, 'bingjing-gongzhu-tsundere': 66, 'bingjing-gongzhu-rest': 65,
       'bingjing-gongzhu-work': 74,
+      'bingjing-gongzhu-work-success': 67, 'bingjing-gongzhu-work-fail': 67,
     }
     for (const [track, expected] of Object.entries(counts)) {
       const files = readdirSync(join(JYN_DIR, 'thumb', track)).filter(f => f.endsWith('.webp'))

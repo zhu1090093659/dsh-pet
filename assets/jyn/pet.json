@@ -51,6 +51,14 @@
       "bingjing-gongzhu-idle": {},
       "bingjing-gongzhu-rest": {},
       "bingjing-gongzhu-work": {},
+      "bingjing-gongzhu-work-success": {
+        "loop": false,
+        "fallback": "bingjing-gongzhu-work"
+      },
+      "bingjing-gongzhu-work-fail": {
+        "loop": false,
+        "fallback": "bingjing-gongzhu-work"
+      },
       "bingjing-gongzhu-staff": {
         "loop": false,
         "fallback": "idle"
@@ -113,7 +121,9 @@
         ],
         "gameplayTracks": {
           "sleep": "bingjing-gongzhu-rest",
-          "work": "bingjing-gongzhu-work"
+          "work": "bingjing-gongzhu-work",
+          "work-success": "bingjing-gongzhu-work-success",
+          "work-fail": "bingjing-gongzhu-work-fail"
         }
       }
     ]
