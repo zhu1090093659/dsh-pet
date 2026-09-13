@@ -139,7 +139,7 @@ function StatusOrnament(props: { decoration: DecorationView; phase: ActivityPhas
       const delta = now - last
       last = now
       elapsed += delta
-      const duration = decoration.durations[index] ?? 120
+      let duration = decoration.durations[index] ?? 120
       // The segment's frame rate (duration ms, typically 90-160) is far
       // below the rAF cadence, so a 60fps loop would spend ~90% of its
       // ticks doing nothing. Schedule by the remaining time to the next
@@ -151,6 +151,10 @@ function StatusOrnament(props: { decoration: DecorationView; phase: ActivityPhas
           elapsed -= duration
           if (index < segment.to) index += 1
           else if (decoration.loop) index = segment.from
+          // Durations are per frame: a catch-up that crosses frames must
+          // subtract and schedule with the frame it lands on, not the one
+          // the tick started from.
+          duration = decoration.durations[index] ?? 120
         } while (elapsed >= duration)
         // Only advance the background when the frame actually changes.
         el.style.backgroundPosition = position(index)
