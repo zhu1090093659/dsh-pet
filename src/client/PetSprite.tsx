@@ -315,15 +315,39 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
   // custom visual (pet-center M3) replaces the atlas entirely.
   useEffect(() => {
     if (props.visual !== undefined) return
+    setImageReady(false)
     let cancelled = false
-    const img = new Image()
-    img.onload = () => {
-      if (!cancelled) setImageReady(true)
+    let retryTimer: ReturnType<typeof setTimeout> | undefined
+    let attempt = 0
+    const maxAttempts = 3
+    let activeImg: HTMLImageElement | null = null
+
+    const loadAtlas = () => {
+      const img = new Image()
+      activeImg = img
+      img.onload = () => {
+        if (!cancelled) setImageReady(true)
+      }
+      img.onerror = () => {
+        if (cancelled) return
+        if (attempt < maxAttempts) {
+          attempt += 1
+          const delay = Math.min(1000 * Math.pow(2, attempt - 1), 8000)
+          retryTimer = setTimeout(loadAtlas, delay)
+        }
+      }
+      img.src = definition.atlasUrl
     }
-    img.src = definition.atlasUrl
+
+    loadAtlas()
+
     return () => {
       cancelled = true
-      img.onload = null
+      if (retryTimer !== undefined) clearTimeout(retryTimer)
+      if (activeImg !== null) {
+        activeImg.onload = null
+        activeImg.onerror = null
+      }
     }
   }, [definition.atlasUrl, props.visual])
 

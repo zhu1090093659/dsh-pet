@@ -134,3 +134,76 @@ describe('PetSettingsSection', () => {
     ])
   })
 })
+
+describe('atlas image load retry mechanism', () => {
+  it('retries upon image load failure and resolves imageReady when a retry succeeds', () => {
+    vi.useFakeTimers()
+    try {
+      let imageReady = false
+      const setImageReady = (ready: boolean) => { imageReady = ready }
+
+      let attempt = 0
+      const maxAttempts = 3
+      let cancelled = false
+      let retryTimer: ReturnType<typeof setTimeout> | undefined
+      let activeImg: { onload: (() => void) | null; onerror: (() => void) | null; src: string } | null = null
+      const createdImages: Array<{ onload: (() => void) | null; onerror: (() => void) | null; src: string }> = []
+
+      const atlasUrl = 'https://example.com/spritesheet.webp'
+
+      const loadAtlas = () => {
+        const img = {
+          onload: null as (() => void) | null,
+          onerror: null as (() => void) | null,
+          src: '',
+        }
+        activeImg = img
+        createdImages.push(img)
+        img.onload = () => {
+          if (!cancelled) setImageReady(true)
+        }
+        img.onerror = () => {
+          if (cancelled) return
+          if (attempt < maxAttempts) {
+            attempt += 1
+            const delay = Math.min(1000 * Math.pow(2, attempt - 1), 8000)
+            retryTimer = setTimeout(loadAtlas, delay)
+          }
+        }
+        img.src = atlasUrl
+      }
+
+      loadAtlas()
+
+      expect(createdImages).toHaveLength(1)
+      expect(imageReady).toBe(false)
+
+      // First attempt fails
+      createdImages[0]!.onerror!()
+      expect(imageReady).toBe(false)
+
+      // Advance timer by 1000ms for first retry
+      vi.advanceTimersByTime(1000)
+      expect(createdImages).toHaveLength(2)
+
+      // Second attempt succeeds
+      createdImages[1]!.onload!()
+      expect(imageReady).toBe(true)
+
+      // Cleanup
+      cancelled = true
+      if (retryTimer !== undefined) clearTimeout(retryTimer)
+      const lastImg = activeImg as { onload: unknown; onerror: unknown } | null
+      if (lastImg !== null) {
+        lastImg.onload = null
+        lastImg.onerror = null
+      }
+
+      expect(createdImages[1]!.onload).toBeNull()
+      expect(createdImages[1]!.onerror).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
