@@ -206,6 +206,16 @@ describe('loadPetPersist', () => {
     expect(bubbleScaleFor({ size: 160, bubbleScale: 0.5 })).toBe(0.83)
   })
 
+  it('keeps the baseline when a host omits or corrupts the bubble scale (#1549)', () => {
+    // A host that predates the field serves no bubbleScale. NaN would reach
+    // --pet-bubble-scale and collapse every bubble's text to zero.
+    expect(bubbleScaleFor({ size: 160 })).toBe(1)
+    expect(bubbleScaleFor({ size: 160, bubbleScale: Number.NaN })).toBe(1)
+    expect(bubbleScaleFor({ size: Number.NaN, bubbleScale: 1 })).toBe(1)
+    // A corrupt size must not leak through either; the multiplier still applies.
+    expect(bubbleScaleFor({ size: Number.POSITIVE_INFINITY, bubbleScale: 2 })).toBe(2)
+  })
+
   it('clamps oversized display size to the max', () => {
     const dir = tempDir()
     try {

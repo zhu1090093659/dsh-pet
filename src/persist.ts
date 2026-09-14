@@ -63,12 +63,21 @@ export const BUBBLE_FONT_MAX_PX = 24
  * follows the pet's own size so a shrunk pet does not carry a full-size
  * bubble, and the user's multiplier rides on top. The result is a CSS ratio
  * against {@link BUBBLE_BASE_FONT_PX}, bounded so the text never drops below
- * the readability floor or outgrows the pet.
- * @param display - persisted display config (size + bubbleScale).
- * @returns the ratio written to `--pet-bubble-scale`.
+ * the readability floor or outgrows the pet. `bubbleScale` is optional at
+ * runtime: a host that predates the field (a rolling update, or any snapshot
+ * that omits it) falls back to the baseline, because a NaN ratio written into
+ * `--pet-bubble-scale` collapses every bubble's text to zero.
+ * @param display - display config; `bubbleScale` may be absent on older hosts.
+ * @returns the ratio written to `--pet-bubble-scale` (always finite).
  */
-export function bubbleScaleFor(display: Pick<PetDisplayConfig, 'size' | 'bubbleScale'>): number {
-  const scaled = (display.size / BUBBLE_BASE_SIZE_PX) * display.bubbleScale
+export function bubbleScaleFor(display: Pick<PetDisplayConfig, 'size'> & { bubbleScale?: number }): number {
+  // Guard the arithmetic, not just the clamp: Math.min/max propagate NaN, so a
+  // missing or non-finite field would otherwise reach the stylesheet.
+  const size = Number.isFinite(display.size) ? display.size : BUBBLE_BASE_SIZE_PX
+  const multiplier = typeof display.bubbleScale === 'number' && Number.isFinite(display.bubbleScale)
+    ? display.bubbleScale
+    : 1
+  const scaled = (size / BUBBLE_BASE_SIZE_PX) * multiplier
   const min = BUBBLE_FONT_MIN_PX / BUBBLE_BASE_FONT_PX
   const max = BUBBLE_FONT_MAX_PX / BUBBLE_BASE_FONT_PX
   return Math.round(Math.min(max, Math.max(min, scaled)) * 100) / 100
