@@ -29,6 +29,8 @@ export interface PetSettings {
   right?: number
   /** Vertical inset from the viewport bottom edge, px. */
   bottom?: number
+  /** Bubble typography multiplier on the automatic size following (#1549). */
+  bubbleScale?: number
   /** Selected pet id (a registry entry). */
   petId?: string
   /** Status-decoration master switch (pet-center M5, #567). */
@@ -47,6 +49,8 @@ export interface PetSettingsCardState extends CardShell {
   right: CardFieldState
   /** Bottom inset. */
   bottom: CardFieldState
+  /** Bubble typography multiplier. */
+  bubbleScale: CardFieldState
   /** Selected pet. */
   petId: CardFieldState
   /** Status-decoration master switch. */
@@ -117,6 +121,7 @@ export class PetSettingsCardController {
       numberField('size'),
       numberField('right'),
       numberField('bottom'),
+      numberField('bubbleScale'),
       choiceField('petId', this.petChoices),
     ])
     this.store = this.form.bind(() => this.projection())
@@ -175,6 +180,7 @@ export class PetSettingsCardController {
       size: this.form.field('size'),
       right: this.form.field('right'),
       bottom: this.form.field('bottom'),
+      bubbleScale: this.form.field('bubbleScale'),
       petId: this.form.field('petId'),
       petChoices: this.petChoices.map(id => ({ value: id, label: this.petLabels.get(id) ?? id })),
       petDiagnostics: this.diagnostics,
@@ -320,6 +326,16 @@ export function PetSettingsCard(props: PetSettingsCardProps) {
         {...state.bottom}
         onEdit={(text) => { props.edit('bottom', text) }}
         onReset={() => { props.resetField('bottom') }}
+      />
+      <ValueField
+        id="settings-pet-bubble-scale"
+        label={t('settings.bubbleScale')}
+        hint={t('settings.bubbleScaleHint')}
+        numeric
+        {...fieldProps}
+        {...state.bubbleScale}
+        onEdit={(text) => { props.edit('bubbleScale', text) }}
+        onReset={() => { props.resetField('bubbleScale') }}
       />
     </PluginSettingsCard>
   )

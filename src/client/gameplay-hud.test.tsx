@@ -117,7 +117,7 @@ function snapshot(view: PetGameplayStateView, skin?: string): PetStateView {
     sessionActive: false,
     sessions: [],
     affinity: { points: 0, rank: '幼鲸', rankEmoji: '*', pets: 0, feeds: 0, turns: 0, petCooldown: false, feedCooldown: false },
-    display: { visible: true, size: 160, right: 24, bottom: 20 },
+    display: { visible: true, size: 160, right: 24, bottom: 20, bubbleScale: 1 },
     pet: { id: 'miku', displayName: 'Miku', description: '' },
     name: 'Miku',
     treats: { stocked: 0, max: 5 },

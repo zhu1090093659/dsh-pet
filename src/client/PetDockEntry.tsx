@@ -63,7 +63,7 @@ export type PetDockEntryProps =
     portalTarget?: Element
   }
 
-const DEFAULT_DISPLAY: PetDisplayConfig = { visible: true, size: 160, right: 24, bottom: 20 }
+const DEFAULT_DISPLAY: PetDisplayConfig = { visible: true, size: 160, right: 24, bottom: 20, bubbleScale: 1 }
 
 /**
  * Dock entry: while the pet is visible, mount the floating PetSprite (it

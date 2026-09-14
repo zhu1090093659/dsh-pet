@@ -25,6 +25,13 @@ export interface PetDisplayConfig {
   right: number
   /** Vertical inset from the viewport bottom edge, px. */
   bottom: number
+  /**
+   * Multiplier on the bubble typography's automatic size following (#1549).
+   * The rendered bubble scale is `size / 160 * bubbleScale`, bounded by
+   * {@link BUBBLE_FONT_MIN_PX}..{@link BUBBLE_FONT_MAX_PX}, so 1 keeps the
+   * 12px baseline the stylesheet was drawn for at the default 160px pet.
+   */
+  bubbleScale: number
 }
 
 export const defaultDisplayConfig: PetDisplayConfig = {
@@ -32,12 +39,40 @@ export const defaultDisplayConfig: PetDisplayConfig = {
   size: 160,
   right: 24,
   bottom: 120,
+  bubbleScale: 1,
 }
 
 /** Display value bounds (shared by load-time validation and setConfig). */
 export const DISPLAY_SIZE_MIN = 32
 export const DISPLAY_SIZE_MAX = 1024
 export const DISPLAY_INSET_MAX = 10_000
+
+/** Bubble typography bounds (issue #1549). */
+export const BUBBLE_SCALE_MIN = 0.5
+export const BUBBLE_SCALE_MAX = 2
+/** Pixel size the bubble stylesheet was drawn for, at the default pet size. */
+export const BUBBLE_BASE_FONT_PX = 12
+/** Pet size that baseline matches; other sizes scale the bubble with them. */
+export const BUBBLE_BASE_SIZE_PX = 160
+/** Readability floor and layout ceiling of the scaled bubble text. */
+export const BUBBLE_FONT_MIN_PX = 10
+export const BUBBLE_FONT_MAX_PX = 24
+
+/**
+ * Bubble typography scale for one display config (issue #1549): the bubble
+ * follows the pet's own size so a shrunk pet does not carry a full-size
+ * bubble, and the user's multiplier rides on top. The result is a CSS ratio
+ * against {@link BUBBLE_BASE_FONT_PX}, bounded so the text never drops below
+ * the readability floor or outgrows the pet.
+ * @param display - persisted display config (size + bubbleScale).
+ * @returns the ratio written to `--pet-bubble-scale`.
+ */
+export function bubbleScaleFor(display: Pick<PetDisplayConfig, 'size' | 'bubbleScale'>): number {
+  const scaled = (display.size / BUBBLE_BASE_SIZE_PX) * display.bubbleScale
+  const min = BUBBLE_FONT_MIN_PX / BUBBLE_BASE_FONT_PX
+  const max = BUBBLE_FONT_MAX_PX / BUBBLE_BASE_FONT_PX
+  return Math.round(Math.min(max, Math.max(min, scaled)) * 100) / 100
+}
 
 /** Everything persisted for the pet. */
 export interface PetPersist {
@@ -198,6 +233,8 @@ export function loadPetPersist(dir: string = petHomeDir()): PetPersist {
       size: Math.round(Math.min(DISPLAY_SIZE_MAX, Math.max(DISPLAY_SIZE_MIN, finiteNum(rawDisplay.size, base.display.size)))),
       right: Math.round(clamp(finiteNum(rawDisplay.right, base.display.right), DISPLAY_INSET_MAX)),
       bottom: Math.round(clamp(finiteNum(rawDisplay.bottom, base.display.bottom), DISPLAY_INSET_MAX)),
+      // Fractional on purpose: the multiplier is a ratio, not a pixel count.
+      bubbleScale: Math.min(BUBBLE_SCALE_MAX, Math.max(BUBBLE_SCALE_MIN, finiteNum(rawDisplay.bubbleScale, base.display.bubbleScale))),
     }
     const petId = typeof parsed.petId === 'string' && parsed.petId.trim() !== ''
       ? parsed.petId.trim()

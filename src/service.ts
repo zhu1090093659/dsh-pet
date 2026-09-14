@@ -31,6 +31,8 @@ import {
   DEFAULT_PET_NAME,
   DISPLAY_INSET_MAX,
   DISPLAY_SIZE_MAX,
+  BUBBLE_SCALE_MAX,
+  BUBBLE_SCALE_MIN,
   DISPLAY_SIZE_MIN,
   PET_NAME_MAX_LENGTH,
   loadPetPersist,
@@ -111,6 +113,8 @@ export interface PetSettingsSection {
   right: number
   /** Vertical inset from the viewport bottom edge, px. */
   bottom: number
+  /** Bubble typography multiplier (#1549); see PetDisplayConfig. */
+  bubbleScale?: number
   /** Master switch for the plugin (browser half + host routes). */
   enabled?: boolean
   /**
@@ -756,12 +760,13 @@ export class PetService extends Service {
     return { ok: true, skin }
   }
 
-  /** RPC: update display config (size / position). Values are clamped to whole pixels. */
+  /** RPC: update display config (size / position / bubble scale). Pixel values are clamped to whole pixels. */
   async setConfig(patch: Partial<PetDisplayConfig>): Promise<{ ok: true; display: PetDisplayConfig }> {
     const next = { ...this.ledger.snapshot.display, ...patch }
     next.size = Math.round(Math.min(DISPLAY_SIZE_MAX, Math.max(DISPLAY_SIZE_MIN, next.size)))
     next.right = Math.round(Math.min(DISPLAY_INSET_MAX, Math.max(0, next.right)))
     next.bottom = Math.round(Math.min(DISPLAY_INSET_MAX, Math.max(0, next.bottom)))
+    next.bubbleScale = Math.min(BUBBLE_SCALE_MAX, Math.max(BUBBLE_SCALE_MIN, next.bubbleScale))
     this.ledger.setDisplay(next)
     this.flush()
     this.syncSettingsFromPet()
@@ -800,6 +805,7 @@ export class PetService extends Service {
     next.size = Math.round(Math.min(DISPLAY_SIZE_MAX, Math.max(DISPLAY_SIZE_MIN, section.size)))
     next.right = Math.round(Math.min(DISPLAY_INSET_MAX, Math.max(0, section.right)))
     next.bottom = Math.round(Math.min(DISPLAY_INSET_MAX, Math.max(0, section.bottom)))
+    next.bubbleScale = Math.min(BUBBLE_SCALE_MAX, Math.max(BUBBLE_SCALE_MIN, section.bubbleScale ?? next.bubbleScale))
     this.ledger.setDisplay(next)
     this.flush()
   }
