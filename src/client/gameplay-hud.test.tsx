@@ -527,8 +527,9 @@ describe('GameplayHud', () => {
       vi.advanceTimersByTime(5000)
     })
     expect(h.setTrack).toHaveBeenCalledWith('eat')
-    // A non-idle phase suppresses the roll.
-    h.store.actions.setSnapshot(snapshot(gameplayView()))
+    // Ambient acts are not phase-gated: while the agent works (thinking/tool)
+    // the roll still fires, otherwise she would only ever act when nobody is
+    // busy -- the idle phase is rare while an active session is running.
     h.setTrack.mockClear()
     const busy = snapshot(gameplayView())
     busy.phase = 'thinking'
@@ -538,7 +539,7 @@ describe('GameplayHud', () => {
     await act(async () => {
       vi.advanceTimersByTime(5000)
     })
-    expect(h.setTrack).not.toHaveBeenCalled()
+    expect(h.setTrack).toHaveBeenCalledWith('eat')
   })
 
   it('drives the work loop: work track, adjudicated ticks, result hold', async () => {

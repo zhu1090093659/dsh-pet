@@ -89,7 +89,6 @@ export function GameplayHud(props: {
   const ui = useSyncExternalStore(store.subscribe, store.getSnapshot)
   const def = definition.gameplay
   const view = ui.snapshot?.gameplay
-  const phase = ui.snapshot?.phase ?? 'idle'
   // Host-persisted skin selection for this pet (undefined = default look).
   const persistedSkin = ui.snapshot?.skin
 
@@ -108,8 +107,6 @@ export function GameplayHud(props: {
   /** Live gameplay view for the interval loops (def identity is stable, view is not). */
   const viewRef = useRef(view)
   viewRef.current = view
-  const phaseRef = useRef(phase)
-  phaseRef.current = phase
   const draggingRef = useRef(false)
   const touchLockUntilRef = useRef(0)
   const missRef = useRef(0)
@@ -287,9 +284,11 @@ export function GameplayHud(props: {
   }, [props.drag])
 
   // Idle director: weighted rolls between staying idle and playing an act.
-  // Runs only while the phase mapping owns the visual (idle phase, no mode,
-  // no drag, no held touch animation); maxMiss forces an act after too many
-  // idle rolls in a row.
+  // Rolls in every phase -- an ambient act is not a waiting-room performance,
+  // and the idle phase only appears when neither the agent nor the user is busy
+  // -- but only while nothing else owns the visual: no mode, no drag, no held
+  // touch animation, no roam walk and no act already playing. maxMiss forces an
+  // act after too many idle rolls in a row.
   useEffect(() => {
     const director = def?.idleDirector
     if (def === undefined || director === undefined) return undefined
@@ -297,7 +296,6 @@ export function GameplayHud(props: {
     if (total <= 0) return undefined
     let actTimer = 0
     const timer = window.setInterval(() => {
-      if (phaseRef.current !== 'idle') return
       if (modeRef.current !== null || draggingRef.current) return
       if (Date.now() < touchLockUntilRef.current) return
       if (roamHeldRef.current) return // a roam walk owns the visual
