@@ -165,7 +165,9 @@ describe('GameplayHud', () => {
     vi.useRealTimers()
   })
 
-  it('roams on its interval: walks through the bus and holds the walk track', () => {
+  it('user sees the pet roam on its interval and hold the walk track', () => {
+    // Given a pet whose roam always fires; when the roam interval elapses; then
+    // the bus walk runs, the walk track is held, then released.
     const definition = petDefinition()
     definition.gameplay = {
       ...definition.gameplay,
@@ -195,7 +197,9 @@ describe('GameplayHud', () => {
     expect(h.setTrack.mock.calls.filter(call => call[0] === 'happy')).toHaveLength(1)
   })
 
-  it('roams outside the idle phase too (ambient wandering)', () => {
+  it('user sees the pet roam outside the idle phase too', () => {
+    // Given the agent is mid-tool-call; when the roam interval elapses; then the
+    // pet still wanders (only the director's acts are idle-gated).
     const definition = petDefinition()
     definition.gameplay = {
       ...definition.gameplay,
@@ -210,9 +214,13 @@ describe('GameplayHud', () => {
     h.bus.walk = walk
     act(() => { vi.advanceTimersByTime(5000) })
     expect(walk).toHaveBeenCalledTimes(1)
+    const first = walk.mock.calls[0] ?? ['left', 0, 0]
+    expect(first[1]).toBe(100)
   })
 
-  it('never lets a finished walk release a track another owner took over', () => {
+  it('user switching to sleep keeps the sleep track when a walk ends', () => {
+    // Given a walk holds the walk track; when the user enters sleep mid-walk;
+    // then the finished walk must not release the sleep owner's track.
     const definition = petDefinition()
     definition.gameplay = {
       ...definition.gameplay,
@@ -232,7 +240,9 @@ describe('GameplayHud', () => {
     expect(h.setTrack).toHaveBeenLastCalledWith('sleep')
   })
 
-  it('keeps the roam from cutting into an idle-director act', () => {
+  it('user cannot see the roam cut into an idle-director act', () => {
+    // Given an act that owns the visual; when the roam's staggered tick lands;
+    // then the walk is skipped.
     const definition = petDefinition()
     definition.frames2d!.tracks.eat!.durations = [60_000]
     definition.gameplay = {
