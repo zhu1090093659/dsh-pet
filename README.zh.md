@@ -207,13 +207,13 @@ frames2d 宠物可声明 `gameplay` 块——从 miku 桌宠泛化而来的可�
 | 注册表 id | 选择器名称 | 来源 |
 |---|---|---|
 | `blue-throated-bee-eater` | 蓝喉蜂虎 | 贡献者以 Apache-2.0 贡献的伙伴插画（12 张同角色 AI 立绘素材，配色取蓝喉蜂虎皮肤同源；由 docs/archive/blue-throated-bee-eater-pet/gen-pet.py 组装，各轨道独立姿态：栖枝/飞行/正面悬停/挥翅/降落/垂头/歪头/昂首；饲料以「小蜜蜂」命名） |
-| `doro` | doro | 由 stushansusu 以 MIT 许可证贡献的 frames2d 玩法宠物：11 条轨道 / 802 帧 42ms webp 序列——呼吸待机、打工三件套、睡觉、洗澡模式（心情 +3/秒）、随机漫游用的四向爬行、三个待机小动作（cola / orange / tongue）与仅拖拽期间播放的挣扎循环 |
+| `doro` | doro | 由 stushansusu 以 MIT 许可证贡献的 frames2d 玩法宠物：11 条轨道 / 802 帧 42ms webp 序列——呼吸待机、打工三件套、睡觉、洗澡模式（心情 +3/秒）、随机漫游用的四向爬行、三个待机小动作（cola / orange / tongue）与仅拖拽期间播放的挣扎循环。Doro 是《胜利女神：妮姬》桃乐丝的非官方同人二创/梗衍生形象，角色及相关权利归 SHIFT UP 所有——仅限个人非商业使用，与官方无隶属或背书关系（见 THIRD_PARTY_NOTICES.md）。 |
 | `jyn` | 女仆鲸鱼娘 | frames2d 玩法宠物（stushansusu 以 MIT 贡献）：带打工/睡觉/触摸玩法与三款可选皮肤（暗夜鎏金 / 蓝海霓裳 / 冰晶公主）的女仆鲸鱼同桌宠，每款皮肤各带一个概率掷骰点击动作；暗夜鎏金另将专属休息循环换入睡觉玩法 | (docs(dsh-pet): list three jyn skins in the registry rows and re-record pairing)
 | `ouo-neko` | OUO Neko | `Pessimist0906` 以 MIT 许可证贡献的粉色樱花猫耳伙伴 |
 | `whale-girl` | 鲸鱼娘（原版） | 仓库原有的鲸鱼娘图集 |
 | `whale-girl-refined` | 鲸鱼娘（精致版） | 以鲸鱼娘设计方向为基础，经 AI 辅助二次创作、修复和细节精修的衍生版本 |
 
-Miku 宠物有意不随包内置：它是 frames2d 玩法宠物，经创意工坊按需安装（见上文 frames2d 一节）。**星夜人偶（Starry Doll）**（Theater-ahyeon 以 CC-BY-NC-SA-4.0 贡献）同样仅经创意工坊分发：sprite2d 哥特星夜人偶，从单张插画抠像后以剪纸变换生成动画（呼吸、蹦跳、挥手、沮丧、review 态放大镜道具），从创意工坊宠物列表安装后落在 `$DSH_HOME/pets/starry-doll/`。
+Miku 宠物有意不随包内置：它是 frames2d 玩法宠物，经创意工坊按需安装（见上文 frames2d 一节）。**星夜人偶（Starry Doll）**（Theater-ahyeon 以 CC-BY-NC-SA-4.0 贡献）同样仅经创意工坊分发：sprite2d 哥特星夜人偶，从单张插画抠像后以剪纸变换生成动画（呼吸、蹦跳、挥手、沮丧、review 态放大镜道具），从创意工坊宠物列表安装后落在 `$DSH_HOME/pets/starry-doll/`。**Doro 宠物**（内置）同样是《胜利女神：妮姬》桃乐丝的非官方同人衍生形象；角色及相关权利归 SHIFT UP 所有，素材仅限个人非商业使用——见 THIRD_PARTY_NOTICES.md。
 
 精致版参考了 DreamSkin 的「DeepSeek-鲸鱼娘」主题。历史来源记录标注原主题作者为 `powerdog996`，并标注主题为 MIT：[DreamSkin](https://dreamskin.cc)、[仓库来源记录](https://github.com/zhu1090093659/dsh-web/commit/87edd7ff4800dffd40bc93fb76e4ae450390facd)。此处用于记录素材来源与衍生关系；精致版不表述为原作者的官方作品，也不重新定义原始美术作品的授权范围。
 
