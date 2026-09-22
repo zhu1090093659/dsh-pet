@@ -16,10 +16,10 @@
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-api-remotes/client'
-import type { SettingsScope, SettingsScopeSpec } from '@deepseek-ai/dsh-client-ui-settings/client'
+import type { ConfigForm } from '@deepseek-ai/dsh-client-ui-settings/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
-// Type-only: pulls the settings-surface Context merge (ctx.settingsScope).
+// Type-only: pulls the shared configuration forms Context merge (ctx.configForms).
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: pulls the ctx.slots merge (the renderer owns the slot registry since 0.1.2).
@@ -98,11 +98,11 @@ const petApi: PetHttpApi = {
 /** Poll interval for the host snapshot. */
 const POLL_MS = 2000
 
-/** Settings namespace the pet settings card edits (the Host plugin registers it). */
+/** Settings namespace of the pet's settings page. It is the profile entry id the Host serves a form for. */
 const PET_SETTINGS_NS = 'pet'
 
 /** Required services (sessions powers bubble-to-session navigation). */
-export const inject = ['slots', 'locale', 'connection', 'settingsScope', 'remote', 'sessions', 'uiWorkspace']
+export const inject = ['slots', 'locale', 'connection', 'configForms', 'remote', 'sessions', 'uiWorkspace']
 
 /** Re-exported for consumers that type against the injected face. */
 export type { PetInjected, PetDockEntryProps } from './PetDockEntry.tsx'
@@ -115,12 +115,33 @@ export type { PetDefinition } from '../registry.ts'
 declare module '@deepseek-ai/cordis' {
   interface Context {
     /**
-     * Optional rc.6 compatibility binder provided by dsh-web-settings;
-     * absent when that group plugin is not installed, so callers fall back to
-     * the official settings scope.
+     * Optional family binder provided by dsh-web-settings; absent when that
+     * group plugin is not installed, so callers fall back to the shared
+     * per-entry form.
      */
-    webUiSettings?: { bind<S>(spec: SettingsScopeSpec<S>): SettingsScope<S> }
+    webUiSettings?: {
+      bind<S>(spec: { namespace: string; decode?: (section: unknown) => S | undefined }): ConfigForm<S>
+    }
   }
+}
+
+/**
+ * The configuration form the settings card stages and saves through: the
+ * family binder when dsh-web-settings is mounted, otherwise the shared form of
+ * this plugin's own profile entry.
+ *
+ * The two are not interchangeable by name. A plugin's settings ARE its own
+ * config on 0.1.7, so the form belongs to the profile entry that carries the
+ * plugin — and only the family binder knows which entry that is, because the
+ * family bundle renames child rows ('pet' becomes 'web-ui-pet' there) while a
+ * standalone install keeps the package's own id.
+ * @param ctx - client root context.
+ * @returns the form for the pet's settings page.
+ */
+function petSettingsForm(ctx: ClientContext): ConfigForm<PetSettings> {
+  const binder = ctx.get('webUiSettings')
+  if (binder !== undefined) return binder.bind<PetSettings>({ namespace: PET_SETTINGS_NS })
+  return ctx.configForms.get<PetSettings>(PET_SETTINGS_NS)
 }
 
 /**
@@ -162,24 +183,23 @@ export function apply(ctx: ClientContext): void {
   defaultPetRendererRegistry.register(live2dRenderer)
   defaultPetRendererRegistry.register(frames2dRenderer)
 
-  const binder = ctx.get('webUiSettings') ?? ctx.settingsScope
-  const settingsScope = binder.bind<PetSettings>({ namespace: PET_SETTINGS_NS })
+  const settingsForm = petSettingsForm(ctx)
   const enabled = (): boolean => {
-    const snapshot = settingsScope.getSnapshot()
+    const snapshot = settingsForm.getSnapshot()
     return snapshot.status === 'ready'
       ? snapshot.value?.enabled ?? true
       : snapshot.status === 'unavailable'
   }
 
-  // First-level settings section: one staged form over the 'pet' settings
-  // namespace, registered as a top-level settings page. The controller loads
-  // the petId choices from the registry endpoint itself — the registry lists
-  // the available pets (built-in assets plus user dirs), so the section only
-  // ever shows installed pets. Installing new pets happens in the Workshop
-  // store.
-  const petSettings = new PetSettingsCardController(settingsScope)
+  // First-level settings section: one staged form over the 'pet' profile
+  // entry's configuration, registered as a top-level settings page. The
+  // controller loads the petId choices from the registry endpoint itself — the
+  // registry lists the available pets (built-in assets plus user dirs), so the
+  // section only ever shows installed pets. Installing new pets happens in the
+  // Workshop store.
+  const petSettings = new PetSettingsCardController(settingsForm)
   // The section entry owns the controller: unregistering it (fiber disposal,
-  // hot reload) releases the scope subscription through petSettings.dispose.
+  // hot reload) releases the form subscription through petSettings.dispose.
   ctx.slots.inject('settings.section', () => {
     try {
       const unregister = ctx.slots.register({
@@ -460,7 +480,7 @@ export function apply(ctx: ClientContext): void {
   // (issue #785): disposal drops the subscription and tears the UI down
   // (terminal), so a hot-reloaded or re-injected bundle never leaves the
   // previous React root, container, or poll loop behind on document.body.
-  const unsubscribeSettings = settingsScope.subscribe(syncUi)
+  const unsubscribeSettings = settingsForm.subscribe(syncUi)
   ctx.effect(
     () => () => {
       unsubscribeSettings()

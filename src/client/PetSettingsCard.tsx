@@ -1,15 +1,17 @@
 /**
- * The pet settings card: pet selection plus display layout, bound to the
- * 'pet' settings namespace the host plugin registers. Rendered as an
- * always-open first-level settings page; the section wrapper below mounts it
- * as the content of the top-level 'settings.section' nav entry. The petId
- * choices come from the registry endpoint ('/api/pet/pets') — the same list
- * the sprite renders from — so the card carries no per-pet knowledge.
+ * The pet settings card: pet selection plus display layout, staged over the
+ * 'pet' profile entry's own configuration (a plugin's settings ARE its Cordis
+ * Config since 0.1.7, so the Host serves one form per profile entry).
+ * Rendered as an always-open first-level settings page; the section wrapper
+ * below mounts it as the content of the top-level 'settings.section' nav
+ * entry. The petId choices come from the registry endpoint ('/api/pet/pets') —
+ * the same list the sprite renders from — so the card carries no per-pet
+ * knowledge.
  */
 
 import type { ReactNode } from 'react'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import type { SettingsScope } from '@deepseek-ai/dsh-client-ui-settings/client'
+import type { ConfigForm } from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
 // Type-only: pulls the settings-surface SlotMap merge (the 'settings.section' entry).
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
@@ -112,8 +114,8 @@ export class PetSettingsCardController {
   /** Pending deferred-load or retry timer; cancelled by dispose(). */
   private pendingTimer: number | undefined
 
-  /** @param scope - the bound settings scope for the 'pet' namespace. */
-  constructor(scope: SettingsScope<PetSettings>) {
+  /** @param scope - the bound configuration form for the 'pet' entry. */
+  constructor(scope: ConfigForm<PetSettings>) {
     this.form = new CardForm(scope, [
       booleanField('enabled'),
       booleanField('decorationEnabled'),
