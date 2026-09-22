@@ -64,6 +64,8 @@ export interface PluginSettingsCardProps<TKey extends string = string> {
    * edits, so the footer would sit there permanently disabled.
    */
   hideFooter?: boolean
+  /** Render children even when the settings namespace is not exposed by the host. */
+  renderChildrenWhenNotExposed?: boolean
   /** The plugin's controls. */
   children: ReactNode
 }
@@ -134,6 +136,7 @@ export function PluginSettingsCard<TKey extends string = string>(props: PluginSe
           ? (
             <div className={css.body}>
               <p className={css.notExposed} role="status">{props.t('settings.notExposed')}</p>
+              {props.renderChildrenWhenNotExposed === true ? props.children : null}
             </div>
           )
           : null}
