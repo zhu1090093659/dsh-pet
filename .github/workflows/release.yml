@@ -1,0 +1,124 @@
+name: Release
+
+# Tag-triggered release pipeline: pushing a vX.Y.Z tag is the single release
+# switch. The tag is the version source of truth - the job refuses to publish
+# when package.json disagrees with it. Publishing needs the repository secret
+# NPM_TOKEN (an npm automation token for the @linxin666 scope).
+#
+# A tag push does not run ci.yml (that fires on branch pushes and pull
+# requests), so the same gates run again here: the tag is validated on its own
+# before anything reaches npm.
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Gate, publish and release
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Script tests
+        run: node --test scripts/dsh-pet-migrate-v2.test.mjs scripts/dsh-pet.test.mjs
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Tests
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+      - name: Extract the tag version
+        id: tag
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify the package version matches the tag
+        env:
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          set -eu
+          actual=$(node -p "require('./package.json').version")
+          if [ "$actual" != "$VERSION" ]; then
+            echo "package.json says $actual but the tag says $VERSION" >&2
+            exit 1
+          fi
+          echo "package version $actual matches the tag"
+
+      - name: Stage the release notes
+        run: |
+          set -eu
+          notes="docs/release-notes/${GITHUB_REF_NAME}.md"
+          if [ ! -f "$notes" ]; then
+            echo "missing $notes" >&2
+            exit 1
+          fi
+          cp "$notes" "$RUNNER_TEMP/release-notes.md"
+
+      # Idempotent on purpose: re-running a tag whose later step failed must not
+      # die here, because npm rejects a version that already exists.
+      - name: Publish to npm
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          set -eu
+          name=$(node -p "require('./package.json').name")
+          if npm view "$name@$VERSION" version >/dev/null 2>&1; then
+            echo "$name@$VERSION is already on the registry; skipping the publish step"
+            exit 0
+          fi
+          echo "//registry.npmjs.org/:_authToken=$NPM_TOKEN" > ~/.npmrc
+          npm publish --access public --tag latest --registry=https://registry.npmjs.org/
+
+      # A publish success line is not a trust boundary: the registry can lag
+      # behind it. Assert the tagged version resolves before the Release is cut.
+      - name: Verify the published version resolves
+        env:
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          set -eu
+          name=$(node -p "require('./package.json').name")
+          for i in $(seq 1 12); do
+            if [ "$(npm view "$name@$VERSION" version 2>/dev/null)" = "$VERSION" ]; then
+              echo "$name@$VERSION resolves from the registry"
+              exit 0
+            fi
+            echo "waiting for registry propagation ($i/12)"
+            sleep 10
+          done
+          echo "$name@$VERSION did not appear on the registry" >&2
+          exit 1
+
+      - name: Create the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --notes-file "$RUNNER_TEMP/release-notes.md"
