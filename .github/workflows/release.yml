@@ -1,9 +1,16 @@
 name: Release
 
-# Tag-triggered release pipeline: pushing a vX.Y.Z tag is the single release
-# switch. The tag is the version source of truth - the job refuses to publish
-# when package.json disagrees with it. Publishing needs the repository secret
+# Release pipeline. Pushing a vX.Y.Z tag is the single release switch, and the
+# tag is the version source of truth - the job refuses to publish when
+# package.json disagrees with it. Publishing needs the repository secret
 # NPM_TOKEN (an npm automation token for the @linxin666 scope).
+#
+# The workflow can also be dispatched with an existing tag. That lane exists
+# because npm publish itself succeeds before the registry finishes serving the
+# new version (npm answers "your package is being processed"), and a release
+# that failed only its propagation check must be completable without moving or
+# re-pushing the tag: the publish step is idempotent, so a dispatched run skips
+# it and finishes with the registry assertion and the GitHub Release.
 #
 # A tag push does not run ci.yml (that fires on branch pushes and pull
 # requests), so the same gates run again here: the tag is validated on its own
@@ -13,12 +20,18 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing release tag to (re)process (vX.Y.Z)'
+        required: true
+        type: string
 
 permissions:
   contents: write
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ github.event.inputs.tag || github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -29,6 +42,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v5
@@ -54,13 +69,26 @@ jobs:
       - name: Build
         run: pnpm build
 
-      - name: Extract the tag version
-        id: tag
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+      - name: Resolve the release tag
+        id: release
+        run: |
+          set -eu
+          if [ "${{ github.event_name }}" = "push" ]; then
+            tag="${{ github.ref_name }}"
+          else
+            tag="${{ github.event.inputs.tag }}"
+          fi
+          case "$tag" in
+            v*) ;;
+            *) echo "tag must look like vX.Y.Z, got: $tag" >&2; exit 1 ;;
+          esac
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
+          echo "releasing $tag"
 
       - name: Verify the package version matches the tag
         env:
-          VERSION: ${{ steps.tag.outputs.version }}
+          VERSION: ${{ steps.release.outputs.version }}
         run: |
           set -eu
           actual=$(node -p "require('./package.json').version")
@@ -71,21 +99,24 @@ jobs:
           echo "package version $actual matches the tag"
 
       - name: Stage the release notes
+        env:
+          TAG: ${{ steps.release.outputs.tag }}
         run: |
           set -eu
-          notes="docs/release-notes/${GITHUB_REF_NAME}.md"
+          notes="docs/release-notes/$TAG.md"
           if [ ! -f "$notes" ]; then
             echo "missing $notes" >&2
             exit 1
           fi
           cp "$notes" "$RUNNER_TEMP/release-notes.md"
 
-      # Idempotent on purpose: re-running a tag whose later step failed must not
-      # die here, because npm rejects a version that already exists.
+      # Idempotent on purpose: a dispatched run for a tag that already
+      # published must not die here, because npm rejects a version that
+      # already exists.
       - name: Publish to npm
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-          VERSION: ${{ steps.tag.outputs.version }}
+          VERSION: ${{ steps.release.outputs.version }}
         run: |
           set -eu
           name=$(node -p "require('./package.json').name")
@@ -96,29 +127,41 @@ jobs:
           echo "//registry.npmjs.org/:_authToken=$NPM_TOKEN" > ~/.npmrc
           npm publish --access public --tag latest --registry=https://registry.npmjs.org/
 
-      # A publish success line is not a trust boundary: the registry can lag
-      # behind it. Assert the tagged version resolves before the Release is cut.
+      # A publish success line is not a trust boundary. npm accepts the upload
+      # and then serves it only once its own processing finishes; that lag was
+      # measured in minutes here (pet 0.3.25 took about eight), so the budget
+      # is deliberately longer than any observed delay before the Release is
+      # cut. A tag that fails only this step is completable from the dispatch
+      # lane without re-publishing.
       - name: Verify the published version resolves
         env:
-          VERSION: ${{ steps.tag.outputs.version }}
+          VERSION: ${{ steps.release.outputs.version }}
         run: |
           set -eu
           name=$(node -p "require('./package.json').name")
-          for i in $(seq 1 12); do
+          for i in $(seq 1 40); do
             if [ "$(npm view "$name@$VERSION" version 2>/dev/null)" = "$VERSION" ]; then
               echo "$name@$VERSION resolves from the registry"
               exit 0
             fi
-            echo "waiting for registry propagation ($i/12)"
-            sleep 10
+            echo "waiting for registry propagation ($i/40)"
+            sleep 15
           done
           echo "$name@$VERSION did not appear on the registry" >&2
           exit 1
 
-      - name: Create the GitHub Release
+      - name: Create or update the GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release.outputs.tag }}
         run: |
-          gh release create "$GITHUB_REF_NAME" \
-            --title "$GITHUB_REF_NAME" \
-            --notes-file "$RUNNER_TEMP/release-notes.md"
+          set -eu
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" --notes-file "$RUNNER_TEMP/release-notes.md"
+            echo "updated the existing Release $TAG"
+          else
+            gh release create "$TAG" \
+              --title "$TAG" \
+              --notes-file "$RUNNER_TEMP/release-notes.md"
+            echo "created Release $TAG"
+          fi
