@@ -2,6 +2,7 @@
   "name": "@linxin666/dsh-pet",
   "description": "Multi-pet companion plugin for the dsh web GUI: a registry-driven floating pet that reacts to model activity, with per-pet naming, petting/feeding interactions and an affinity score",
   "version": "0.3.24",
+  "icon": "icon.svg",
   "type": "module",
   "packageManager": "pnpm@11.7.0",
   "engines": {
@@ -43,7 +44,8 @@
     "assets/ouo-neko",
     "assets/blue-throated-bee-eater",
     "assets/decorations",
-    "contracts"
+    "contracts",
+    "icon.svg"
   ],
   "license": "Apache-2.0",
   "dsh": {
