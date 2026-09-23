@@ -130,8 +130,8 @@ export function PluginSettingsCard<TKey extends string = string>(props: PluginSe
   // official settings allowlist omits third-party namespaces): show a card
   // that explains the gap instead of vanishing, so a missing card never
   // reads as a missing plugin.
-  if (!state.exposed) {
-    const showNotice = props.hideNotExposedNotice !== true && props.renderChildrenWhenNotExposed !== true
+  if (!state.exposed && props.renderChildrenWhenNotExposed !== true) {
+    const showNotice = props.hideNotExposedNotice !== true
     return (
       <li className={cardClass}>
         {header}
@@ -139,7 +139,6 @@ export function PluginSettingsCard<TKey extends string = string>(props: PluginSe
           ? (
             <div className={css.body}>
               {showNotice ? <p className={css.notExposed} role="status">{props.t('settings.notExposed')}</p> : null}
-              {props.renderChildrenWhenNotExposed === true ? props.children : null}
             </div>
           )
           : null}

@@ -238,6 +238,8 @@ export function PetSettingsCard(props: PetSettingsCardProps) {
       titleKey="settings.title"
       descriptionKey="settings.description"
       state={state}
+      renderChildrenWhenNotExposed
+      hideNotExposedNotice
       onSave={props.save}
       onDiscard={props.discard}
       alwaysOpen

@@ -16,7 +16,7 @@
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-api-remotes/client'
-import type { ConfigForm } from '@deepseek-ai/dsh-client-ui-settings/client'
+import type { ConfigForm, ConfigForms } from '@deepseek-ai/dsh-client-ui-settings/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 // Type-only: pulls the shared configuration forms Context merge (ctx.configForms).
@@ -138,10 +138,26 @@ declare module '@deepseek-ai/cordis' {
  * @param ctx - client root context.
  * @returns the form for the pet's settings page.
  */
+const AGGREGATE_ENTRY_ID = 'web-ui-pet'
+const PET_ENTRY_IDS: readonly string[] = [AGGREGATE_ENTRY_ID, 'ui-pet', PET_SETTINGS_NS]
+
+function servedEntryId(forms: ConfigForms): string {
+  let served: readonly string[] | undefined
+  try {
+    served = forms.describe().getSnapshot().view?.namespaces.map(view => view.ns)
+  } catch {
+    served = undefined
+  }
+  if (!served || served.length === 0) return PET_SETTINGS_NS
+  return PET_ENTRY_IDS.find(id => served.includes(id)) ?? PET_SETTINGS_NS
+}
+
 function petSettingsForm(ctx: ClientContext): ConfigForm<PetSettings> {
   const binder = ctx.get('webUiSettings')
-  if (binder !== undefined) return binder.bind<PetSettings>({ namespace: PET_SETTINGS_NS })
-  return ctx.configForms.get<PetSettings>(PET_SETTINGS_NS)
+  if (binder !== undefined && typeof binder.bind === 'function') {
+    return binder.bind<PetSettings>({ namespace: PET_SETTINGS_NS })
+  }
+  return ctx.configForms.get<PetSettings>(servedEntryId(ctx.configForms))
 }
 
 /**
