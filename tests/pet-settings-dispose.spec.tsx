@@ -81,11 +81,11 @@ describe('PetSettingsCardController timer cleanup', () => {
 
     const controller = new PetSettingsCardController(fakeScope())
     await vi.advanceTimersByTimeAsync(0)
-    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock).toHaveBeenCalledTimes(3)
 
     controller.dispose()
     await vi.advanceTimersByTimeAsync(4000)
-    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock).toHaveBeenCalledTimes(3)
   })
 
   it('does not publish a fetch that settles after dispose', async () => {

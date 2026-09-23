@@ -160,7 +160,7 @@ export interface PetFormConfig {
   /** Bubble typography multiplier on the automatic size following (#1549). */
   bubbleScale?: LiveField<number>
   /** Selected pet id (a registry entry; the service clamps stale values). */
-  petId?: LiveField<string>
+  petId?: LiveField<string | undefined>
 }
 
 /**
@@ -184,7 +184,9 @@ export const Config = z.object({
   right: z.number().step(1).min(0).max(DISPLAY_INSET_MAX).default(PET_FORM_DEFAULTS.right).volatile(),
   bottom: z.number().step(1).min(0).max(DISPLAY_INSET_MAX).default(PET_FORM_DEFAULTS.bottom).volatile(),
   bubbleScale: z.number().step(0.05).min(BUBBLE_SCALE_MIN).max(BUBBLE_SCALE_MAX).default(PET_FORM_DEFAULTS.bubbleScale).volatile(),
-  petId: z.string().default(PET_FORM_DEFAULTS.petId).volatile(),
+  // An absent profile choice must leave the selection persisted in pet.json
+  // intact across restarts (aggregate rows have no served Host pet form).
+  petId: z.string().volatile(),
   enabled: z.boolean().default(PET_FORM_DEFAULTS.enabled).volatile(),
   decorationEnabled: z.boolean().default(PET_FORM_DEFAULTS.decorationEnabled).volatile(),
 })

@@ -26,7 +26,6 @@ describe('pet configuration schema', () => {
     const resolved = plain(Config({}))
     // Then every field the settings page edits carries its documented default
     expect(resolved).toMatchObject({
-      petId: PET_FORM_DEFAULTS.petId,
       visible: true,
       size: 160,
       right: 24,
@@ -43,6 +42,15 @@ describe('pet configuration schema', () => {
     const resolved = Config({ petId: 'dragon' })
     // Then the selection survives (the service clamps it against the registry)
     expect(resolved.petId.get()).toBe('dragon')
+  })
+
+  it('user keeps the saved pet after restart when the profile never selected one', () => {
+    // Given a persisted maid whale and no profile-level pet choice
+    const resolved = Config({})
+    // When the plugin starts and resolves its active settings
+    const section = petSettingsSection(resolved, 'jyn')
+    // Then the persisted pet survives instead of being reset to the schema default
+    expect(section.petId).toBe('jyn')
   })
 
   it('operator edits every page field through a Host-served config path', () => {
