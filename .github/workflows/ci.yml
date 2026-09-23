@@ -24,8 +24,8 @@ jobs:
           cache: pnpm
       - name: Install dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
-      - name: Migration script tests
-        run: node --test scripts/dsh-pet-migrate-v2.test.mjs
+      - name: Script tests
+        run: node --test scripts/dsh-pet-migrate-v2.test.mjs scripts/dsh-pet.test.mjs
       - name: Typecheck
         run: pnpm typecheck
       - name: Tests
