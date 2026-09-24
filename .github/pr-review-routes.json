@@ -1,0 +1,43 @@
+{
+  "comment": true,
+  "defaultRoute": {
+    "label": "Default owner: plugin source, docs and repository maintenance",
+    "reviewers": [
+      "zhu1090093659"
+    ],
+    "assignees": [
+      "zhu1090093659"
+    ]
+  },
+  "routes": [
+    {
+      "name": "pet-content",
+      "label": "Pet assets (assets/<id>/)",
+      "paths": [
+        "assets/**"
+      ],
+      "reviewers": [
+        "zhu1090093659"
+      ],
+      "assignees": [
+        "zhu1090093659"
+      ]
+    },
+    {
+      "name": "pet-plugin",
+      "label": "Pet plugin source (src/, contracts/, tests/)",
+      "paths": [
+        "src/**",
+        "contracts/**",
+        "tests/**",
+        "scripts/**"
+      ],
+      "reviewers": [
+        "zhu1090093659"
+      ],
+      "assignees": [
+        "zhu1090093659"
+      ]
+    }
+  ]
+}

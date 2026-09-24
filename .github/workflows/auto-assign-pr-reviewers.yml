@@ -1,0 +1,164 @@
+name: Auto-assign PR reviewers
+
+on:
+  pull_request_target:
+    types: [opened, reopened, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  route:
+    name: Route PR to its reviewers
+    runs-on: ubuntu-latest
+    if: ${{ !github.event.pull_request.draft }}
+
+    steps:
+      - name: Load routes and assign reviewers
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const pr = context.payload.pull_request;
+            if (!pr) {
+              return;
+            }
+
+            // Routing config from the base branch (trusted code): a pull request
+            // cannot change the routes that govern it.
+            let routes = [];
+            let defaultRoute = null;
+            try {
+              const config = await github.rest.repos.getContent({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                path: '.github/pr-review-routes.json',
+                ref: pr.base.ref,
+              });
+              const parsed = JSON.parse(Buffer.from(config.data.content, 'base64').toString('utf8'));
+              if (!Array.isArray(parsed.routes)) {
+                throw new Error('routes must be an array');
+              }
+              routes = parsed.routes;
+              defaultRoute = parsed.defaultRoute || null;
+            } catch (error) {
+              core.warning('review routing config unavailable, skipping: ' + String((error && error.message) || error));
+              return;
+            }
+
+            // Changed files (paginated, capped at 300).
+            const files = [];
+            for (let page = 1; page <= 3; page++) {
+              const pageData = await github.rest.pulls.listFiles({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: pr.number,
+                per_page: 100,
+                page,
+              });
+              files.push(...pageData.data.map((item) => item.filename));
+              if (pageData.data.length < 100) {
+                break;
+              }
+            }
+            console.log('PR #' + pr.number + ': ' + files.length + ' changed files.');
+
+            const globToRegExp = (pattern) => {
+              // Escape the regex metacharacters, leaving * and ? for the glob tokens.
+              const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+              const tokenized = escaped
+                .replace(/\*\*/g, '\u0000')
+                .replace(/\*/g, '[^/]*')
+                .replace(/\?/g, '[^/]')
+                .replace(/\u0000/g, '.*');
+              return new RegExp('^' + tokenized + '$');
+            };
+
+            const matched = [];
+            const seen = new Set();
+            for (const route of routes) {
+              if (seen.has(route.name)) {
+                continue;
+              }
+              seen.add(route.name);
+              const patterns = Array.isArray(route.paths) ? route.paths : [];
+              const pathHit = patterns.some((pattern) => {
+                const regexp = globToRegExp(pattern);
+                return files.some((file) => regexp.test(file));
+              });
+              let titleHit = false;
+              if (route.title) {
+                try {
+                  titleHit = new RegExp(route.title, 'i').test(pr.title || '');
+                } catch (error) {
+                  core.warning('invalid title regex for route ' + route.name + ': ' + String((error && error.message) || error));
+                }
+              }
+              const routeAuthors = Array.isArray(route.authors) ? route.authors : [];
+              const authorHit = routeAuthors.includes(pr.user.login);
+              if (pathHit || titleHit || authorHit) {
+                matched.push(route);
+              }
+            }
+
+            // Nothing matched: fall back to the default owner so no pull request
+            // is left without an assignee.
+            const chosen = matched.length > 0 ? matched : (defaultRoute ? [defaultRoute] : []);
+            if (chosen.length === 0) {
+              console.log('PR #' + pr.number + ': no route matched.');
+              return;
+            }
+
+            const reviewers = [...new Set(chosen.flatMap((route) => route.reviewers || []))]
+              .filter((user) => user !== pr.user.login);
+            const assignees = [...new Set(chosen.flatMap((route) => route.assignees || []))]
+              .filter((user) => user !== pr.user.login);
+
+            if (reviewers.length > 0) {
+              await github.rest.pulls.requestReviewers({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: pr.number,
+                reviewers,
+              });
+              console.log('PR #' + pr.number + ': requested review from ' + reviewers.join(', ') + '.');
+            }
+            if (assignees.length > 0) {
+              await github.rest.issues.addAssignees({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr.number,
+                assignees,
+              });
+              console.log('PR #' + pr.number + ': assigned ' + assignees.join(', ') + '.');
+            }
+
+            if (context.payload.action !== 'opened') {
+              return;
+            }
+
+            const lines = chosen.map((route) => '- ' + route.name + (route.label ? ' (' + route.label + ')' : ''));
+            const summary = [];
+            if (assignees.length > 0) {
+              summary.push('Assigned ' + assignees.join(', ') + '.');
+            }
+            if (reviewers.length > 0) {
+              summary.push('Requested review from ' + reviewers.join(', ') + '.');
+            }
+            const comment = [
+              'Routed by `.github/pr-review-routes.json`:',
+              '',
+              ...lines,
+              '',
+              summary.join(' '),
+            ].join('\n');
+            try {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr.number,
+                body: comment,
+              });
+            } catch (error) {
+              core.warning('failed to post routing comment: ' + String((error && error.message) || error));
+            }
