@@ -208,7 +208,7 @@ frames2d 宠物可声明 `gameplay` 块——从 miku 桌宠泛化而来的可�
 |---|---|---|
 | `blue-throated-bee-eater` | 蓝喉蜂虎 | 贡献者以 Apache-2.0 贡献的伙伴插画（12 张同角色 AI 立绘素材，配色取蓝喉蜂虎皮肤同源；由 docs/archive/blue-throated-bee-eater-pet/gen-pet.py 组装，各轨道独立姿态：栖枝/飞行/正面悬停/挥翅/降落/垂头/歪头/昂首；饲料以「小蜜蜂」命名） |
 | `doro` | doro | 由 stushansusu 以 MIT 许可证贡献的 frames2d 玩法宠物：11 条轨道 / 802 帧 42ms webp 序列——呼吸待机、打工三件套、睡觉、洗澡模式（心情 +3/秒）、随机漫游用的四向爬行、三个待机小动作（cola / orange / tongue）与仅拖拽期间播放的挣扎循环。Doro 是《胜利女神：妮姬》桃乐丝的非官方同人二创/梗衍生形象，角色及相关权利归 SHIFT UP 所有——仅限个人非商业使用，与官方无隶属或背书关系（见 THIRD_PARTY_NOTICES.md）。 |
-| `jyn` | 女仆鲸鱼娘 | frames2d 玩法宠物（stushansusu 以 MIT 贡献）：带打工/睡觉/触摸玩法与三款可选皮肤（暗夜鎏金 / 蓝海霓裳 / 冰晶公主）的女仆鲸鱼同桌宠，每款皮肤各带一个概率掷骰点击动作；暗夜鎏金另将专属休息循环换入睡觉玩法 | (docs(dsh-pet): list three jyn skins in the registry rows and re-record pairing)
+| `jyn` | 女仆鲸鱼娘 | frames2d 玩法宠物（stushansusu 以 MIT 贡献）：带打工/睡觉/触摸玩法与三款可选皮肤（暗夜鎏金 / 蓝海霓裳 / 冰晶公主）的女仆鲸鱼同桌宠，每款皮肤各带一个概率掷骰点击动作；暗夜鎏金另将专属休息循环换入睡觉玩法 |
 | `ouo-neko` | OUO Neko | `Pessimist0906` 以 MIT 许可证贡献的粉色樱花猫耳伙伴 |
 | `whale-girl` | 鲸鱼娘（原版） | 仓库原有的鲸鱼娘图集 |
 | `whale-girl-refined` | 鲸鱼娘（精致版） | 以鲸鱼娘设计方向为基础，经 AI 辅助二次创作、修复和细节精修的衍生版本 |
@@ -217,37 +217,25 @@ Miku 宠物有意不随包内置：它是 frames2d 玩法宠物，经创意工�
 
 精致版参考了 DreamSkin 的「DeepSeek-鲸鱼娘」主题。历史来源记录标注原主题作者为 `powerdog996`，并标注主题为 MIT：[DreamSkin](https://dreamskin.cc)、[仓库来源记录](https://github.com/zhu1090093659/dsh-web/commit/87edd7ff4800dffd40bc93fb76e4ae450390facd)。此处用于记录素材来源与衍生关系；精致版不表述为原作者的官方作品，也不重新定义原始美术作品的授权范围。
 
-## 动画预览
+## 人气宠物
 
-精灵宠物使用由 [hatch-pet](https://github.com/dsh2026) 流水线生成的 8 列图集，单元格为 192×208。经典图集包含 9 行动画；v2 图集额外增加 2 行，共提供 16 个观察方向。以下为标准动画状态预览：
+[dsh-market.com](https://dsh-market.com) 创意工坊宠物分类里人气最高的三只宠物，按网站默认的「按人气」排序。每只都是「一个 `pet.json` 加素材」，由上文契约渲染——无需任何按宠物编写的代码：
 
-| idle | waiting | running | jumping |
+| 宠物 | 渲染器 | 作者 | 来源 |
 |---|---|---|---|
-| ![idle](assets/whale/previews/idle.gif) | ![waiting](assets/whale/previews/waiting.gif) | ![running](assets/whale/previews/running.gif) | ![jumping](assets/whale/previews/jumping.gif) |
+| [鲸鱼娘（精致版）](https://dsh-market.com/#pet:whale-girl-refined)（`whale-girl-refined`） | sprite2d | dsh-web | 内置图集 `assets/whale-refined/` |
+| [Miku](https://dsh-market.com/#pet:miku)（`miku`） | frames2d | stushansusu（MIT） | 仅经创意工坊分发，安装到 `$DSH_HOME/pets/miku/`；初音未来角色权利归 Crypton Future Media，适用 Piapro Character License |
+| [女仆鲸鱼娘](https://dsh-market.com/#pet:jyn)（`jyn`） | frames2d | stushansusu（MIT） | 内置 `assets/jyn/` |
 
-| waving | review | failed | 左右移动 |
+| 鲸鱼娘（精致版） | Miku | 女仆鲸鱼娘 |
+|---|---|---|
+| ![鲸鱼娘（精致版）](assets/whale-refined/previews/idle.gif) | ![Miku](assets/miku/previews/idle.webp) | ![女仆鲸鱼娘](assets/jyn/previews/idle.webp) |
+
+精灵宠物使用由 [hatch-pet](https://github.com/dsh2026) 流水线生成的 8 列图集，单元格为 192×208。经典图集包含 9 行动画；v2 图集额外增加 2 行，共提供 16 个观察方向。女仆鲸鱼娘改用目录式帧序列，因此它的其它玩法状态是各自独立的预览文件：
+
+| 害羞 | 工作 | 工作成功 | 睡眠 |
 |---|---|---|---|
-| ![waving](assets/whale/previews/waving.gif) | ![review](assets/whale/previews/review.gif) | ![failed](assets/whale/previews/failed.gif) | ![running-left](assets/whale/previews/running-left.gif) ![running-right](assets/whale/previews/running-right.gif) |
-
-内置的**蓝喉蜂虎**宠物随附同一套状态预览：
-
-| idle | waiting | running | jumping |
-|---|---|---|---|
-| ![idle](assets/blue-throated-bee-eater/previews/idle.gif) | ![waiting](assets/blue-throated-bee-eater/previews/waiting.gif) | ![running](assets/blue-throated-bee-eater/previews/running.gif) | ![jumping](assets/blue-throated-bee-eater/previews/jumping.gif) |
-
-| waving | review | failed | 左右移动 |
-|---|---|---|---|
-| ![waving](assets/blue-throated-bee-eater/previews/waving.gif) | ![review](assets/blue-throated-bee-eater/previews/review.gif) | ![failed](assets/blue-throated-bee-eater/previews/failed.gif) | ![running-left](assets/blue-throated-bee-eater/previews/running-left.gif) ![running-right](assets/blue-throated-bee-eater/previews/running-right.gif) |
-
-社区贡献的**星夜人偶**宠物（仅经创意工坊分发，Theater-ahyeon 以 CC-BY-NC-SA-4.0 贡献）随附同一套状态预览：
-
-| idle | waiting | running | jumping |
-|---|---|---|---|
-| ![idle](assets/starry-doll/previews/idle.gif) | ![waiting](assets/starry-doll/previews/waiting.gif) | ![running](assets/starry-doll/previews/running.gif) | ![jumping](assets/starry-doll/previews/jumping.gif) |
-
-| waving | review | failed | 左右移动 |
-|---|---|---|---|
-| ![waving](assets/starry-doll/previews/waving.gif) | ![review](assets/starry-doll/previews/review.gif) | ![failed](assets/starry-doll/previews/failed.gif) | ![running-left](assets/starry-doll/previews/running-left.gif) ![running-right](assets/starry-doll/previews/running-right.gif) |
+| ![害羞](assets/jyn/previews/shy.webp) | ![工作](assets/jyn/previews/work.webp) | ![工作成功](assets/jyn/previews/work-success.webp) | ![睡眠](assets/jyn/previews/sleep.webp) |
 
 ## 架构
 
