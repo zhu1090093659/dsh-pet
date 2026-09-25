@@ -86,7 +86,7 @@ node scripts/dsh-pet install <dir>            # 校验通过后拷入 $DSH_HOME/
 node scripts/dsh-pet install <dir> --force    # 覆盖同名已安装宠物
 ```
 
-非法条目永不覆盖可用宠物：它们被跳过并在设置（宠物栏目）给出诊断。注册表在宿主启动时构建一次；新增或修改宠物后重启 `dsh web` 生效。
+非法条目永不覆盖可用宠物：它们被跳过（设置页不再列出它们；用 `node scripts/dsh-pet validate <dir>` 查看目录被拒的原因）。注册表在宿主启动时构建一次；新增或修改宠物后重启 `dsh web` 生效。
 
 ## 语音包与面板定制（voice.json，宠物中心 M4，#677）
 
@@ -122,7 +122,7 @@ node scripts/dsh-pet install <dir> --force    # 覆盖同名已安装宠物
 - 合并优先级（逐槽）：宠物自带 voice.json > 全局 .voice.json > 内置文案。status/tools/whispers 逐键合并、panel 逐槽合并，任何层缺失的槽位回落下一层。
 - 占位符白名单：tools 允许 {tool} / {hint}；toolRemaining 允许 {n}；panel.stats 允许 {rank} / {n} / {points}；status、碎碎念与面板标签不允许任何占位符（含非法占位符的行被警告丢弃）。
 - 上限（warn-and-drop）：每池 64 行以内、每行 160 字符以内；面板标签 40 以内、统计 80 字符以内。
-- 坏包不影响宠物：voice.json 不是合法 JSON 或根不是对象 → 警告并整体忽略；其余问题逐槽警告丢弃。诊断显示在设置 → 宠物目录诊断。node scripts/dsh-pet validate <dir> 会把结构错误判为安装失败、内容问题列为警告。
+- 坏包不影响宠物：voice.json 不是合法 JSON 或根不是对象 → 警告并整体忽略；其余问题逐槽警告丢弃。node scripts/dsh-pet validate <dir> 会把结构错误判为安装失败、内容问题列为警告。
 - 语义细节：status/tools 的空池回落内置文案（场景行始终有话说）；whispers 的显式空数组是静音（关掉该通道）；面板 actions 为空数组 = 三个按钮全部隐藏；未覆盖的按钮/统计继续使用插件双语字典。旧的 whispers.generic / whispers.rules 字段已不再支持，会被忽略并给出警告。
 
 ## Live2D 宠物（renderer: live2d）
@@ -340,7 +340,7 @@ OUO Neko 使用扩展 v2 契约：图集为 1536×2288，在相同 9 行动画�
 - 资产服务对宠物目录与目标文件双双做 `realpath` 解析；symlink 越界一律拒绝（403）。文件读入内存前按类限大小（清单 64 KB、图像 20 MB；超限 413）。
 - Live2D 模型按闭包放行：仅清单、声明的主资产与 `.model3.json` 引用到的文件（引用先经穿越/绝对路径/URL 形态筛查）。
 - 插件从不下载可执行文件，也从不内置 Live2D Cubism Core。
-- 清单结构 fail-closed：未知字段或未知渲染器直接拒载，并在设置中给出诊断。
+- 清单结构 fail-closed：未知字段或未知渲染器直接拒载，而不是加载一只半坏的宠物（拒载原因可用 `node scripts/dsh-pet validate <dir>` 查看）。
 
 ## 数据遥测
 

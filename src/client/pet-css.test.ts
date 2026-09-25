@@ -2,6 +2,14 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
 const css = readFileSync(new URL('./pet.module.css', import.meta.url), 'utf8')
+const settingsCss = readFileSync(new URL('./settings-section.module.css', import.meta.url), 'utf8')
+
+describe('pet settings section css', () => {
+  it('carries no leftover registry diagnostics block after its removal', () => {
+    expect(settingsCss).not.toContain('.diagnostics')
+    expect(settingsCss).toContain('.sectionList')
+  })
+})
 
 describe('pet bubble typography (#1549)', () => {
   it('scales the bubble text and padding from the sprite-supplied variable', () => {

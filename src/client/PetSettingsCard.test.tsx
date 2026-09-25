@@ -46,7 +46,6 @@ describe('pet selection without a Host settings form', () => {
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input)
       if (path === '/api/pet/pets') return response([{ id: 'whale-girl', displayName: '鲸鱼娘' }, { id: 'jyn', displayName: '女仆鲸鱼娘' }])
-      if (path === '/api/pet/diagnostics') return response({ diagnostics: [] })
       if (path === '/api/pet/state') return response({ pet: { id: selected } })
       if (path === '/api/pet/set-pet') {
         selected = JSON.parse(String(init?.body)).petId as string
@@ -84,7 +83,6 @@ describe('pet selection without a Host settings form', () => {
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
       const path = String(input)
       if (path === '/api/pet/pets') return response([{ id: 'whale-girl', displayName: '鲸鱼娘' }, { id: 'jyn', displayName: '女仆鲸鱼娘' }])
-      if (path === '/api/pet/diagnostics') return response({ diagnostics: [] })
       if (path === '/api/pet/state') return response({ pet: { id: 'whale-girl' } })
       if (path === '/api/pet/set-pet') return response({ ok: false, error: 'unknown-pet' })
       throw new Error('unexpected request: ' + path)

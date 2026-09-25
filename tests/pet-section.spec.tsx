@@ -146,6 +146,18 @@ describe('PetSettingsSection', () => {
     ])
   })
 
+  it('user sees no pet directory diagnostics block in the settings page', async () => {
+    // Given the registry serves its pets to the settings page
+    render(<PetSettingsSection {...sectionProps(new FakeScope({ petId: 'whale-girl' }))} />)
+    await waitFor(() => {
+      expect(screen.getByLabelText('Pet').textContent).toContain('鲸鱼娘（原版）')
+    })
+
+    // Then the card carries no diagnostics block and never asks the host for one
+    expect(document.querySelector('[data-dsh-part="diagnostics"]')).toBeNull()
+    expect(fetch).not.toHaveBeenCalledWith('/api/pet/diagnostics')
+  })
+
   it('user sees the save reported as failed when the deployment refuses the write', async () => {
     // Given a served form whose namespace mutation the deployment refuses
     const scope = new FakeScope({ size: 160 })

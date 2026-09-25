@@ -78,21 +78,29 @@ describe('PetSettingsCardController timer cleanup', () => {
   it('cancels the pending retry timer on dispose', async () => {
     const fetchMock = vi.fn(async () => new Response('x', { status: 500 }))
     vi.stubGlobal('fetch', fetchMock)
+    const petRequests = () => fetchMock.mock.calls.filter(call => String(call[0]) === '/api/pet/pets').length
 
     const controller = new PetSettingsCardController(fakeScope())
     await vi.advanceTimersByTimeAsync(0)
-    expect(fetchMock).toHaveBeenCalledTimes(3)
+    // Given the first registry request failed and scheduled its 3s retry
+    expect(petRequests()).toBe(1)
 
+    // When the section is disposed before the retry fires
     controller.dispose()
     await vi.advanceTimersByTimeAsync(4000)
-    expect(fetchMock).toHaveBeenCalledTimes(3)
+
+    // Then the cancelled retry never reaches the network
+    expect(petRequests()).toBe(1)
   })
 
   it('does not publish a fetch that settles after dispose', async () => {
     let resolvePets: (response: Response) => void = () => {}
     const fetchMock = vi.fn((input: string) => {
       if (input === '/api/pet/pets') return new Promise<Response>(resolve => { resolvePets = resolve })
-      return Promise.resolve(new Response(JSON.stringify({ diagnostics: [] }), { status: 200 }))
+      if (input === '/api/pet/state') {
+        return Promise.resolve(new Response(JSON.stringify({ pet: { id: 'whale-girl' } }), { status: 200 }))
+      }
+      throw new Error('unexpected request: ' + input)
     })
     vi.stubGlobal('fetch', fetchMock)
 

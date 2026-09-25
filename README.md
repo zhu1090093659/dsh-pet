@@ -86,7 +86,7 @@ node scripts/dsh-pet install <dir>            # validate, then copy into $DSH_HO
 node scripts/dsh-pet install <dir> --force    # overwrite an existing same-id install
 ```
 
-Invalid entries never override a working pet: they are skipped with a diagnostic listed in the settings (Pet section). The registry is built once at host startup; add or change a pet, then restart `dsh web`.
+Invalid entries never override a working pet: they are skipped (the settings page no longer lists them; run `node scripts/dsh-pet validate <dir>` to see why a directory was refused). The registry is built once at host startup; add or change a pet, then restart `dsh web`.
 
 ## Voice packs and panel chrome (voice.json, pet-center M4, #677)
 
@@ -122,7 +122,7 @@ Every word in the thought bubble (status / tool / whisper copy) and the hover pa
 - Merge precedence (per slot): the pet voice.json > the global .voice.json > built-in copy. status/tools/whispers merge per key, panel merges per slot; any slot a layer misses falls through.
 - Placeholder whitelist: tools accept {tool} / {hint}; toolRemaining accepts {n}; panel.stats accept {rank} / {n} / {points}; status, whisper and panel-label lines accept no placeholders (lines carrying one are dropped with a warning).
 - Caps (warn-and-drop): at most 64 lines per pool and 160 characters per line; panel labels 40 and stats 80 characters.
-- A broken pack never breaks the pet: voice.json that is not valid JSON or whose root is not an object is ignored with a warning; every other issue drops its slot only. Diagnostics appear under Settings > Pet directory diagnostics. node scripts/dsh-pet validate <dir> fails installs on structure errors and lists content issues as warnings.
+- A broken pack never breaks the pet: voice.json that is not valid JSON or whose root is not an object is ignored with a warning; every other issue drops its slot only. node scripts/dsh-pet validate <dir> fails installs on structure errors and lists content issues as warnings.
 - Semantics: an empty status/tools pool falls back to the built-in copy (a scene line always renders); an explicit empty whisper pool mutes that channel; an empty panel actions array hides all three buttons; uncovered buttons and stats keep the plugin bilingual dictionary. Legacy whispers.generic / whispers.rules fields are no longer supported and are ignored with a warning.
 
 ## Live2D pets (renderer: live2d)
@@ -340,7 +340,7 @@ OUO Neko uses the extended v2 contract: a 1536×2288 atlas with the same 9 anima
 - Asset serving resolves both the pet directory and the candidate file through `realpath`; symlink escapes are refused (403). Files are size-capped before being read into memory (manifest 64 KB, imagery 20 MB; over-cap answers 413).
 - Live2D models are served by closure: only the manifest, the declared primary assets, and the files the `.model3.json` references (each screened against traversal, absolute and URL forms).
 - The plugin never downloads executables and never bundles the Live2D Cubism Core.
-- Manifests are fail-closed on structure: unknown fields or renderers reject the entry with a diagnostic shown in settings.
+- Manifests are fail-closed on structure: unknown fields or renderers reject the entry instead of loading a half-broken pet (run `node scripts/dsh-pet validate <dir>` to read the rejection reason).
 
 ## Telemetry
 
