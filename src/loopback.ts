@@ -8,28 +8,10 @@
  * Semantics: RFC 5735 IPv4 127/8, ::1, IPv4-mapped ::ffff:127/8 (matching the
  * remote-web-ui gate), localhost hostnames, plus the browser same-origin
  * markers (sec-fetch-site and Origin) for the request-level fence.
- *
- * The Origin check accepts a page an application on THIS machine delivered. The
- * official DSH Desktop shell serves the Web GUI from `dsh-app://app/` and its
- * host-route fetches reach the loopback server with that origin, which can never
- * equal the loopback Host header; requiring equality refused every fenced family
- * route there (the task board panel reported "Host 操作失败: 登录状态已失效",
- * and the git graph answered `forbidden: loopback-only`) while the same page
- * worked over an http origin. The scheme rule mirrors the remote-channel
- * contract (packages/dsh-remote-web-ui/src/remote-channel-rules.ts, issue
- * #1682): the network transports and the documents they mint are the web side,
- * every other scheme is served by an application on this machine.
  * @module dsh-web-shared/host/loopback
  */
 
 import type { IncomingMessage } from 'node:http'
-
-/**
- * Schemes that can deliver a page a remote party controls: the network
- * transports plus the documents a network page can mint. A page on any other
- * scheme was delivered by an application on this machine.
- */
-const WEB_PAGE_PROTOCOLS: readonly string[] = ['http:', 'https:', 'blob:', 'data:', 'about:', 'filesystem:']
 
 /** IPv4 127/8 predicate (four decimal octets, first == 127). */
 export function isIPv4Loopback(v4: string): boolean {
@@ -55,31 +37,9 @@ export function isLoopbackHostname(hostname: string): boolean {
 }
 
 /**
- * Whether an Origin header names a page served by an application on this
- * machine rather than a document a network party controls.
- * @param origin - the raw Origin header value.
- * @returns true for a parsable origin on a scheme no network transport serves.
- */
-export function isApplicationPageOrigin(origin: string): boolean {
-  let url: URL
-  try {
-    url = new URL(origin)
-  } catch {
-    return false
-  }
-  return url.protocol !== '' && !WEB_PAGE_PROTOCOLS.includes(url.protocol)
-}
-
-/**
  * Request-level trust fence: a loopback socket address AND a loopback Host
  * header, plus browser same-origin markers. The socket address is
  * authoritative; X-Forwarded-For is never trusted.
- *
- * An Origin is accepted when it names the loopback Host itself (an ordinary
- * same-origin page) or when it was delivered by an application on this machine
- * (see {@link isApplicationPageOrigin}) - the desktop shell's own page is the
- * one case that cannot match the Host header. Every network-page origin keeps
- * the equality requirement, so a cross-origin web page is still refused.
  */
 export function isLoopbackRequest(request: IncomingMessage): boolean {
   if (!isLoopbackAddress(request.socket.remoteAddress)) return false
@@ -95,7 +55,6 @@ export function isLoopbackRequest(request: IncomingMessage): boolean {
   if (request.headers['sec-fetch-site'] === 'cross-site') return false
   const origin = request.headers.origin
   if (origin === undefined) return true
-  if (isApplicationPageOrigin(origin)) return true
   try {
     return new URL(origin).host === hostUrl.host
   } catch {
