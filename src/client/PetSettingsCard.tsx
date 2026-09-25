@@ -84,13 +84,22 @@ async function fetchPetChoices(): Promise<PetChoice[]> {
   return (await response.json()) as PetChoice[]
 }
 
-/** Read the selection from the same persisted state the pet renders. */
-async function fetchSelectedPetId(): Promise<string> {
+/** The persisted state the fallback mirrors: the selection and its visibility. */
+interface PetState {
+  /** Selected registry id. */
+  petId: string
+  /** Whether the pet is currently rendered. */
+  visible: boolean
+}
+
+/** Read the selection and visibility from the same persisted state the pet renders. */
+async function fetchPetState(): Promise<PetState> {
   const response = await fetch('/api/pet/state')
   if (!response.ok) throw new Error('pet state failed: ' + response.status)
-  const body = (await response.json()) as { pet?: { id?: unknown } }
+  const body = (await response.json()) as { pet?: { id?: unknown }; display?: { visible?: unknown } }
   if (typeof body.pet?.id !== 'string') throw new Error('pet state has no selected pet')
-  return body.pet.id
+  // A Host without the display block predates the visibility switch; the pet shows.
+  return { petId: body.pet.id, visible: body.display?.visible !== false }
 }
 
 /** Bridges the 'pet' scope onto the card's staged form. */
@@ -103,7 +112,9 @@ export class PetSettingsCardController {
   private readonly petChoices: string[] = []
   private readonly petLabels = new Map<string, string>()
   private selectedPetId: string | undefined
+  private selectedVisible: boolean | undefined
   private stagedPetId: string | undefined
+  private stagedVisible: boolean | undefined
   private savingPet = false
   private petSaveFailed = false
   private loaded = false
@@ -133,7 +144,7 @@ export class PetSettingsCardController {
       this.pendingTimer = undefined
       if (this.disposed) return
       void this.loadPets()
-      void this.loadSelectedPet()
+      void this.loadPetState()
     }, 0)
   }
 
@@ -160,11 +171,12 @@ export class PetSettingsCardController {
     }
   }
 
-  private async loadSelectedPet(): Promise<void> {
+  private async loadPetState(): Promise<void> {
     try {
-      const petId = await fetchSelectedPetId()
+      const state = await fetchPetState()
       if (this.disposed) return
-      this.selectedPetId = petId
+      this.selectedPetId = state.petId
+      this.selectedVisible = state.visible
       this.store.set(this.projection())
     } catch {
       // The Host form remains the authority when it is available. An absent
@@ -177,24 +189,58 @@ export class PetSettingsCardController {
     return shell.available && !shell.exposed && this.selectedPetId !== undefined
   }
 
-  private async savePetSelection(): Promise<void> {
+  /**
+   * The visibility the fallback switch renders: the staged draft when the user
+   * moved it, the persisted value otherwise. There is no user layer to override
+   * here, so the field is never marked overridden.
+   */
+  private fallbackVisible(): CardFieldState {
+    const value = this.stagedVisible ?? this.selectedVisible
+    return { text: value === undefined ? '' : String(value), overridden: false, invalid: false }
+  }
+
+  /**
+   * Persist the staged selection and visibility through the pet API — the only
+   * writer available when the aggregate shell serves this card, since there is
+   * no Host settings form to mutate — then confirm the read-back before the
+   * drafts are cleared.
+   */
+  private async saveFallback(): Promise<void> {
     const petId = this.stagedPetId
-    if (petId === undefined || this.savingPet || !this.petChoices.includes(petId)) return
+    const visible = this.stagedVisible
+    if (this.savingPet) return
+    if (petId === undefined && visible === undefined) return
+    if (petId !== undefined && !this.petChoices.includes(petId)) return
     this.savingPet = true
     this.petSaveFailed = false
     this.store.set(this.projection())
     try {
-      const response = await fetch('/api/pet/set-pet', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ petId }),
-      })
-      const result = (await response.json()) as { ok?: boolean; petId?: string }
-      if (!response.ok || result.ok !== true || result.petId !== petId || await fetchSelectedPetId() !== petId) {
-        throw new Error('pet selection was not persisted')
+      if (petId !== undefined) {
+        const response = await fetch('/api/pet/set-pet', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ petId }),
+        })
+        const result = (await response.json()) as { ok?: boolean; petId?: string }
+        if (!response.ok || result.ok !== true || result.petId !== petId) {
+          throw new Error('pet selection was not persisted')
+        }
       }
-      this.selectedPetId = petId
+      if (visible !== undefined) {
+        const response = await fetch('/api/pet/set-visible', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ visible }),
+        })
+        if (!response.ok) throw new Error('pet visibility was not persisted')
+      }
+      const persisted = await fetchPetState()
+      if (petId !== undefined && persisted.petId !== petId) throw new Error('pet selection was not persisted')
+      if (visible !== undefined && persisted.visible !== visible) throw new Error('pet visibility was not persisted')
+      this.selectedPetId = persisted.petId
+      this.selectedVisible = persisted.visible
       if (this.stagedPetId === petId) this.stagedPetId = undefined
+      if (this.stagedVisible === visible) this.stagedVisible = undefined
     } catch {
       this.petSaveFailed = true
     } finally {
@@ -212,7 +258,8 @@ export class PetSettingsCardController {
       ...(fallback ? {
         exposed: true,
         writable: true,
-        dirty: this.stagedPetId !== undefined && this.stagedPetId !== this.selectedPetId,
+        dirty: this.stagedPetId !== undefined && this.stagedPetId !== this.selectedPetId
+          || this.stagedVisible !== undefined && this.stagedVisible !== this.selectedVisible,
         invalid: this.stagedPetId !== undefined && !this.petChoices.includes(this.stagedPetId),
         saving: this.savingPet,
         failed: this.petSaveFailed,
@@ -221,7 +268,7 @@ export class PetSettingsCardController {
       petSelectionFallback: fallback,
       enabled: this.form.field('enabled'),
       decorationEnabled: this.form.field('decorationEnabled'),
-      visible: this.form.field('visible'),
+      visible: fallback ? this.fallbackVisible() : this.form.field('visible'),
       size: this.form.field('size'),
       right: this.form.field('right'),
       bottom: this.form.field('bottom'),
@@ -245,22 +292,25 @@ export class PetSettingsCardController {
       hooks: { petSettingsCard: this.store },
       edit: (field, value) => {
         if (!this.fallback()) return actions.edit(field, value)
-        if (field !== 'petId') return
-        this.stagedPetId = value === '' ? undefined : value
+        if (field === 'petId') this.stagedPetId = value === '' ? undefined : value
+        else if (field === 'visible') this.stagedVisible = value === '' ? undefined : value === 'true'
+        else return
         this.petSaveFailed = false
         this.store.set(this.projection())
       },
       resetField: (field) => {
         if (!this.fallback()) return actions.resetField(field)
-        if (field !== 'petId') return
-        this.stagedPetId = undefined
+        if (field === 'petId') this.stagedPetId = undefined
+        else if (field === 'visible') this.stagedVisible = undefined
+        else return
         this.petSaveFailed = false
         this.store.set(this.projection())
       },
-      save: () => { if (this.fallback()) void this.savePetSelection(); else actions.save() },
+      save: () => { if (this.fallback()) void this.saveFallback(); else actions.save() },
       discard: () => {
         if (!this.fallback()) return actions.discard()
         this.stagedPetId = undefined
+        this.stagedVisible = undefined
         this.petSaveFailed = false
         this.store.set(this.projection())
       },
@@ -348,7 +398,7 @@ export function PetSettingsCard(props: PetSettingsCardProps) {
         onEdit={(text) => { props.edit('petId', text) }}
         onReset={() => { props.resetField('petId') }}
       />
-      {state.petSelectionFallback ? null : <BooleanField
+      <BooleanField
         id="settings-pet-visible"
         label={t('settings.visible')}
         hint={t('settings.visibleHint')}
@@ -359,7 +409,7 @@ export function PetSettingsCard(props: PetSettingsCardProps) {
         {...state.visible}
         onEdit={(text) => { props.edit('visible', text) }}
         onReset={() => { props.resetField('visible') }}
-      />}
+      />
       {state.petSelectionFallback ? null : <ValueField
         id="settings-pet-size"
         label={t('settings.size')}
