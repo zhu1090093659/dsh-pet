@@ -76,7 +76,10 @@ describe('PetSettingsCardController timer cleanup', () => {
   })
 
   it('cancels the pending retry timer on dispose', async () => {
-    const fetchMock = vi.fn(async () => new Response('x', { status: 500 }))
+    // The parameter is typed so `mock.calls` elements are tuples carrying the
+    // request argument; an argument-less vi.fn() infers `[]` and `call[0]`
+    // stops compiling.
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL) => new Response('x', { status: 500 }))
     vi.stubGlobal('fetch', fetchMock)
     const petRequests = () => fetchMock.mock.calls.filter(call => String(call[0]) === '/api/pet/pets').length
 
