@@ -32,6 +32,10 @@ Use Conventional Commits (`feat(pet): ...`, `fix(pet): ...`). Do not use emoji
 in code, comments, documentation, or commit messages. Behaviour changes need a
 test; UI-only changes need at least a mount assertion.
 
+Non-trivial changes also add or update a decision record under
+[`.agents/notes/`](.agents/notes/README.md); that README owns the layout,
+the format and when a record is required.
+
 ## Release
 
 The version is per-repository: it advances here and no longer with the dsh-web
