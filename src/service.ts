@@ -121,6 +121,8 @@ export interface PetSettingsSection {
   bottom: number
   /** Bubble typography multiplier (#1549); see PetDisplayConfig. */
   bubbleScale?: number
+  /** Whether the pet falls and bounces around the viewport; see PetDisplayConfig. */
+  physics?: boolean
   /** Master switch for the plugin (browser half + host routes). */
   enabled?: boolean
   /**

@@ -22,6 +22,14 @@ import type { GameplayBus } from './gameplay-hud.ts'
 import type { PetRoamDirection } from '../gameplay.ts'
 import type { DecorationView } from '../contracts/status-decoration.ts'
 import type { PetFeedback } from './pet-store.ts'
+import {
+  DEFAULT_PET_PHYSICS,
+  petPhysicsBodyAt,
+  petSquashScale,
+  stepPetPhysics,
+  type PetPhysicsBody,
+  type PetPhysicsBounds,
+} from './pet-physics.ts'
 import { framePosition, rowOfTrack, trimTrack } from './spritesheet.ts'
 import { createSequenceTimeline } from './sequences.ts'
 import { animationForPhase, type ActivityPhase, type PetAnimation } from '../state.ts'
@@ -284,6 +292,19 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
   const composingRef = useRef(false)
   const [dragPos, setDragPos] = useState<{ right: number; bottom: number } | null>(null)
   const dragRef = useRef<{ startX: number; startY: number; right: number; bottom: number } | null>(null)
+  // Bounce mode (display.physics). Declared up here because `pos` reads
+  // `physicsPos` while rendering — the integration itself lives further down,
+  // next to the walk it replaces.
+  const physicsOn = display.physics === true
+  const wrapRef = useRef<HTMLDivElement | null>(null)
+  const physicsRef = useRef<PetPhysicsBody | null>(null)
+  const physicsRafRef = useRef(0)
+  const dragSampleRef = useRef<{ right: number; bottom: number; at: number } | null>(null)
+  const dragVelRef = useRef<{ vx: number; vy: number }>({ vx: 0, vy: 0 })
+  // The resting inset React owns. During a flight the loop writes the DOM
+  // straight (like the frame loop above), so this only changes when the pet
+  // settles — a re-render mid-flight therefore cannot fight the integrator.
+  const [physicsPos, setPhysicsPos] = useState<{ right: number; bottom: number } | null>(null)
   const hideTimerRef = useRef<number | null>(null)
   const frameRef = useRef<{ track: PetAnimation | null; index: number; elapsed: number }>({
     track: null,
@@ -494,12 +515,26 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
   // "window is not defined" (slow-runner timing, PetSprite.test.tsx).
   useEffect(() => () => clearHideTimer(), [])
 
+  /** Where the pet is showing right now, a physics flight included. */
+  const liveInset = (): { right: number; bottom: number } => {
+    const flying = physicsRef.current
+    if (physicsOn && flying !== null) return { right: flying.right, bottom: flying.bottom }
+    return dragPosRef.current ?? { right: display.right, bottom: display.bottom }
+  }
+
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>): void => {
     if (props.dragDisabled === true) return
     endWalk(false)
     e.preventDefault()
     ;(e.target as HTMLElement).setPointerCapture?.(e.pointerId)
-    const current = dragPos ?? { right: display.right, bottom: display.bottom }
+    const current = liveInset()
+    if (physicsOn) {
+      // Grabbing catches the pet mid-flight: the loop stops, the pointer owns
+      // the position until the release hands it back with the flick.
+      stopPhysics()
+      dragSampleRef.current = { ...current, at: performance.now() }
+      dragVelRef.current = { vx: 0, vy: 0 }
+    }
     dragRef.current = { startX: e.clientX, startY: e.clientY, ...current }
     draggedRef.current = false
     setHovered(false)
@@ -515,18 +550,45 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
     }
     const right = clampOffset(drag.right - dx, window.innerWidth - 40)
     const bottom = clampOffset(drag.bottom - dy, window.innerHeight - 40)
+    // Sample the flick so the release can throw the pet with it. Insets, not
+    // pointer coordinates: that is the space the integrator runs in.
+    const at = performance.now()
+    const sample = dragSampleRef.current
+    if (physicsOn && sample !== null && at > sample.at) {
+      const seconds = (at - sample.at) / 1000
+      dragVelRef.current = { vx: (right - sample.right) / seconds, vy: (bottom - sample.bottom) / seconds }
+    }
+    dragSampleRef.current = { right, bottom, at }
     setDragPos({ right, bottom })
   }
   const onPointerUp = (): void => {
     if (dragRef.current === null) return
     dragRef.current = null
     if (draggedRef.current) props.onDraggingChange?.(false)
-    if (dragPos !== null) props.onDragEnd(dragPos.right, dragPos.bottom)
+    const landed = dragPos
+    dragSampleRef.current = null
+    if (landed === null) return
+    if (physicsOn) {
+      // Hand the position to the integrator with the flick as its velocity;
+      // React takes the settled inset back when the body comes to rest, so a
+      // reload finds the pet where it stopped.
+      const velocity = dragVelRef.current
+      dragVelRef.current = { vx: 0, vy: 0 }
+      setPhysicsPos({ right: landed.right, bottom: landed.bottom })
+      setDragPos(null)
+      startPhysics({ ...petPhysicsBodyAt(landed.right, landed.bottom), vx: velocity.vx, vy: velocity.vy })
+      return
+    }
+    props.onDragEnd(landed.right, landed.bottom)
   }
 
-  const pos = dragPos ?? { right: display.right, bottom: display.bottom }
+  const pos = dragPos ?? physicsPos ?? { right: display.right, bottom: display.bottom }
   const spriteWidth = Math.round(cell.width * spriteScale)
   const spriteHeight = Math.round(cell.height * spriteScale)
+  // Read through a ref inside the loop so a resize never restarts (and thus
+  // re-drops) the pet.
+  const sizeRef = useRef({ width: spriteWidth, height: spriteHeight })
+  sizeRef.current = { width: spriteWidth, height: spriteHeight }
 
   // --- roaming ---------------------------------------------------------
   // The gameplay HUD rolls when the pet may wander; this side owns the motion
@@ -555,6 +617,9 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
     const bus = props.bus
     if (bus === undefined) return undefined
     bus.walk = (direction: PetRoamDirection, distance: number, speed: number): number => {
+      // The bounce owns the position while it is on: a walk fighting the
+      // integrator would slide the pet through the floor.
+      if (physicsOn) return 0
       if (dragRef.current !== null || walkRafRef.current !== 0) return 0
       const current = dragPosRef.current ?? { right: display.right, bottom: display.bottom }
       // Keep the whole sprite on screen with an 8px breathing margin. `right`
@@ -613,7 +678,96 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
       walkTargetRef.current = null
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- one registration per sprite
-  }, [props.bus, definition.id, display.right, display.bottom, spriteWidth])
+  }, [props.bus, definition.id, display.right, display.bottom, spriteWidth, physicsOn, display.physics])
+
+  // --- bounce physics ----------------------------------------------------
+  // The optional bounce mode (display.physics). Like the walk above, the client
+  // owns the motion and writes right/bottom plus the squash straight to the DOM
+  // — the same "no per-frame React state" rule the frame loop follows. React
+  // keeps the LAST RESTING inset, so a re-render mid-flight cannot fight the
+  // integrator: \`pos\` only changes when the pet actually settles.
+  const stopPhysics = (): void => {
+    if (physicsRafRef.current !== 0) {
+      window.cancelAnimationFrame(physicsRafRef.current)
+      physicsRafRef.current = 0
+    }
+  }
+
+  const physicsBounds = (): PetPhysicsBounds => {
+    // The same 8px breathing margin the walk keeps, so the whole sprite stays
+    // on screen instead of hanging off an edge.
+    const margin = 8
+    const { width, height } = sizeRef.current
+    return {
+      minRight: margin,
+      maxRight: Math.max(margin, window.innerWidth - width - margin),
+      minBottom: margin,
+      maxBottom: Math.max(margin, window.innerHeight - height - margin),
+    }
+  }
+
+  /** Paint one pose (position + squash) without a React render. */
+  const paintPhysics = (body: PetPhysicsBody): void => {
+    const float = floatRef.current
+    if (float !== null) {
+      float.style.right = body.right + 'px'
+      float.style.bottom = body.bottom + 'px'
+    }
+    const wrap = wrapRef.current
+    if (wrap !== null) {
+      const scale = petSquashScale(body.squash)
+      wrap.style.transform = 'scale(' + scale.sx.toFixed(4) + ', ' + scale.sy.toFixed(4) + ')'
+    }
+  }
+
+  /** Drop the pet, or throw it with an inherited velocity. */
+  const startPhysics = (body: PetPhysicsBody): void => {
+    if (!physicsOn) return
+    physicsRef.current = body
+    if (physicsRafRef.current !== 0) return
+    let last = performance.now()
+    const tick = (now: number): void => {
+      const current = physicsRef.current
+      if (current === null) {
+        physicsRafRef.current = 0
+        return
+      }
+      const step = stepPetPhysics(current, (now - last) / 1000, physicsBounds(), DEFAULT_PET_PHYSICS)
+      last = now
+      physicsRef.current = step.body
+      paintPhysics(step.body)
+      if (step.body.resting) {
+        // Park the loop instead of spinning a rAF on a sleeping pet, and hand
+        // the resting inset back to React (and to the host) exactly once.
+        physicsRafRef.current = 0
+        setPhysicsPos({ right: step.body.right, bottom: step.body.bottom })
+        props.onDragEnd(Math.round(step.body.right), Math.round(step.body.bottom))
+        return
+      }
+      physicsRafRef.current = window.requestAnimationFrame(tick)
+    }
+    physicsRafRef.current = window.requestAnimationFrame(tick)
+  }
+
+  useEffect(() => {
+    if (!physicsOn) {
+      stopPhysics()
+      physicsRef.current = null
+      setPhysicsPos(null)
+      return undefined
+    }
+    // Switching it on drops the pet from wherever it is currently showing.
+    const from = physicsRef.current ?? dragPosRef.current ?? { right: display.right, bottom: display.bottom }
+    setPhysicsPos(null)
+    startPhysics(petPhysicsBodyAt(from.right, from.bottom))
+    return () => {
+      stopPhysics()
+      physicsRef.current = null
+      if (wrapRef.current !== null) wrapRef.current.style.transform = ''
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one launch per pet / per switch
+  }, [physicsOn, definition.id])
+
   // Bubble typography follows the sprite's own scale (#1549), bounded so a
   // shrunk pet never carries unreadably small text.
   const bubbleScale = bubbleScaleFor(display)
@@ -724,8 +878,11 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
       }}
     >
       <div
+        ref={wrapRef}
         className={styles.spriteWrap}
-        style={{ width: spriteWidth, height: spriteHeight }}
+        // The squash pivots on the feet, so a landing flattens the pet onto the
+        // floor instead of shrinking it around its middle.
+        style={{ width: spriteWidth, height: spriteHeight, transformOrigin: '50% 100%' }}
       >
         <div
           ref={spriteRef}

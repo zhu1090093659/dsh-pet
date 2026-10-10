@@ -33,6 +33,8 @@ export interface PetSettings {
   bottom?: number
   /** Bubble typography multiplier on the automatic size following (#1549). */
   bubbleScale?: number
+  /** Whether the pet falls and bounces around the viewport. */
+  physics?: boolean
   /** Selected pet id (a registry entry). */
   petId?: string
   /** Status-decoration master switch (pet-center M5, #567). */
@@ -57,6 +59,8 @@ export interface PetSettingsCardState extends CardShell {
   bottom: CardFieldState
   /** Bubble typography multiplier. */
   bubbleScale: CardFieldState
+  /** Bounce mode. */
+  physics: CardFieldState
   /** Selected pet. */
   petId: CardFieldState
   /** Status-decoration master switch. */
@@ -149,6 +153,7 @@ export class PetSettingsCardController {
       numberField('right'),
       numberField('bottom'),
       numberField('bubbleScale'),
+      booleanField('physics'),
       choiceField('petId', this.petChoices),
     ])
     this.store = this.form.bind(() => this.projection())
@@ -290,6 +295,7 @@ export class PetSettingsCardController {
       right: this.form.field('right'),
       bottom: this.form.field('bottom'),
       bubbleScale: this.form.field('bubbleScale'),
+    physics: this.form.field('physics'),
       petId: fallback
         ? { text: this.stagedPetId ?? this.selectedPetId ?? '', overridden: false, invalid: this.stagedPetId !== undefined && !this.petChoices.includes(this.stagedPetId) }
         : configuredPet.text === '' && this.selectedPetId !== undefined
@@ -440,6 +446,18 @@ export function PetSettingsCard(props: PetSettingsCardProps) {
         {...state.visible}
         onEdit={(text) => { props.edit('visible', text) }}
         onReset={() => { props.resetField('visible') }}
+      />
+      <BooleanField
+        id="settings-pet-physics"
+        label={t('settings.physics')}
+        hint={t('settings.physicsHint')}
+        inheritLabel={t('settings.inherit')}
+        onLabel={t('settings.on')}
+        offLabel={t('settings.off')}
+        {...fieldProps}
+        {...state.physics}
+        onEdit={(text) => { props.edit('physics', text) }}
+        onReset={() => { props.resetField('physics') }}
       />
       {state.petSelectionFallback ? null : <ValueField
         id="settings-pet-size"

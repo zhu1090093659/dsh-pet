@@ -118,7 +118,7 @@ function snapshot(view: PetGameplayStateView, skin?: string, phase: ActivityPhas
     sessionActive: false,
     sessions: [],
     affinity: { points: 0, rank: '幼鲸', rankEmoji: '*', pets: 0, feeds: 0, turns: 0, petCooldown: false, feedCooldown: false },
-    display: { visible: true, size: 160, right: 24, bottom: 20, bubbleScale: 1 },
+    display: { visible: true, size: 160, right: 24, bottom: 20, bubbleScale: 1, physics: false },
     pet: { id: 'miku', displayName: 'Miku', description: '' },
     name: 'Miku',
     treats: { stocked: 0, max: 5 },
@@ -130,7 +130,7 @@ function snapshot(view: PetGameplayStateView, skin?: string, phase: ActivityPhas
 interface Harness {
   store: PetStoreInstance
   bus: GameplayBus
-  api: GameplayApi & { touch: ReturnType<typeof vi.fn>; setMode: ReturnType<typeof vi.fn>; workTick: ReturnType<typeof vi.fn>; buy: ReturnType<typeof vi.fn>; setSkin: ReturnType<typeof vi.fn> }
+  api: GameplayApi & { touch: ReturnType<typeof vi.fn>; setMode: ReturnType<typeof vi.fn>; workTick: ReturnType<typeof vi.fn>; buy: ReturnType<typeof vi.fn>; setSkin: ReturnType<typeof vi.fn>; setPhysics: ReturnType<typeof vi.fn> }
   setTrack: ReturnType<typeof vi.fn>
   drag: ReturnType<typeof createDragStream>
   setView: (view: PetGameplayStateView) => void
@@ -150,6 +150,7 @@ function harness(view: PetGameplayStateView = gameplayView(), definition: PetDef
     workTick: vi.fn(async () => ok({ outcome: 'success' as const, view: gameplayView({ mode: 'work' }) })),
     buy: vi.fn(async () => ok({ view: gameplayView() })),
     setSkin: vi.fn(async () => ({ ok: true })),
+    setPhysics: vi.fn(async () => ({ ok: true })),
   }
   const setView = (next: PetGameplayStateView): void => store.actions.setSnapshot(snapshot(next))
   render(<GameplayHud definition={definition} store={store} api={api} bus={bus} drag={drag} t={t} />)
@@ -354,6 +355,23 @@ describe('GameplayHud', () => {
     // Second tap landed inside the lock window? First tap re-locked; third is the boost.
     const calls = h.api.touch.mock.calls.map(args => args[0])
     expect(calls[0]).toBe('head')
+  })
+
+  it('user toggles the bounce switch from the gameplay menu', () => {
+    // Given a pet with the bounce off; when the menu row is pressed; then the
+    // host is asked to switch it on, and the row label follows the state the
+    // next snapshot reports (so a reload cannot leave the label lying).
+    const h = harness()
+    act(() => { h.bus.openCard?.() })
+    fireEvent.click(screen.getByText('弹跳物理：关'))
+    expect(h.api.setPhysics).toHaveBeenCalledWith(true)
+    act(() => {
+      h.store.actions.setSnapshot({
+        ...snapshot(gameplayView()),
+        display: { visible: true, size: 160, right: 24, bottom: 20, bubbleScale: 1, physics: true },
+      })
+    })
+    expect(screen.getByText('弹跳物理：开')).toBeDefined()
   })
 
   it('ignores taps outside the hit box', async () => {

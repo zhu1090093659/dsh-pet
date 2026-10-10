@@ -138,6 +138,7 @@ export const PET_FORM_DEFAULTS = {
   right: 24,
   bottom: 20,
   bubbleScale: 1,
+  physics: false,
   petId: DEFAULT_PET_ID,
   enabled: true,
   decorationEnabled: true,
@@ -174,6 +175,8 @@ export interface PetFormConfig {
   bottom?: LiveField<number>
   /** Bubble typography multiplier on the automatic size following (#1549). */
   bubbleScale?: LiveField<number>
+  /** Whether the pet bounces around the viewport instead of floating still. */
+  physics?: LiveField<boolean>
   /** Selected pet id (a registry entry; the service clamps stale values). */
   petId?: LiveField<string | undefined>
 }
@@ -199,6 +202,7 @@ export const Config = z.object({
   right: z.number().step(1).min(0).max(DISPLAY_INSET_MAX).default(PET_FORM_DEFAULTS.right).volatile(),
   bottom: z.number().step(1).min(0).max(DISPLAY_INSET_MAX).default(PET_FORM_DEFAULTS.bottom).volatile(),
   bubbleScale: z.number().step(0.05).min(BUBBLE_SCALE_MIN).max(BUBBLE_SCALE_MAX).default(PET_FORM_DEFAULTS.bubbleScale).volatile(),
+  physics: z.boolean().default(PET_FORM_DEFAULTS.physics).volatile(),
   // An absent profile choice must leave the selection persisted in pet.json
   // intact across restarts (aggregate rows have no served Host pet form).
   petId: z.string().volatile(),
@@ -300,6 +304,7 @@ export function petSettingsSection(
     right: displayField('right', config.right, persisted, committed),
     bottom: displayField('bottom', config.bottom, persisted, committed),
     bubbleScale: displayField('bubbleScale', config.bubbleScale, persisted, committed),
+    physics: displayField('physics', config.physics, persisted, committed),
     petId: readLive(config.petId, fallbackPetId),
     enabled,
     decorationEnabled: readLive(config.decorationEnabled, PET_FORM_DEFAULTS.decorationEnabled),

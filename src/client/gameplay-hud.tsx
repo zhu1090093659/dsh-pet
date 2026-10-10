@@ -30,6 +30,12 @@ export interface GameplayApi {
    * `undefined` restores the pet's default look).
    */
   setSkin: (skin: string | undefined) => Promise<{ ok: boolean; error?: string }>
+  /**
+   * Persist the display's bounce switch (host-authoritative). It is a display
+   * field rather than pet content, but it lives in this menu because that is
+   * where the user reaches for it.
+   */
+  setPhysics: (physics: boolean) => Promise<{ ok: boolean; error?: string }>
 }
 
 /**
@@ -91,6 +97,9 @@ export function GameplayHud(props: {
   const view = ui.snapshot?.gameplay
   // Host-persisted skin selection for this pet (undefined = default look).
   const persistedSkin = ui.snapshot?.skin
+  // The bounce switch rides the display settings; the menu row reflects it so
+  // the label and the pet agree after a reload.
+  const physicsOn = ui.snapshot?.display?.physics === true
 
   const [open, setOpen] = useState(false)
   const [page, setPage] = useState<HudPage>('root')
@@ -588,6 +597,15 @@ export function GameplayHud(props: {
                     {tr(mode === 'work' ? 'pet.gameplay.stopWork' : 'pet.gameplay.work')}
                   </button>
                 )}
+                <button
+                  type="button"
+                  className={styles.action}
+                  aria-pressed={physicsOn}
+                  data-physics={physicsOn ? 'on' : 'off'}
+                  onClick={() => { void api.setPhysics(!physicsOn) }}
+                >
+                  {tr(physicsOn ? 'pet.gameplay.physicsOn' : 'pet.gameplay.physicsOff')}
+                </button>
               </div>
             </>
           )}

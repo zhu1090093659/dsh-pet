@@ -448,6 +448,24 @@ describe('post body failure contract (shared readJsonBody migration)', () => {  
     expect(await res.json()).toMatchObject({ ok: true })
   })
 
+  it('forwards the bounce switch instead of dropping it', async () => {
+    // Given a pet that floats still; when the gameplay menu posts the bounce
+    // switch; then the host applies it. A display field missing from this
+    // route's whitelist is dropped silently: the request still answers ok and
+    // nothing changes, which is exactly how the switch first shipped.
+    const post = (physics: boolean): Promise<Response> => fetch(url('/api/pet/set-config'), {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ physics }),
+    })
+    const res = await post(true)
+    expect(res.status).toBe(200)
+    const body = await res.json() as { display?: { physics?: boolean } }
+    expect(body.display?.physics).toBe(true)
+    // Leave the shared service where it was found.
+    await post(false)
+  })
+
   it('destroys the connection on an over-limit body instead of answering JSON', async () => {
     await expect(fetch(url('/api/pet/interact'), {
       method: 'POST',
