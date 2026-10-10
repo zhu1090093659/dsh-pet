@@ -1,0 +1,88 @@
+{
+  "petManifestVersion": 2,
+  "id": "jyn-q",
+  "displayName": "鲸鱼娘·Q版",
+  "license": "MIT",
+  "renderer": "frames2d",
+  "description": "鲸鱼娘 Q版 单张立绘驱动的程序化桌宠：8 条轨道共 148 帧，全部由「脚底锚点的缩放 + 旋转 + 位移」现场生成，没有使用任何视频/生成式产线。① 待机是呼吸 + 左右轻摆的循环；② 等你要输入时她会左右张望；③ 推理时慢慢歪头思考；④ 调工具时快速小幅上下点动，像在敲键盘；⑤ 整理回复时轻轻点头；⑥ 任务完成时先压扁再窜起来庆祝；⑦ 任务失败时会泄气地塌一下再站回来；⑧ 点她有反应。四条相位轨道一一对应官方七个活动相位，未映射的相位自动回落到待机。",
+  "author": "11726",
+  "version": "1.0.0",
+  "frames2d": {
+    "dir": "frames",
+    "defaultFrameMs": 120,
+    "tracks": {
+      "idle": {},
+      "waiting": {},
+      "thinking": {},
+      "tool": {},
+      "review": {},
+      "done": {
+        "loop": false,
+        "fallback": "idle"
+      },
+      "failed": {
+        "loop": false,
+        "fallback": "idle"
+      },
+      "happy": {
+        "loop": false,
+        "fallback": "idle"
+      }
+    },
+    "phases": {
+      "idle": "idle",
+      "waiting": "waiting",
+      "thinking": "thinking",
+      "tool": "tool",
+      "review": "review",
+      "done": "done",
+      "failed": "failed"
+    }
+  },
+  "gameplay": {
+    "hitBox": {
+      "x0": 0.16,
+      "y0": 0.04,
+      "x1": 0.84,
+      "y1": 0.98
+    },
+    "touch": {
+      "zones": [
+        {
+          "name": "head",
+          "y0": 0.0,
+          "y1": 0.4,
+          "branches": [
+            {
+              "probability": 1,
+              "state": "happy",
+              "stateMs": 1600,
+              "phrases": [
+                "嘿嘿～",
+                "别揉啦，头发要乱了",
+                "摸头是要收费的哦"
+              ]
+            }
+          ]
+        },
+        {
+          "name": "body",
+          "y0": 0.4,
+          "y1": 1.0,
+          "branches": [
+            {
+              "probability": 1,
+              "state": "happy",
+              "stateMs": 1600,
+              "phrases": [
+                "痒痒的！",
+                "在的在的～",
+                "干嘛突然戳我"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
