@@ -592,11 +592,16 @@ export function makePetRoutes(deps: { service: PetService; ctx: Context; assetCa
       if (typeof visible !== 'boolean') return Promise.reject(new Error('invalid-visible'))
       return service.setVisible(visible)
     }),
+    // Only these fields may travel over this RPC: everything else a profile
+    // stores is the settings form's business. `physics` is here because the
+    // gameplay menu toggles it, and a field this list forgets is dropped
+    // silently — the request succeeds and nothing changes.
     postRoute(ctx, PET_API_PREFIX + '/set-config', (body) => service.setConfig({
       ...(typeof body.size === 'number' ? { size: body.size } : {}),
       ...(typeof body.right === 'number' ? { right: body.right } : {}),
       ...(typeof body.bottom === 'number' ? { bottom: body.bottom } : {}),
       ...(typeof body.visible === 'boolean' ? { visible: body.visible } : {}),
+      ...(typeof body.physics === 'boolean' ? { physics: body.physics } : {}),
     })),
     postRoute(ctx, PET_API_PREFIX + '/set-name', (body) => {
       const name = body.name

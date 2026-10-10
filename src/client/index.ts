@@ -623,6 +623,11 @@ export function apply(ctx: ClientContext): void {
             return petApi.gameplayWorkTick()
           },
           buy: (item) => petApi.gameplayBuy(item),
+          setPhysics: (physics) => petApi.setConfig({ physics }).then(() => {
+            // Repoll so the menu label (and the running pet) flip together.
+            pollNow()
+            return { ok: true }
+          }, () => ({ ok: false, error: 'transport' })),
         },
       })
 

@@ -32,6 +32,12 @@ export interface PetDisplayConfig {
    * 12px baseline the stylesheet was drawn for at the default 160px pet.
    */
   bubbleScale: number
+  /**
+   * Whether the pet falls and bounces around the viewport instead of floating
+   * where it was put (the bounce model lives in `client/pet-physics.ts`).
+   * Off by default: a pet that suddenly drops would be a surprise upgrade.
+   */
+  physics: boolean
 }
 
 export const defaultDisplayConfig: PetDisplayConfig = {
@@ -40,6 +46,7 @@ export const defaultDisplayConfig: PetDisplayConfig = {
   right: 24,
   bottom: 120,
   bubbleScale: 1,
+  physics: false,
 }
 
 /** Display value bounds (shared by load-time validation and setConfig). */
@@ -246,6 +253,9 @@ export function loadPetPersist(dir: string = petHomeDir()): PetPersist {
       bottom: Math.round(clamp(finiteNum(rawDisplay.bottom, base.display.bottom), DISPLAY_INSET_MAX)),
       // Fractional on purpose: the multiplier is a ratio, not a pixel count.
       bubbleScale: Math.min(BUBBLE_SCALE_MAX, Math.max(BUBBLE_SCALE_MIN, finiteNum(rawDisplay.bubbleScale, base.display.bubbleScale))),
+      // Strict boolean like `visible`: a hand-edited or mistyped value keeps
+      // the default instead of coercing, so `"false"` cannot turn it on.
+      physics: typeof rawDisplay.physics === 'boolean' ? rawDisplay.physics : base.display.physics,
     }
     const petId = typeof parsed.petId === 'string' && parsed.petId.trim() !== ''
       ? parsed.petId.trim()

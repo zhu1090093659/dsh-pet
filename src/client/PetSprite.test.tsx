@@ -62,7 +62,7 @@ const snapshot: PetStateView = {
     petCooldown: false,
     feedCooldown: false,
   },
-  display: { visible: true, size: 160, right: 24, bottom: 20, bubbleScale: 1 },
+  display: { visible: true, size: 160, right: 24, bottom: 20, bubbleScale: 1, physics: false },
   pet: { id: 'whale-girl', displayName: '鲸鱼娘', description: '测试用鲸鱼娘' },
   name: '泡泡',
   treats: { stocked: 3, max: 5 },
