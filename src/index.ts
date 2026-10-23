@@ -48,6 +48,8 @@ export {
 } from './affinity.ts'
 export type {
   AffinityConfig,
+  AffinityRank,
+  AffinityRankName,
   AffinityState,
   InteractionOutcome,
   PetInteraction,

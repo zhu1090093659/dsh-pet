@@ -13,6 +13,7 @@ import {
   applyTurnReward,
   defaultAffinityConfig,
   type AffinityConfig,
+  type AffinityRankName,
   type PetAffinityView,
   type PetInteraction,
 } from './affinity.ts'
@@ -34,6 +35,8 @@ export interface LedgerConfig {
   remarks?: PetRemarks
   /** Voice-pack fallback remark pools (global or pet voice pack). */
   voiceRemarks?: PetRemarks
+  /** Display-only rank ladder for the selected pet (voice.json panel.ranks). */
+  rankLadder?: readonly AffinityRankName[]
 }
 
 /** Result of one ledger interaction (the shape the pet RPC returns). */
@@ -56,6 +59,8 @@ export class PetLedger {
   private readonly treatConfig: TreatConfig
   /** Round-robin reaction picker; rebuilt when the selected pet changes. */
   private picker: RemarkPicker
+  /** Declared rank ladder; undefined keeps the built-in whale ladder. */
+  private rankLadder: readonly AffinityRankName[] | undefined
   private current: PetPersist
   /** Completed turns already rewarded, per session (turn numbers are per-session). */
   private rewardedTurns = new Map<string, number>()
@@ -66,6 +71,7 @@ export class PetLedger {
     this.affinityConfig = { ...defaultAffinityConfig, ...(config.affinity ?? {}) }
     this.treatConfig = { ...defaultTreatConfig, ...(config.treats ?? {}) }
     this.picker = new RemarkPicker(config.remarks, config.voiceRemarks)
+    this.rankLadder = config.rankLadder
     this.current = persist
   }
 
@@ -154,6 +160,14 @@ export class PetLedger {
    */
   setRemarks(remarks?: PetRemarks, voiceRemarks?: PetRemarks): void {
     this.picker = new RemarkPicker(remarks, voiceRemarks)
+  }
+
+  /**
+   * Swap the display-only rank ladder to the selected pet's declared one
+   * (called on pet selection). Undefined restores the built-in ladder.
+   */
+  setRankLadder(ladder?: readonly AffinityRankName[]): void {
+    this.rankLadder = ladder
   }
 
   /**
@@ -279,6 +293,6 @@ export class PetLedger {
 
   /** Current affinity view for the RPC snapshot. */
   affinityView(nowMs: number): PetAffinityView {
-    return affinityViewOf(this.current.affinity, nowMs, this.affinityConfig)
+    return affinityViewOf(this.current.affinity, nowMs, this.affinityConfig, this.rankLadder)
   }
 }

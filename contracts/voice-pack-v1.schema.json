@@ -204,6 +204,33 @@
             ]
           },
           "description": "Subset of actions to render in canonical order; absent = all three, [] = none."
+        },
+        "ranks": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "description": "Display-only affinity ladder replacing the built-in tier names for this pet. Points, rewards, cooldowns and the persisted ledger are unchanged. The first entry must be min 0; min values are unique and ascending; each name is 1-24 characters. An invalid ladder is dropped whole with a warning and the built-in names stay.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["min", "name"],
+            "properties": {
+              "min": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 24
+              },
+              "nameEn": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 24
+              }
+            }
+          }
         }
       }
     },

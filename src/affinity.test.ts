@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   AFFINITY_MAX,
   AFFINITY_RANKS,
+  affinityViewOf,
   applyInteraction,
   applyTurnReward,
   defaultAffinityConfig,
@@ -80,6 +81,47 @@ describe('rankOf', () => {
     }
     expect(rankOf(AFFINITY_MAX).name).toBe(AFFINITY_RANKS[AFFINITY_RANKS.length - 1]!.name)
     expect(rankOf(-1).name).toBe(AFFINITY_RANKS[0]!.name)
+  })
+
+  it('maps points onto a declared ladder while keeping the built-in marker', () => {
+    const ladder = [
+      { min: 0, name: '小煤球', nameEn: 'Little Coal Ball' },
+      { min: 25, name: '火星伙伴', nameEn: 'Martian Buddy' },
+      { min: 50, name: '煤球挚友' },
+    ]
+    expect(rankOf(0, ladder).name).toBe('小煤球')
+    expect(rankOf(24, ladder).name).toBe('小煤球')
+    expect(rankOf(25, ladder).name).toBe('火星伙伴')
+    expect(rankOf(100_000, ladder).name).toBe('煤球挚友')
+    // Display-only: the built-in tier still supplies the marker glyph.
+    expect(rankOf(0, ladder).emoji).toBe(AFFINITY_RANKS[0]!.emoji)
+    expect(rankOf(100_000, ladder).emoji).toBe(AFFINITY_RANKS[AFFINITY_RANKS.length - 1]!.emoji)
+  })
+
+  it('keeps the built-in names for a pet that declares no ladder', () => {
+    expect(rankOf(0).name).toBe('幼鲸')
+    expect(rankOf(100_000).name).toBe('鲸生共渡')
+  })
+
+  it('carries nameEn into the affinity view only when the ladder declares it', () => {
+    const state = { ...emptyAffinity(), points: 25 }
+    const declared = affinityViewOf(state, 0, defaultAffinityConfig, [
+      { min: 0, name: '小煤球', nameEn: 'Little Coal Ball' },
+      { min: 25, name: '火星伙伴', nameEn: 'Martian Buddy' },
+    ])
+    expect(declared.rank).toBe('火星伙伴')
+    expect(declared.rankEn).toBe('Martian Buddy')
+    expect(declared.points).toBe(25)
+    expect(declared.rankEmoji).toBe(rankOf(25).emoji)
+
+    const chineseOnly = affinityViewOf(state, 0, defaultAffinityConfig, [{ min: 0, name: '小煤球' }])
+    expect(chineseOnly.rank).toBe('小煤球')
+    expect(chineseOnly.rankEn).toBeUndefined()
+  })
+
+  it('does not change the point economy', () => {
+    const outcome = applyInteraction(emptyAffinity(), 'feed', 1_000_000)
+    expect(outcome.affinity.points).toBe(defaultAffinityConfig.feedReward)
   })
 
   it('extends past the removed 100 cap with higher tiers', () => {

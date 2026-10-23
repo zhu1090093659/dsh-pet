@@ -195,6 +195,48 @@ describe('PetSprite affinity rank localization (#1226)', () => {
       document.documentElement.lang = 'zh'
     }
   })
+
+  it('uses a pet-declared English rank name when the UI locale is en', () => {
+    document.documentElement.lang = 'en'
+    try {
+      renderPet({
+        lang: 'en',
+        snapshot: {
+          ...snapshot,
+          affinity: { ...snapshot.affinity, rank: '小煤球', rankEn: 'Little Coal Ball' },
+        },
+      })
+      fireEvent.pointerOver(screen.getByRole('button', { name: '鲸鱼娘' }))
+      expect(screen.getByText('Affinity Little Coal Ball')).toBeTruthy()
+    } finally {
+      document.documentElement.lang = 'zh'
+    }
+  })
+
+  it('uses the default declared rank name outside English', () => {
+    renderPet({
+      lang: 'zh',
+      snapshot: {
+        ...snapshot,
+        affinity: { ...snapshot.affinity, rank: '小煤球', rankEn: 'Little Coal Ball' },
+      },
+    })
+    fireEvent.pointerOver(screen.getByRole('button', { name: '鲸鱼娘' }))
+    expect(screen.getByText('亲密度 小煤球')).toBeTruthy()
+  })
+
+  it('feeds the effective rank name into a custom panel stat format', () => {
+    renderPet({
+      lang: 'en',
+      definition: { ...petDefinition(), panel: { stats: { rank: 'Bond: {rank}' } } },
+      snapshot: {
+        ...snapshot,
+        affinity: { ...snapshot.affinity, rank: '小煤球', rankEn: 'Little Coal Ball' },
+      },
+    })
+    fireEvent.pointerOver(screen.getByRole('button', { name: '鲸鱼娘' }))
+    expect(screen.getByText('Bond: Little Coal Ball')).toBeTruthy()
+  })
 })
 
 describe('PetSprite rename input', () => {

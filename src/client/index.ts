@@ -662,7 +662,20 @@ export function apply(ctx: ClientContext): void {
       // the 'pet' namespace instead follows the active language, the English
       // fallback, and every language pack that registers a dictionary for it
       // (the settings section label already resolves through the same seat).
-      petRoot.render(createElement(PetDockEntry, { ...injected(), t: ctx.locale.bind(NS), portalTarget: container }))
+      const renderPet = (): void => {
+        petRoot.render(createElement(PetDockEntry, {
+          ...injected(),
+          t: ctx.locale.bind(NS),
+          // The active locale rides the same mount as the translate seat so a
+          // pet-declared English rank name follows the UI language.
+          lang: ctx.locale.getLocale().active,
+          portalTarget: container,
+        }))
+      }
+      renderPet()
+      // Re-render on a language switch instead of waiting for the next poll
+      // tick: the declared rank ladder's nameEn applies immediately.
+      const unsubscribeLocale = ctx.locale.subscribe(renderPet)
 
       let uiGone = false
       disposeUi = () => {
@@ -670,6 +683,7 @@ export function apply(ctx: ClientContext): void {
         uiGone = true
         clearUiTeardown?.()
         clearUiTeardown = undefined
+        unsubscribeLocale()
         petRoot.unmount()
         container.remove()
         disposePoll()

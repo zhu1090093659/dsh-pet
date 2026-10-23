@@ -103,6 +103,11 @@ export interface PetSpriteProps {
   portalTarget?: Element
   /** Locale translate seat (namespace-bound). */
   t: TranslateNS<typeof NS>
+  /**
+   * Active UI locale id, used to pick a pet-declared English rank name
+   * (`rankEn`). Defaults to the document language for direct mounts/tests.
+   */
+  lang?: string
 }
 
 /** Clamp a drag offset inside the viewport with a margin. */
@@ -304,6 +309,21 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
   const panel = definition.panel
   const panelLabel = (slot: 'feed' | 'rename' | 'hide' | 'confirm', i18n: string): string =>
     panel?.labels?.[slot] ?? i18n
+  // The active rank name is display-only: a pet-declared ladder may carry an
+  // English variant, while built-in names still resolve through the i18n
+  // dictionary. `lang` is handed down by the mount; the document language is
+  // the direct-mount/test fallback.
+  const englishUi = (props.lang ?? (typeof document === 'undefined' ? 'zh' : document.documentElement.lang))
+    .toLowerCase()
+    .startsWith('en')
+  const rankNameOf = (): string => {
+    const rawRank = snapshot?.affinity.rank ?? '?'
+    const rankEn = snapshot?.affinity.rankEn
+    if (englishUi && rankEn !== undefined) return rankEn
+    const rankKey = `pet.rank.name.${rawRank}`
+    const localized = props.t(rankKey as never)
+    return localized !== rankKey ? localized : rawRank
+  }
   const panelStat = (
     slot: 'rank' | 'treats' | 'points',
     i18nKey: 'pet.rank' | 'pet.treats' | 'pet.points',
@@ -314,8 +334,10 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
     // The host whitelists {rank}/{n}/{points} in every stat slot, so a pack
     // format may reference any of them; substitute all three live values
     // (the slot's own value plus the siblings) instead of only the slot's.
+    // {rank} carries the effective name, so a pet ladder's English variant
+    // also reaches a custom stat format.
     const all: Record<string, string | number> = {
-      rank: snapshot?.affinity.rank ?? '?',
+      rank: values.rank !== undefined ? values.rank : rankNameOf(),
       n: snapshot?.treats.stocked ?? 0,
       points: snapshot?.affinity.points ?? 0,
     }
@@ -967,13 +989,7 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
               <div className={styles.rankRow}>
                 <span className={styles.nameCell}>{displayName}</span>
                 <span className={styles.statRank}>
-                  {(() => {
-                    const rawRank = snapshot?.affinity.rank ?? '?'
-                    const rankKey = `pet.rank.name.${rawRank}`
-                    const localized = props.t(rankKey as any)
-                    const rankName = localized !== rankKey ? localized : rawRank
-                    return panelStat('rank', 'pet.rank', { rank: rankName })
-                  })()}
+                  {panelStat('rank', 'pet.rank', { rank: rankNameOf() })}
                 </span>
               </div>
               <div className={styles.rankRow}>

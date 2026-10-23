@@ -56,6 +56,24 @@ export const AFFINITY_RANKS = [
   { min: 100_000, name: '鲸生共渡', emoji: '*********' },
 ] as const
 
+/** One tier of a pet-declared affinity ladder (voice.json `panel.ranks`). */
+export interface AffinityRankName {
+  /** Minimum points for this tier; the first entry is always 0. */
+  min: number
+  /** Default rank name shown in every locale without an English variant. */
+  name: string
+  /** Optional English name used when the UI locale is English. */
+  nameEn?: string
+}
+
+/** A resolved rank: the effective name plus the display-only marker. */
+export interface AffinityRank {
+  min: number
+  name: string
+  nameEn?: string
+  emoji: string
+}
+
 /** English translations for the 9 built-in affinity rank names (#1226). */
 export const AFFINITY_RANKS_EN: Readonly<Record<string, string>> = {
   '幼鲸': 'Baby Whale',
@@ -116,8 +134,8 @@ export interface InteractionOutcome {
   accepted: boolean
 }
 
-/** Rank for a point total. */
-export function rankOf(points: number): (typeof AFFINITY_RANKS)[number] {
+/** Built-in ladder lookup (the fallback for pets with no declared ladder). */
+function builtinRankOf(points: number): (typeof AFFINITY_RANKS)[number] {
   let rank: (typeof AFFINITY_RANKS)[number] = AFFINITY_RANKS[0]!
   for (const candidate of AFFINITY_RANKS) {
     if (points >= candidate.min) rank = candidate
@@ -125,10 +143,33 @@ export function rankOf(points: number): (typeof AFFINITY_RANKS)[number] {
   return rank
 }
 
+/**
+ * Rank for a point total. A pet-declared ladder replaces the tier names while
+ * the built-in ladder still supplies the display marker; without a ladder the
+ * built-in ladder answers unchanged. Points, thresholds and the persisted
+ * ledger are untouched — the ladder is a display-only rename.
+ */
+export function rankOf(points: number, ladder?: readonly AffinityRankName[]): AffinityRank {
+  const builtin = builtinRankOf(points)
+  if (ladder === undefined || ladder.length === 0) return builtin
+  let selected = ladder[0]!
+  for (const candidate of ladder) {
+    if (points >= candidate.min) selected = candidate
+  }
+  return {
+    min: selected.min,
+    name: selected.name,
+    ...(selected.nameEn === undefined ? {} : { nameEn: selected.nameEn }),
+    emoji: builtin.emoji,
+  }
+}
+
 /** Read-only affinity snapshot suited for the RPC view shape. */
 export interface PetAffinityView {
   points: number
   rank: string
+  /** English rank name when the pet declared one (an English UI shows this). */
+  rankEn?: string
   rankEmoji: string
   pets: number
   feeds: number
@@ -144,11 +185,13 @@ export function affinityViewOf(
   state: AffinityState,
   nowMs: number,
   config: AffinityConfig = defaultAffinityConfig,
+  ladder?: readonly AffinityRankName[],
 ): PetAffinityView {
-  const rank = rankOf(state.points)
+  const rank = rankOf(state.points, ladder)
   return {
     points: state.points,
     rank: rank.name,
+    ...(rank.nameEn === undefined ? {} : { rankEn: rank.nameEn }),
     rankEmoji: rank.emoji,
     pets: state.pets,
     feeds: state.feeds,

@@ -15,7 +15,7 @@
 import { Context, Service } from '@deepseek-ai/cordis'
 import type { AssistantStreamFrame } from '@deepseek-ai/dsh-agent'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
-import type { AffinityConfig, PetAffinityView, PetInteraction } from './affinity.ts'
+import type { AffinityConfig, AffinityRankName, PetAffinityView, PetInteraction } from './affinity.ts'
 import { announcementFresh, MAX_ANNOUNCEMENTS, parseAnnouncement, type PetAnnouncement } from './announce.ts'
 import type { TreatConfig } from './treats.ts'
 import {
@@ -407,7 +407,7 @@ export class PetService extends Service {
     const ledgerConfig: LedgerConfig = {
       affinity: config.affinity,
       treats: config.treats,
-      ...this.remarkLayers(selected),
+      ...this.voiceLayers(selected),
     }
     this.ledger = new PetLedger(persist, ledgerConfig)
     this.stateConfig = { ...defaultPetStateConfig, ...(config.state ?? {}) }
@@ -442,27 +442,36 @@ export class PetService extends Service {
   }
 
   /**
-   * The remark layers one pet contributes to the ledger: its manifest pools
-   * first, then the voice packs (a pet directory's voice.json over the global
-   * `$DSH_HOME/pets/.voice.json`). Every path that seats the ledger's remark
-   * pools resolves them here, so no call site can apply the manifest pools and
-   * silently drop the voice layer: doing that reverted a pet whose lines a voice
-   * pack had translated back to the built-in pools the moment the settings
-   * surface applied.
-   * @param entry - the pet whose remark pools apply.
-   * @returns the layers `PetLedger.setRemarks` takes.
+   * The voice layers one pet contributes to the ledger: its manifest remark
+   * pools first, then the voice packs (a pet directory's voice.json over the
+   * global `$DSH_HOME/pets/.voice.json`). The voice pack's `panel.ranks`
+   * ladder rides the same merge, so a ladder declared by either layer applies
+   * with the documented precedence. Every path that seats these layers
+   * resolves them here, so no call site can apply the manifest pools and
+   * silently drop the voice layer: doing that reverted a pet whose lines a
+   * voice pack had translated back to the built-in pools the moment the
+   * settings surface applied.
+   * @param entry - the pet whose layers apply.
+   * @returns the layers `PetLedger` takes.
    */
-  private remarkLayers(entry: PetEntry): { remarks?: PetRemarks; voiceRemarks?: PetRemarks } {
+  private voiceLayers(entry: PetEntry): {
+    remarks?: PetRemarks
+    voiceRemarks?: PetRemarks
+    rankLadder?: readonly AffinityRankName[]
+  } {
+    const voice = mergeVoicePacks(this.registry.globalVoice, entry.voice)
     return {
       remarks: entry.remarks,
-      voiceRemarks: mergeVoicePacks(this.registry.globalVoice, entry.voice)?.remarks,
+      voiceRemarks: voice?.remarks,
+      rankLadder: voice?.panel?.ranks,
     }
   }
 
-  /** Re-seat the ledger's remark pools from one pet's layers. */
-  private applyRemarks(entry: PetEntry): void {
-    const layers = this.remarkLayers(entry)
+  /** Re-seat the ledger's remark pools and rank ladder from one pet's layers. */
+  private applyVoiceLayers(entry: PetEntry): void {
+    const layers = this.voiceLayers(entry)
     this.ledger.setRemarks(layers.remarks, layers.voiceRemarks)
+    this.ledger.setRankLadder(layers.rankLadder)
   }
 
   /** RPC: current pet state snapshot. */
@@ -608,7 +617,7 @@ export class PetService extends Service {
     const entry = this.registry.byId(petId)
     if (entry === undefined) return { ok: false, error: 'unknown-pet' }
     this.ledger.setPetId(entry.id)
-    this.applyRemarks(entry)
+    this.applyVoiceLayers(entry)
     this.flush()
     this.syncSettingsFromPet()
     return { ok: true, petId: entry.id }
@@ -997,7 +1006,7 @@ export class PetService extends Service {
     const selected = typeof section.petId === 'string' ? this.registry.byId(section.petId) : undefined
     if (selected !== undefined) {
       this.ledger.setPetId(selected.id)
-      this.applyRemarks(selected)
+      this.applyVoiceLayers(selected)
     } else if (section.petId !== undefined) {
       // The stored selection names a pet the registry no longer has: keep the
       // current selection and repair the settings document.

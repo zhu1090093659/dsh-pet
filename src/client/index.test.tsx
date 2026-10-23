@@ -180,6 +180,10 @@ function fakeContext(options: FakeContextOptions = {}): FakeClientLifecycle {
         localeSeats.push(namespace)
         return (key: string) => 'seat:' + key
       },
+      // The mount reads the active locale for a pet-declared English rank
+      // name and re-renders on a switch; this stub pins the zh default.
+      getLocale: () => ({ active: 'zh', locales: [], revision: 0 }),
+      subscribe: () => () => {},
     },
     // The family binder is optional (dsh-web-settings may be absent); both
     // answers are the shared per-entry form of this plugin's own profile entry.

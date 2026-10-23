@@ -43,6 +43,25 @@ describe('PetLedger', () => {
     expect(ledger.takeDirty()).toBe(false)
   })
 
+  it('renames ranks from a declared ladder without touching points', () => {
+    const ledger = new PetLedger(emptyPersist(), {
+      rankLadder: [
+        { min: 0, name: '小煤球', nameEn: 'Little Coal Ball' },
+        { min: 25, name: '火星伙伴' },
+      ],
+    })
+    expect(ledger.affinityView(1_000_000).rank).toBe('小煤球')
+    expect(ledger.affinityView(1_000_000).rankEn).toBe('Little Coal Ball')
+    expect(ledger.snapshot.affinity.points).toBe(0)
+
+    // Re-seating on a pet switch swaps the ladder without a ledger write.
+    ledger.setRankLadder([{ min: 0, name: '新名字' }])
+    expect(ledger.affinityView(1_000_000).rank).toBe('新名字')
+    expect(ledger.affinityView(1_000_000).rankEn).toBeUndefined()
+    expect(ledger.takeDirty()).toBe(false)
+    expect(ledger.snapshot.affinity.points).toBe(0)
+  })
+
   it('grants and spends gameplay treats through the shared stock, capped', () => {
     const ledger = new PetLedger(emptyPersist())
     expect(ledger.grantTreats(3)).toBe(true)

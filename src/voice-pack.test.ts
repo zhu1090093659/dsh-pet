@@ -11,12 +11,15 @@ import {
   mergeVoicePacks,
   normalizePanel,
   normalizePool,
+  normalizeRankLadder,
   normalizeVoicePack,
   normalizeWhisperCategories,
   normalizeWhisperResults,
   PANEL_ACTIONS,
   PANEL_LABEL_KEYS,
   PANEL_STAT_KEYS,
+  RANK_LADDER_MAX,
+  RANK_NAME_MAX,
   VOICE_LINE_MAX,
   VOICE_PACK_KEYS,
   VOICE_PACK_V1,
@@ -186,6 +189,79 @@ describe('normalizePanel', () => {
   })
 })
 
+describe('normalizeRankLadder', () => {
+  const valid = [
+    { min: 0, name: '小煤球', nameEn: 'Little Coal Ball' },
+    { min: 25, name: '火星伙伴', nameEn: 'Martian Buddy' },
+  ]
+
+  it('accepts an ascending ladder starting at 0 and trims names', () => {
+    const warnings: string[] = []
+    expect(normalizeRankLadder([
+      { min: 0, name: ' 小煤球 ', nameEn: ' Little Coal Ball ' },
+      { min: 25, name: '火星伙伴' },
+    ], m => warnings.push(m))).toEqual([
+      { min: 0, name: '小煤球', nameEn: 'Little Coal Ball' },
+      { min: 25, name: '火星伙伴' },
+    ])
+    expect(warnings).toEqual([])
+  })
+
+  it('drops the whole ladder on a structural violation', () => {
+    const cases: [unknown, string][] = [
+      [{ min: 0, name: 'A' }, 'must be an array'],
+      [[], '1-' + RANK_LADDER_MAX],
+      [[{ min: 5, name: 'A' }], 'start at min 0'],
+      [[{ min: 0, name: 'A' }, { min: 0, name: 'B' }], 'sorted ascending'],
+      [[{ min: 0, name: 'A' }, { min: 10, name: 'B' }, { min: 5, name: 'C' }], 'sorted ascending'],
+      [[{ min: -1, name: 'A' }], 'non-negative integer'],
+      [[{ min: 1.5, name: 'A' }], 'non-negative integer'],
+      [[{ min: 0, name: '' }], '1-' + RANK_NAME_MAX],
+      [[{ min: 0, name: 'x'.repeat(RANK_NAME_MAX + 1) }], '1-' + RANK_NAME_MAX],
+      [[{ min: 0, name: 'A', nameEn: 7 }], 'nameEn must be a string'],
+      [[{ min: 0, name: 'A', nameEn: 'x'.repeat(RANK_NAME_MAX + 1) }], '1-' + RANK_NAME_MAX],
+      [[{ min: 0, name: 'A' }, 'bad'], 'must be an object'],
+    ]
+    for (const [raw, expected] of cases) {
+      const warnings: string[] = []
+      expect(normalizeRankLadder(raw, m => warnings.push(m))).toBeUndefined()
+      expect(warnings.join('\n')).toContain(expected)
+    }
+  })
+
+  it('caps the ladder at sixteen entries', () => {
+    const entries = Array.from({ length: RANK_LADDER_MAX + 1 }, (_, index) => ({ min: index, name: 'R' + index }))
+    const warnings: string[] = []
+    expect(normalizeRankLadder(entries, m => warnings.push(m))).toBeUndefined()
+    expect(warnings.join('\n')).toContain('1-' + RANK_LADDER_MAX)
+    expect(normalizeRankLadder(entries.slice(0, RANK_LADDER_MAX))).toHaveLength(RANK_LADDER_MAX)
+  })
+
+  it('is read through panel.ranks without disturbing the other panel slots', () => {
+    const { pack, warnings } = collectWarnings({
+      panel: { ranks: valid, labels: { feed: '投喂' }, stats: { rank: '好感 {rank}' } },
+    })
+    expect(pack?.panel?.ranks).toEqual(valid)
+    expect(pack?.panel?.labels).toEqual({ feed: '投喂' })
+    expect(pack?.panel?.stats).toEqual({ rank: '好感 {rank}' })
+    expect(warnings).toEqual([])
+  })
+
+  it('keeps a panel that declares only a ladder', () => {
+    const { pack } = collectWarnings({ panel: { ranks: valid } })
+    expect(pack?.panel?.ranks).toEqual(valid)
+  })
+
+  it('drops an invalid ladder but keeps the rest of the panel', () => {
+    const { pack, warnings } = collectWarnings({
+      panel: { ranks: [{ min: 3, name: 'A' }], labels: { feed: '投喂' } },
+    })
+    expect(pack?.panel?.ranks).toBeUndefined()
+    expect(pack?.panel?.labels).toEqual({ feed: '投喂' })
+    expect(warnings.join('\n')).toContain('start at min 0')
+  })
+})
+
 describe('mergeVoicePacks', () => {
   it('merges per-key with later layers winning', () => {
     const global = normalizeVoicePack({
@@ -200,6 +276,30 @@ describe('mergeVoicePacks', () => {
     expect(merged?.overrides.status?.done).toEqual(['宠物收工'])
     expect(merged?.overrides.status?.thinking).toEqual(['全局思考'])
     expect(merged?.panel?.labels).toEqual({ feed: '宠物投喂', hide: '宠物藏' })
+  })
+
+  it('replaces the whole rank ladder from a later layer while other panel slots merge', () => {
+    const global = normalizeVoicePack({
+      panel: {
+        ranks: [{ min: 0, name: '全局小鲸' }, { min: 25, name: '全局伙伴' }],
+        labels: { feed: '全局投喂' },
+      },
+    })
+    const pet = normalizeVoicePack({
+      panel: {
+        ranks: [{ min: 0, name: '小煤球', nameEn: 'Little Coal Ball' }],
+        labels: { hide: '宠物藏' },
+      },
+    })
+    const merged = mergeVoicePacks(global, pet)
+    expect(merged?.panel?.ranks).toEqual([{ min: 0, name: '小煤球', nameEn: 'Little Coal Ball' }])
+    expect(merged?.panel?.labels).toEqual({ feed: '全局投喂', hide: '宠物藏' })
+  })
+
+  it('keeps the global ladder for a pet that declares none', () => {
+    const global = normalizeVoicePack({ panel: { ranks: [{ min: 0, name: '全局小鲸' }] } })
+    const pet = normalizeVoicePack({ panel: { labels: { feed: '投喂' } } })
+    expect(mergeVoicePacks(global, pet)?.panel?.ranks).toEqual([{ min: 0, name: '全局小鲸' }])
   })
 
   it('lets the pet pack replace whisper keys while the global stays', () => {
@@ -270,6 +370,18 @@ describe('voice-pack schema file drift lock', () => {
     expect(new Set(Object.keys(stats))).toEqual(new Set(PANEL_STAT_KEYS))
     const actions = (panel.actions as { items?: { enum?: string[] } } | undefined)
     expect(actions?.items?.enum).toEqual([...PANEL_ACTIONS])
+    const ranks = panel.ranks as {
+      minItems?: number
+      maxItems?: number
+      items?: { required?: string[]; properties?: Record<string, { maxLength?: number }> }
+    } | undefined
+    expect(ranks?.minItems).toBe(1)
+    expect(ranks?.maxItems).toBe(RANK_LADDER_MAX)
+    expect(ranks?.items?.required).toEqual(['min', 'name'])
+    const rankProps = ranks?.items?.properties ?? {}
+    expect(new Set(Object.keys(rankProps))).toEqual(new Set(['min', 'name', 'nameEn']))
+    expect(rankProps.name?.maxLength).toBe(RANK_NAME_MAX)
+    expect(rankProps.nameEn?.maxLength).toBe(RANK_NAME_MAX)
   })
 
   it('keeps the schema version const in sync', () => {

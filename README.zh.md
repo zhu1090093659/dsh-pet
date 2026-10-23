@@ -104,7 +104,7 @@ node scripts/dsh-pet install <dir> --force    # 覆盖同名已安装宠物
 
 ## 语音包与面板定制（voice.json，宠物中心 M4，#677）
 
-气泡里的状态/工具/碎碎念文案与悬浮面板的按钮/统计文案，都可以被一只宠物（或你本人）整体替换——宠物不再只能换图，还能换「话」与「面板」。载体是宠物目录内的可选 voice.json（随宠物分发），以及全局覆盖文件 $DSH_HOME/pets/.voice.json（不改宠物目录即可换词）。
+气泡里的状态/工具/碎碎念文案与悬浮面板的按钮/统计/等级名，都可以被一只宠物（或你本人）整体替换——宠物不再只能换图，还能换「话」与「面板」。载体是宠物目录内的可选 voice.json（随宠物分发），以及全局覆盖文件 $DSH_HOME/pets/.voice.json（不改宠物目录即可换词）。
 
 ```jsonc
 {
@@ -128,6 +128,10 @@ node scripts/dsh-pet install <dir> --force    # 覆盖同名已安装宠物
   "panel": {                           // 悬浮面板（每槽未声明时回落插件 i18n 文案）
     "labels": { "feed": "投喂", "hide": "藏起来", "rename": "起名字", "confirm": "好的" },
     "stats": { "rank": "好感 {rank}", "treats": "鱼干 ×{n}", "points": "{points} 分" },
+    "ranks": [                           // 仅显示用的等级阶梯；首条 min 必须为 0
+      { "min": 0, "name": "小煤球", "nameEn": "Little Coal Ball" },
+      { "min": 25, "name": "火星伙伴", "nameEn": "Martian Buddy" }
+    ],
     "actions": ["feed", "rename", "hide"]  // 子集（按规范顺序）；省略 = 全部；[] = 只显示统计行
   }
 }
@@ -135,6 +139,7 @@ node scripts/dsh-pet install <dir> --force    # 覆盖同名已安装宠物
 
 - 合并优先级（逐槽）：宠物自带 voice.json > 全局 .voice.json > 内置文案。status/tools/whispers 逐键合并、panel 逐槽合并，任何层缺失的槽位回落下一层。
 - 占位符白名单：tools 允许 {tool} / {hint}；toolRemaining 允许 {n}；panel.stats 允许 {rank} / {n} / {points}；status、碎碎念与面板标签不允许任何占位符（含非法占位符的行被警告丢弃）。
+- 等级阶梯（panel.ranks）：替换该宠物内置的鲸鱼等级名，仅影响显示——点数、每轮奖励、冷却与持久化账本都不变。必须是 1-16 条的数组，首条 min 为 0，min 严格递增且唯一，名字 1-24 字符。name 为默认名字；nameEn 在 UI 语言为英文时显示（省略则两种语言都用 name）。非法阶梯整体丢弃并警告，沿用内置名字。panel.stats 的 {rank} 收到宠物当前等级名。
 - 上限（warn-and-drop）：每池 64 行以内、每行 160 字符以内；面板标签 40 以内、统计 80 字符以内。
 - 坏包不影响宠物：voice.json 不是合法 JSON 或根不是对象 → 警告并整体忽略；其余问题逐槽警告丢弃。node scripts/dsh-pet validate <dir> 会把结构错误判为安装失败、内容问题列为警告。
 - 语义细节：status/tools 的空池回落内置文案（场景行始终有话说）；whispers 的显式空数组是静音（关掉该通道）；面板 actions 为空数组 = 三个按钮全部隐藏；未覆盖的按钮/统计继续使用插件双语字典。旧的 whispers.generic / whispers.rules 字段已不再支持，会被忽略并给出警告。

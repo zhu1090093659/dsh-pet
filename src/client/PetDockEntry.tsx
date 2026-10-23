@@ -67,6 +67,11 @@ export type PetDockEntryProps =
      * own the whole pet surface as one unit.
      */
     portalTarget?: Element
+    /**
+     * Active UI locale id, forwarded to the sprite so a pet-declared English
+     * rank name (`rankEn`) applies when the UI language is English.
+     */
+    lang?: string
   }
 
 const DEFAULT_DISPLAY: PetDisplayConfig = { visible: true, size: 160, right: 24, bottom: 20, bubbleScale: 1 }
@@ -128,6 +133,7 @@ export function PetDockEntry(props: PetDockEntryProps): ReactElement {
                 portalTarget={props.portalTarget}
                 dragDisabled={snapshot.gameplay?.mode === 'work'}
                 {...(aux === null ? {} : { bus: aux.bus })}
+                lang={props.lang}
                 {...(gameplay === undefined || aux === null
                   ? {}
                   : {

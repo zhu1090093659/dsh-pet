@@ -38,6 +38,7 @@ import {
   type WhisperResult,
 } from './chatter.ts'
 import { normalizePetRemarks, type PetRemarks } from './remarks.ts'
+import type { AffinityRankName } from './affinity.ts'
 
 /** Schema version this module normalizes (optional field; missing = 1). */
 export const VOICE_PACK_V1 = 1 as const
@@ -62,6 +63,11 @@ export interface PetPanelView {
   stats?: Partial<Record<PanelStatKey, string>>
   /** Actions to render in canonical order; absent = all three; [] = none. */
   actions?: PanelAction[]
+  /**
+   * Display-only affinity ladder: replaces the built-in tier names for this
+   * pet. Points, rewards, cooldowns and the persisted ledger are untouched.
+   */
+  ranks?: readonly AffinityRankName[]
 }
 
 /** One normalized voice pack (a pet's voice.json or the global override). */
@@ -81,6 +87,11 @@ export const VOICE_POOL_LINES_MAX = 64
 export const VOICE_LINE_MAX = 160
 export const VOICE_LABEL_MAX = 40
 export const VOICE_STAT_MAX = 80
+
+/** Hard cap on a pet-declared affinity ladder (entries). */
+export const RANK_LADDER_MAX = 16
+/** Longest accepted rank name in a pet-declared ladder (characters). */
+export const RANK_NAME_MAX = 24
 
 /** Any '{token}' placeholder (no nesting, no newlines). */
 const PLACEHOLDER_PATTERN = /{[^{}]*}/g
@@ -200,7 +211,80 @@ export function normalizeWhisperResults(
   return Object.keys(pools).length > 0 ? pools : undefined
 }
 
-/** Normalize the panel block (labels / stats / actions; warn-and-drop). */
+/** Validate one rank name slot of a declared ladder. */
+function rankName(
+  raw: unknown,
+  index: number,
+  field: 'name' | 'nameEn',
+  onWarning: (message: string) => void,
+): string | undefined {
+  if (typeof raw !== 'string') {
+    onWarning('panel.ranks[' + index + '].' + field + ' must be a string')
+    return undefined
+  }
+  const trimmed = raw.trim()
+  if (trimmed === '' || trimmed.length > RANK_NAME_MAX) {
+    onWarning('panel.ranks[' + index + '].' + field + ' must be 1-' + RANK_NAME_MAX + ' characters')
+    return undefined
+  }
+  return trimmed
+}
+
+/**
+ * Normalize one pet-declared affinity ladder (`panel.ranks`). A ladder is
+ * all-or-nothing: it must be an array of 1-{@link RANK_LADDER_MAX} entries,
+ * start at min 0, sort ascending with unique minima, and carry names of
+ * 1-{@link RANK_NAME_MAX} characters. Any violation warns and drops the
+ * whole ladder, so the pet keeps the built-in names instead of a half-broken
+ * ladder; a bad ladder never rejects the pet.
+ */
+export function normalizeRankLadder(
+  raw: unknown,
+  onWarning: (message: string) => void = () => {},
+): AffinityRankName[] | undefined {
+  if (!Array.isArray(raw)) {
+    onWarning('panel.ranks must be an array')
+    return undefined
+  }
+  if (raw.length === 0 || raw.length > RANK_LADDER_MAX) {
+    onWarning('panel.ranks must contain 1-' + RANK_LADDER_MAX + ' entries')
+    return undefined
+  }
+  const ladder: AffinityRankName[] = []
+  let previousMin = -1
+  for (let index = 0; index < raw.length; index++) {
+    const entry = raw[index]
+    if (!isRecord(entry)) {
+      onWarning('panel.ranks[' + index + '] must be an object')
+      return undefined
+    }
+    const min = entry.min
+    if (typeof min !== 'number' || !Number.isSafeInteger(min) || min < 0) {
+      onWarning('panel.ranks[' + index + '].min must be a non-negative integer')
+      return undefined
+    }
+    if (index === 0 && min !== 0) {
+      onWarning('panel.ranks must start at min 0')
+      return undefined
+    }
+    if (min <= previousMin) {
+      onWarning('panel.ranks must be sorted ascending with unique min values')
+      return undefined
+    }
+    previousMin = min
+    const defaultName = rankName(entry.name, index, 'name', onWarning)
+    if (defaultName === undefined) return undefined
+    let nameEn: string | undefined
+    if (entry.nameEn !== undefined) {
+      nameEn = rankName(entry.nameEn, index, 'nameEn', onWarning)
+      if (nameEn === undefined) return undefined
+    }
+    ladder.push({ min, name: defaultName, ...(nameEn === undefined ? {} : { nameEn }) })
+  }
+  return ladder
+}
+
+/** Normalize the panel block (labels / stats / actions / ranks; warn-and-drop). */
 export function normalizePanel(
   raw: unknown,
   onWarning: (message: string) => void = () => {},
@@ -265,7 +349,15 @@ export function normalizePanel(
       panel.actions = PANEL_ACTIONS.filter(action => seen.has(action))
     }
   }
-  if (panel.labels === undefined && panel.stats === undefined && panel.actions === undefined) return undefined
+  const ranksRaw = raw.ranks
+  if (ranksRaw !== undefined) {
+    const ladder = normalizeRankLadder(ranksRaw, onWarning)
+    if (ladder !== undefined) panel.ranks = ladder
+  }
+  if (
+    panel.labels === undefined && panel.stats === undefined
+    && panel.actions === undefined && panel.ranks === undefined
+  ) return undefined
   return panel
 }
 
@@ -406,6 +498,7 @@ export function mergeVoicePacks(...layers: (VoicePack | undefined)[]): VoicePack
   const stats: NonNullable<PetPanelView['stats']> = {}
   let remarks: PetRemarks | undefined
   let ranks: Record<string, string> | undefined
+  let panelRanks: readonly AffinityRankName[] | undefined
   let actions: PanelAction[] | undefined
   let panelSeen = false
   let any = false
@@ -427,6 +520,9 @@ export function mergeVoicePacks(...layers: (VoicePack | undefined)[]): VoicePack
       if (layer.panel.labels !== undefined) Object.assign(labels, layer.panel.labels)
       if (layer.panel.stats !== undefined) Object.assign(stats, layer.panel.stats)
       if (layer.panel.actions !== undefined) actions = layer.panel.actions
+      // A ladder is atomic: a declaring layer replaces the previous ladder
+      // whole instead of merging tiers across layers.
+      if (layer.panel.ranks !== undefined) panelRanks = layer.panel.ranks
     }
     if (layer.remarks !== undefined) {
       remarks = { ...(remarks ?? {}), ...layer.remarks }
@@ -440,8 +536,10 @@ export function mergeVoicePacks(...layers: (VoicePack | undefined)[]): VoicePack
     ...(Object.keys(labels).length > 0 ? { labels } : {}),
     ...(Object.keys(stats).length > 0 ? { stats } : {}),
     ...(actions === undefined ? {} : { actions }),
+    ...(panelRanks === undefined ? {} : { ranks: panelRanks }),
   }
-  const panelEmpty = panel.labels === undefined && panel.stats === undefined && panel.actions === undefined
+  const panelEmpty = panel.labels === undefined && panel.stats === undefined
+    && panel.actions === undefined && panel.ranks === undefined
   return {
     overrides,
     ...(panelSeen && !panelEmpty ? { panel } : {}),

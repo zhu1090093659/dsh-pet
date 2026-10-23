@@ -73,6 +73,39 @@ function serviceWithPetVoicePack(id: string, remarks: Record<string, string[]>):
   return new PetService(fakeRootContext(), { registry, persistDir: tempDir() })
 }
 
+/**
+ * A service whose global voice pack and one pet directory each declare a
+ * display-only rank ladder, so the merge precedence is observable end to end.
+ */
+function serviceWithRankLadders(): PetService {
+  const petsDir = tempDir()
+  writeFileSync(join(petsDir, '.voice.json'), JSON.stringify({
+    voicePackVersion: 1,
+    panel: { ranks: [{ min: 0, name: '通用小鲸' }, { min: 25, name: '通用伙伴' }] },
+  }), 'utf8')
+  const petDir = join(petsDir, 'coalball')
+  mkdirSync(petDir, { recursive: true })
+  writeFileSync(join(petDir, 'pet.json'), JSON.stringify({
+    petManifestVersion: 2,
+    id: 'coalball',
+    displayName: '黑煤球',
+    license: 'CC0-1.0',
+    renderer: 'sprite2d',
+    sprite2d: { spritesheetPath: 'spritesheet.webp' },
+  }), 'utf8')
+  writeFileSync(join(petDir, 'spritesheet.webp'), 'webp', 'utf8')
+  writeFileSync(join(petDir, 'voice.json'), JSON.stringify({
+    voicePackVersion: 1,
+    panel: { ranks: [{ min: 0, name: '小煤球', nameEn: 'Little Coal Ball' }] },
+  }), 'utf8')
+  const registry = loadPetRegistry({
+    packageRoot: petPackageRoot(import.meta.url),
+    petsDir: '',
+    dshPetsDir: petsDir,
+  })
+  return new PetService(fakeRootContext(), { registry, persistDir: tempDir() })
+}
+
 /** The display fields the settings surface always commits. */
 function section(petId: string): PetSettingsSection {
   return { petId, visible: true, size: 160, right: 24, bottom: 20 }
@@ -109,6 +142,34 @@ describe('PetService remark layers', () => {
     expect(other).toBeDefined()
     expect(await service.setPetId(other!.id)).toEqual({ ok: true, petId: other!.id })
     expect((await service.interact('feed')).reaction).toBe(voice.noTreats[0])
+  })
+
+  it('uses the declared rank ladder and keeps it across switches and settings applies', async () => {
+    const service = serviceWithRankLadders()
+    const whale = service.selectedPetId()
+    expect(whale).not.toBe('coalball')
+
+    // A pet with no ladder of its own inherits the global one.
+    const whaleView = await service.state()
+    expect(whaleView.affinity.rank).toBe('通用小鲸')
+    expect(whaleView.affinity.rankEn).toBeUndefined()
+
+    // The pet's own ladder replaces the global ladder whole.
+    expect(await service.setPetId('coalball')).toEqual({ ok: true, petId: 'coalball' })
+    const petView = await service.state()
+    expect(petView.affinity.rank).toBe('小煤球')
+    expect(petView.affinity.rankEn).toBe('Little Coal Ball')
+
+    // The settings surface re-seats the pet on every change; the ladder rides
+    // the same resolver as the remarks, so it must survive that apply.
+    service.applySettingsSection(section('coalball'))
+    const applied = await service.state()
+    expect(applied.affinity.rank).toBe('小煤球')
+    expect(applied.affinity.rankEn).toBe('Little Coal Ball')
+
+    // Switching back restores the global ladder.
+    await service.setPetId(whale)
+    expect((await service.state()).affinity.rank).toBe('通用小鲸')
   })
 
   it('user keeps a pet-directory voice pack remarks after the settings surface applies a section', async () => {
