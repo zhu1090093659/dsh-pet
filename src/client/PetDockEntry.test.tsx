@@ -85,6 +85,12 @@ function injected(): PetInjected {
       setMode: vi.fn(),
       workTick: vi.fn(),
       buy: vi.fn(),
+      interact: vi.fn(async () => ({
+        reaction: '',
+        delta: 0,
+        accepted: true,
+        affinity: { points: 0, rank: '幼鲸', rankEmoji: '*', pets: 0, feeds: 0, turns: 0, petCooldown: false, feedCooldown: false },
+      })),
       setSkin: vi.fn(async () => ({ ok: true })),
     },
   }

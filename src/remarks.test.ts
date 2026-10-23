@@ -90,6 +90,32 @@ describe('normalizePetRemarks', () => {
     expect(remarks?.pet?.length).toBe(REMARK_LINES_MAX)
     expect(remarks?.feed?.[0]?.length).toBe(REMARK_LINE_MAX)
   })
+
+  it('normalizes per-track feed lines so the bubble can match the art', () => {
+    // Given a pet whose feed rolls a basin animation; when normalized; then the
+    // per-track pool lands beside the ordinary slots. One bubble for every roll
+    // is what used to put "thanks for the food" on a basin flip, so the copy is
+    // keyed by the track the host rolled.
+    const remarks = normalizePetRemarks({
+      feed: ['谢谢'],
+      feedStates: {
+        'touch-eat-basin': ['哐当——铁盆扣头上了', '嘿，看我扣得准不准'],
+        'touch-eat-rice': '呼……好多了',
+        '   ': ['blank key is dropped'],
+        'touch-eat-cake': [],
+      },
+    })
+    expect(remarks?.feed).toEqual(['谢谢'])
+    expect(remarks?.feedStates?.['touch-eat-basin']).toEqual(['哐当——铁盆扣头上了', '嘿，看我扣得准不准'])
+    expect(remarks?.feedStates?.['touch-eat-rice']).toEqual(['呼……好多了'])
+    expect(remarks?.feedStates?.['   ']).toBeUndefined()
+    expect(remarks?.feedStates?.['touch-eat-cake']).toBeUndefined()
+
+    const warnings: string[] = []
+    expect(normalizePetRemarks({ feedStates: 'nope' }, message => warnings.push(message))).toBeUndefined()
+    expect(normalizePetRemarks({ feedStates: { a: [] } }, message => warnings.push(message))).toBeUndefined()
+    expect(warnings.length).toBe(2)
+  })
 })
 
 describe('builtinRemark', () => {

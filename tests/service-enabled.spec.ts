@@ -784,6 +784,26 @@ describe('PetService (rc.6 session events)', () => {
       expect(view.sessions ?? []).toEqual([])
       expect(view.affinity.turns).toBe(0)
       expect(view.treats.stocked).toBe(0)
+      // The stop is still distinguishable from a calm finish: the interrupt
+      // stamp reaches the state view, which is what a pet's cut-short animation
+      // (gameplay.workInterrupt) keys off. Without it the pet has no way to know
+      // the sprite went idle because the user pressed stop.
+      expect(typeof view.interruptedAt).toBe('number')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('stamps no interrupt on a turn that completed normally', async () => {
+    const ctx = new Context()
+    const dir = tempDir()
+    const session = makeSession('s1')
+    try {
+      const service = new PetService(ctx, { persistDir: dir })
+      ctx.emit('session/event', session, toolCall(1, 1, 'call-1', 'grep', 1))
+      ctx.emit('session/event', session, turnEnd(1, { kind: 'completed' }, 2))
+      const view = await service.state()
+      expect(view.interruptedAt).toBeUndefined()
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }

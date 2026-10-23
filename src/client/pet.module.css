@@ -747,3 +747,12 @@
     animation: none;
   }
 }
+
+/* Work-phase lockout (gameplay.blockPhases): the agent owns the sprite, so the
+   actions that would steal the track gray out. Deliberately clickable, not
+   disabled: a click floats the busy line, which explains the state, whereas
+   `disabled` would swallow the tooltip. */
+.actionBlocked {
+  filter: grayscale(0.7) brightness(0.75);
+  cursor: not-allowed;
+}

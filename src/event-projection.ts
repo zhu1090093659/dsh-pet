@@ -59,6 +59,8 @@ export interface PetActivityTransition {
   completedTurn?: number
   /** A fresh inner whisper woken by this event, when any. */
   whisper?: string
+  /** This ending was a user stop / abort, not a calm finish. */
+  interrupted?: boolean
 }
 
 /**
@@ -176,22 +178,28 @@ export function projectOfficialEvent(
           return {
             input: { phase: 'failed', line: runtime.voice.scene('failed', nowMs) },
             ...(whisper === undefined ? {} : { whisper }),
+            interrupted: true,
           }
         }
         case 'max-tokens':
-          return { input: { phase: 'failed', line: runtime.voice.scene('maxTokens', nowMs) } }
+          return { input: { phase: 'failed', line: runtime.voice.scene('maxTokens', nowMs) }, interrupted: true }
         case 'interrupted':
-          return { input: { phase: 'failed', line: runtime.voice.scene('interrupted', nowMs) } }
+          return { input: { phase: 'failed', line: runtime.voice.scene('interrupted', nowMs) }, interrupted: true }
         case 'blocked':
           return { input: { phase: 'waiting', line: runtime.voice.scene('blocked', nowMs) } }
         case 'aborted':
-          // A stopped session settles to idle without a bubble: the pet
-          // visibly calms down and the session drops out of the bubble stack.
-          return { input: { phase: 'idle' } }
+          // A stopped session still settles to idle with no bubble, but it is
+          // flagged as an interrupt: a pet with a "cut short" animation
+          // (gameplay.workInterrupt) plays it on the flag, because the phase
+          // alone cannot tell a calm finish from the user pressing stop.
+          return { input: { phase: 'idle' }, interrupted: true }
         default:
-          // TurnEndReasonMap is merge-extensible; a newer ending must not
-          // leave the pet showing stale in-progress work.
-          return { input: { phase: 'idle' } }
+          // TurnEndReasonMap is merge-extensible; a newer ending must not leave
+          // the pet showing stale in-progress work. Anything that is not simply
+          // 'completed' counts as cut short: an ending this build does not know
+          // by name is far more likely a cancellation than a tidy finish, and a
+          // stopped turn is exactly what a pet's interrupt animation is for.
+          return { input: { phase: 'idle' }, interrupted: true }
       }
     }
     default:

@@ -213,6 +213,13 @@ export interface PetFrames2dTrackView {
 export interface PetFrames2dDefinition {
   /** Named tracks keyed by track id. */
   tracks: Record<string, PetFrames2dTrackView>
+  /**
+   * Optional display name per track id (track id -> short label). Tracks carry
+   * ids rather than names, so a surface that names the track it played — the
+   * shop announcing the food a purchase rolled, a feed button naming its dish
+   * — resolves the label here and falls back to a generic line when absent.
+   */
+  trackLabels?: Record<string, string>
   /** ActivityPhase -> track id; unmapped phases fall back to idle. */
   phases: Partial<Record<ActivityPhase, string>> & { idle: string }
   /** Selectable skins; each swaps the base idle target to its idleTrack. */
@@ -785,6 +792,22 @@ function resolveFrames2dEntry(
     if (resolved.length > 0) skins = resolved
   }
   const remarks = normalizePetRemarks(manifest.remarks, message => record('warning', 'pet ' + manifest.id + ': ' + message))
+  // Track display labels: keep only entries whose track survived the on-disk
+  // frame check, so the browser half never resolves a label for a track that
+  // cannot actually play.
+  let trackLabels: Record<string, string> | undefined
+  if (block.trackLabels !== undefined) {
+    const kept: Record<string, string> = {}
+    for (const [name, label] of Object.entries(block.trackLabels)) {
+      if (tracks[name] === undefined) {
+        record('warning', 'pet ' + manifest.id + ': frames2d track label for dropped track '
+          + JSON.stringify(name) + ' ignored')
+        continue
+      }
+      kept[name] = label
+    }
+    if (Object.keys(kept).length > 0) trackLabels = kept
+  }
   // Gameplay layer: shop item icons are manifest-relative frame paths —
   // verify them, promote them to browser URLs, and add them to the servable
   // allow-list so the asset route can serve them.
@@ -821,7 +844,12 @@ function resolveFrames2dEntry(
     displayName: manifest.displayName,
     description: manifest.description ?? '',
     renderer: 'frames2d' as const,
-    frames2d: { tracks, phases, ...(skins === undefined ? {} : { skins }) },
+    frames2d: {
+      tracks,
+      phases,
+      ...(trackLabels === undefined ? {} : { trackLabels }),
+      ...(skins === undefined ? {} : { skins }),
+    },
     ...(gameplay === undefined ? {} : { gameplay }),
     cell,
     columns: DEFAULT_PET_COLUMNS,

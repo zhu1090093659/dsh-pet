@@ -998,7 +998,18 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
               </div>
               <div className={styles.actions}>
                 {panelShows('feed') && (
-                  <button type="button" className={styles.action} onClick={props.onFeed}>
+                  <button
+                    type="button"
+                    className={styles.action}
+                    onClick={() => {
+                      // The HUD registers this when it owns the pet's track
+                      // override, so a manifested gameplay.feed.track plays with
+                      // it. Without a gameplay block nothing registers and the
+                      // injected action keeps the original bubble-only behaviour.
+                      if (props.bus?.feed !== undefined) props.bus.feed('feed')
+                      else props.onFeed()
+                    }}
+                  >
                     {panelLabel('feed', props.t('pet.feed'))}
                   </button>
                 )}

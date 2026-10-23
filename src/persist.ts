@@ -34,6 +34,41 @@ export interface PetDisplayConfig {
   bubbleScale: number
 }
 
+/**
+ * Pixel-safe display sizes for a frames2d pet whose art is drawn on a fixed
+ * pixel grid, expressed as fractions of the sprite cell.
+ *
+ * A frames2d pack renders with `image-rendering: pixelated`, so only an integer
+ * ratio between the cell and the display size keeps every art pixel the same
+ * size on screen. For a 256px cell that means 128 (half) and 256 (native); 192
+ * (three quarters) is offered too because it is the size most people want on a
+ * desktop, at the cost of slightly uneven pixels in fine detail. Stepping the
+ * size by 16 would land on no clean ratio at all, which is why the presets are
+ * these fractions rather than a fixed grid.
+ */
+export const PIXEL_SIZE_STEPS: readonly number[] = [0.5, 0.75, 1]
+
+/**
+ * Snap a requested display size to the nearest pixel-safe step for a frames2d
+ * pet, measured in that pet's own cell pixels. Out-of-range requests clamp to
+ * the step list rather than to the global 32..1024 window: smaller than half the
+ * cell loses detail for nothing, larger than native is just upscaling.
+ */
+export function snapPixelSize(size: number, cell: number): number {
+  if (!Number.isFinite(size) || !Number.isFinite(cell) || cell <= 0) return size
+  let best = Math.round(cell * PIXEL_SIZE_STEPS[0]!)
+  let bestGap = Number.POSITIVE_INFINITY
+  for (const step of PIXEL_SIZE_STEPS) {
+    const candidate = Math.round(cell * step)
+    const gap = Math.abs(candidate - size)
+    if (gap < bestGap) {
+      best = candidate
+      bestGap = gap
+    }
+  }
+  return best
+}
+
 export const defaultDisplayConfig: PetDisplayConfig = {
   visible: true,
   size: 160,

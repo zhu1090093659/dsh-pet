@@ -268,6 +268,30 @@ describe('loadPetRegistry frames2d', () => {
     }
   })
 
+  it('keeps trackLabels for surviving tracks and drops them for dropped ones', () => {
+    // A label on a track whose frames are missing on disk can never be shown,
+    // so it is dropped alongside the track (with a warning) instead of being
+    // handed to the browser half as a dead entry.
+    const root = tempDir()
+    try {
+      writeFrames2dPet(root, 'miku', {
+        frames2d: {
+          dir: 'thumb',
+          tracks: { idle: {}, work: {} },
+          phases: { idle: 'idle', thinking: 'work' },
+          trackLabels: { idle: '待机', work: '打工' },
+        },
+      }, { 'thumb/idle': ['miku_1_200.webp'] })
+      const registry = loadPetRegistry({ packageRoot: root, petsDir: '', dshPetsDir: '' })
+      const entry = registry.byId('miku')
+      // 'work' has no frames on disk, so both the track and its label go.
+      expect(entry?.frames2d?.trackLabels).toEqual({ idle: '待机' })
+      expect(entry?.frames2d?.tracks.work).toBeUndefined()
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   it('rejects the entry fail-closed when the idle track has no frames on disk', () => {
     const root = tempDir()
     try {

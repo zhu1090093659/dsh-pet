@@ -79,6 +79,9 @@ function petDefinition(): PetDefinition {
         eat: { frames: ['/pet/miku/thumb/eat/eat_1_200.webp'], durations: [200], loop: false, fallback: 'idle' },
       },
       phases: { idle: 'idle', done: 'success', failed: 'fail' },
+      // One labelled track (for the "得到了 X！" purchase toast) and one
+      // deliberately unlabelled ('success') to cover the generic fallback.
+      trackLabels: { eat: 'Bread' },
     },
     gameplay: {
       idleDirector: { intervalMs: 5000, maxMiss: 2, idleWeight: 0, acts: [{ track: 'eat', weight: 1 }] },
@@ -111,11 +114,11 @@ function petDefinition(): PetDefinition {
   }
 }
 
-function snapshot(view: PetGameplayStateView, skin?: string, phase: ActivityPhase = 'idle'): PetStateView {
+function snapshot(view: PetGameplayStateView, skin?: string, phase: ActivityPhase = 'idle', sessionActive = false): PetStateView {
   return {
     animation: 'idle',
     phase,
-    sessionActive: false,
+    sessionActive,
     sessions: [],
     affinity: { points: 0, rank: '幼鲸', rankEmoji: '*', pets: 0, feeds: 0, turns: 0, petCooldown: false, feedCooldown: false },
     display: { visible: true, size: 160, right: 24, bottom: 20, bubbleScale: 1 },
@@ -130,15 +133,15 @@ function snapshot(view: PetGameplayStateView, skin?: string, phase: ActivityPhas
 interface Harness {
   store: PetStoreInstance
   bus: GameplayBus
-  api: GameplayApi & { touch: ReturnType<typeof vi.fn>; setMode: ReturnType<typeof vi.fn>; workTick: ReturnType<typeof vi.fn>; buy: ReturnType<typeof vi.fn>; setSkin: ReturnType<typeof vi.fn> }
+  api: GameplayApi & { touch: ReturnType<typeof vi.fn>; setMode: ReturnType<typeof vi.fn>; workTick: ReturnType<typeof vi.fn>; buy: ReturnType<typeof vi.fn>; interact: ReturnType<typeof vi.fn>; setSkin: ReturnType<typeof vi.fn> }
   setTrack: ReturnType<typeof vi.fn>
   drag: ReturnType<typeof createDragStream>
   setView: (view: PetGameplayStateView) => void
 }
 
-function harness(view: PetGameplayStateView = gameplayView(), definition: PetDefinition = petDefinition()): Harness {
+function harness(view: PetGameplayStateView = gameplayView(), definition: PetDefinition = petDefinition(), phase: ActivityPhase = 'idle', sessionActive = false): Harness {
   const store = createPetStore().create()
-  store.actions.setSnapshot(snapshot(view))
+  store.actions.setSnapshot(snapshot(view, undefined, phase, sessionActive))
   const bus: GameplayBus = {}
   const setTrack = vi.fn()
   bus.setTrack = setTrack
@@ -149,6 +152,12 @@ function harness(view: PetGameplayStateView = gameplayView(), definition: PetDef
     setMode: vi.fn(async (mode: string | null) => ok({ view: gameplayView({ mode }) })),
     workTick: vi.fn(async () => ok({ outcome: 'success' as const, view: gameplayView({ mode: 'work' }) })),
     buy: vi.fn(async () => ok({ view: gameplayView() })),
+    interact: vi.fn(async () => ({
+      reaction: '好吃！',
+      delta: 5,
+      accepted: true,
+      affinity: { points: 5, rank: '幼鲸', rankEmoji: '*', pets: 0, feeds: 1, turns: 0, petCooldown: false, feedCooldown: false },
+    })),
     setSkin: vi.fn(async () => ({ ok: true })),
   }
   const setView = (next: PetGameplayStateView): void => store.actions.setSnapshot(snapshot(next))
@@ -660,4 +669,377 @@ describe('GameplayHud', () => {
     })
     expect(screen.getByText('中奖 +5 小鱼干')).toBeDefined()
   })
+
+  it('plays the declared feed track on a landed feed and releases it after the hold', async () => {
+    // Given a pet that declares gameplay.feed with a non-looping track; when
+    // the panel feed button is clicked and the host accepts; then that track is
+    // held, the reaction bubble lands, and the override is released after the
+    // track's own play time.
+    const definition = petDefinition()
+    definition.gameplay!.feed = { track: 'eat' }
+    const h = harness(undefined, definition)
+    expect(h.bus.feed).toBeDefined()
+    await act(async () => {
+      h.bus.feed!('feed')
+    })
+    expect(h.api.interact).toHaveBeenCalledWith('feed')
+    expect(h.setTrack).toHaveBeenCalledWith('eat')
+    expect(h.store.getSnapshot().feedback?.text).toBe('好吃！')
+    h.setTrack.mockClear()
+    // 'eat' is one 200ms frame; the hold also carries the release grace, so the
+    // override drops a little after the track's own play time.
+    await act(async () => {
+      vi.advanceTimersByTime(500)
+    })
+    expect(h.setTrack).toHaveBeenLastCalledWith(undefined)
+  })
+
+  it('skips the feed animation on a refused feed but still speaks the bubble', async () => {
+    // Given the host refuses the feed (cooldown / empty stock); when the button
+    // is clicked; then the bubble still reports the refusal copy but no
+    // reaction track plays — otherwise a refused click would restart the
+    // animation for nothing.
+    const definition = petDefinition()
+    definition.gameplay!.feed = { track: 'eat' }
+    const h = harness(undefined, definition)
+    h.api.interact.mockResolvedValueOnce({
+      reaction: '吃饱啦',
+      delta: 0,
+      accepted: false,
+      reason: 'cooldown',
+      affinity: { points: 0, rank: '幼鲸', rankEmoji: '*', pets: 0, feeds: 1, turns: 0, petCooldown: false, feedCooldown: true },
+    })
+    h.setTrack.mockClear()
+    await act(async () => {
+      h.bus.feed!('feed')
+    })
+    expect(h.store.getSnapshot().feedback?.text).toBe('吃饱啦')
+    expect(h.setTrack).not.toHaveBeenCalledWith('eat')
+  })
+
+  it('drops a second feed click while the reaction is locked', async () => {
+    // Given a running feed animation; when the button is clicked again inside
+    // the lock window; then the second interaction never reaches the host, so
+    // the animation cannot be restarted mid-play.
+    const definition = petDefinition()
+    definition.gameplay!.feed = { track: 'eat' }
+    const h = harness(undefined, definition)
+    await act(async () => {
+      h.bus.feed!('feed')
+    })
+    expect(h.api.interact).toHaveBeenCalledTimes(1)
+    await act(async () => {
+      h.bus.feed!('feed')
+    })
+    expect(h.api.interact).toHaveBeenCalledTimes(1)
+    // Past the lock (track time + release grace) the pet accepts a feed again.
+    await act(async () => {
+      vi.advanceTimersByTime(500)
+    })
+    await act(async () => {
+      h.bus.feed!('feed')
+    })
+    expect(h.api.interact).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps a tap from cutting the feed animation short', async () => {
+    // Given a running feed animation; when the user taps the sprite; then the
+    // tap is swallowed instead of replacing the feed track with a touch
+    // reaction — the interruption lock covers both producers.
+    const definition = petDefinition()
+    definition.gameplay!.feed = { track: 'eat' }
+    const h = harness(undefined, definition)
+    await act(async () => {
+      h.bus.feed!('feed')
+    })
+    h.setTrack.mockClear()
+    await act(async () => {
+      h.bus.tap!(0.5, 0.3)
+    })
+    expect(h.api.touch).not.toHaveBeenCalled()
+    expect(h.setTrack).not.toHaveBeenCalled()
+  })
+
+  it('leaves the panel feed bubble-only for a pet without a feed block', async () => {
+    // Given a gameplay pet that declares no feed animation; when the button is
+    // clicked; then the accepted interaction still speaks its bubble and does
+    // not touch the track override.
+    const h = harness()
+    h.setTrack.mockClear()
+    await act(async () => {
+      h.bus.feed!('feed')
+    })
+    expect(h.api.interact).toHaveBeenCalledWith('feed')
+    expect(h.store.getSnapshot().feedback?.text).toBe('好吃！')
+    expect(h.setTrack).not.toHaveBeenCalled()
+  })
+
+  it('plays a once mode as a reaction without entering the mode', async () => {
+    // Given a menu mode marked once; when its button is clicked; then the track
+    // plays for the declared hold, the host is never told a mode started (so
+    // nothing has to be exited and the pet stays pettable), and the override is
+    // released when the hold elapses.
+    const definition = petDefinition()
+    definition.gameplay!.modes = { feeding: { state: 'eat', label: '投喂', once: true, holdMs: 3400 } }
+    const h = harness(undefined, definition)
+    act(() => { h.bus.openCard?.(true) })
+    h.setTrack.mockClear()
+    await act(async () => {
+      fireEvent.click(screen.getByText('投喂'))
+    })
+    expect(h.setTrack).toHaveBeenCalledWith('eat')
+    expect(h.api.setMode).not.toHaveBeenCalled()
+    await act(async () => {
+      vi.advanceTimersByTime(3500)
+    })
+    expect(h.setTrack).toHaveBeenLastCalledWith(undefined)
+  })
+
+  it('drops a second click while a once mode is still playing', async () => {
+    // Given a running one-shot reaction; when its button is clicked again inside
+    // the hold window; then the reaction is not restarted. Once the hold
+    // elapses the button works again.
+    const definition = petDefinition()
+    definition.gameplay!.modes = { feeding: { state: 'eat', label: '投喂', once: true, holdMs: 3400 } }
+    const h = harness(undefined, definition)
+    act(() => { h.bus.openCard?.(true) })
+    /** How many times the reaction track itself was started. */
+    const plays = (): number => h.setTrack.mock.calls.filter(call => call[0] === 'eat').length
+    await act(async () => {
+      fireEvent.click(screen.getByText('投喂'))
+    })
+    expect(plays()).toBe(1)
+    await act(async () => {
+      fireEvent.click(screen.getByText('投喂'))
+    })
+    expect(plays()).toBe(1)
+    await act(async () => {
+      vi.advanceTimersByTime(3500)
+    })
+    await act(async () => {
+      fireEvent.click(screen.getByText('投喂'))
+    })
+    expect(plays()).toBe(2)
+  })
+
+  it('keeps a tap from cutting a once mode short', async () => {
+    // The interruption lock covers the tap path too, so a click on the sprite
+    // cannot replace a running reaction.
+    const definition = petDefinition()
+    definition.gameplay!.modes = { feeding: { state: 'eat', label: '投喂', once: true, holdMs: 3400 } }
+    const h = harness(undefined, definition)
+    act(() => { h.bus.openCard?.(true) })
+    await act(async () => {
+      fireEvent.click(screen.getByText('投喂'))
+    })
+    h.setTrack.mockClear()
+    await act(async () => {
+      h.bus.tap!(0.5, 0.3)
+    })
+    expect(h.api.touch).not.toHaveBeenCalled()
+    expect(h.setTrack).not.toHaveBeenCalled()
+  })
+
+  it('refuses every gameplay interaction while the agent owns the sprite', async () => {
+    // Given a pack that maps its work phases onto work art and declares them in
+    // gameplay.blockPhases; when the reported phase is one of them; then every
+    // action is refused. The first pass only greyed the one-shot buttons and the
+    // shop cells, so 商店 / 皮肤 still opened their pages mid-work and the
+    // lockout looked broken — this covers the whole row.
+    const definition = petDefinition()
+    definition.gameplay!.blockPhases = ['thinking', 'tool', 'review']
+    definition.gameplay!.modes = { feeding: { state: 'eat', label: '投喂', once: true, holdMs: 3400 } }
+    const blocked = harness(undefined, definition, 'tool')
+    act(() => { blocked.bus.openCard?.(true) })
+    blocked.setTrack.mockClear()
+
+    // The 商店 button itself is refused: the page must not even open.
+    await act(async () => {
+      fireEvent.click(screen.getByText('商店'))
+    })
+    expect(screen.queryByText('Bread')).toBeNull()
+
+    // The one-shot feed button refuses and plays nothing.
+    await act(async () => {
+      fireEvent.click(screen.getByText('投喂'))
+    })
+    expect(blocked.setTrack).not.toHaveBeenCalled()
+
+    // A tap on the sprite is refused silently (no bubble, no touch verb).
+    await act(async () => {
+      blocked.bus.tap!(0.5, 0.3)
+    })
+    expect(blocked.api.touch).not.toHaveBeenCalled()
+
+    // A refusal explains itself: one toast carries the busy line.
+    const toasts = document.querySelectorAll("[class*='_gameplayFloat']")
+    expect([...toasts].some(node => node.textContent === '工作中…')).toBe(true)
+  })
+
+  it('refuses a purchase even when the shop page is already open', async () => {
+    // The phase can flip while the shop is on screen (the agent starts a turn
+    // mid-browse), so the cell has to check at click time, not only at open time.
+    // Regression: the guard used to read a ref that only updated during render,
+    // so a click landing between the store update and the next render saw the
+    // OLD phase and got through — which is how a button that already looked gray
+    // still opened the shop on the second or third press.
+    const definition = petDefinition()
+    definition.gameplay!.blockPhases = ['thinking', 'tool', 'review']
+    const h = harness(undefined, definition)
+    act(() => { h.bus.openCard?.(true) })
+    // Browse freely while idle...
+    fireEvent.click(screen.getByText('商店'))
+    expect(screen.getByText('Bread')).toBeTruthy()
+    // ...then the agent starts working and the click lands in the same tick,
+    // before React has re-rendered the (still ungreyed) cell.
+    await act(async () => {
+      h.store.actions.setSnapshot(snapshot(gameplayView(), undefined, 'tool'))
+      fireEvent.click(screen.getByText('Bread'))
+    })
+    expect(h.api.buy).not.toHaveBeenCalled()
+  })
+
+  it('bounces the panel back to the root page when work starts mid-browse', async () => {
+    // A player who opened the shop before the turn started would otherwise sit
+    // in front of cells that look live but do nothing. The panel returns to its
+    // root page so the lockout is visible rather than something to be found out.
+    const definition = petDefinition()
+    definition.gameplay!.blockPhases = ['thinking', 'tool', 'review']
+    const h = harness(undefined, definition)
+    act(() => { h.bus.openCard?.(true) })
+    fireEvent.click(screen.getByText('商店'))
+    expect(screen.getByText('Bread')).toBeTruthy()
+    // The agent takes the sprite: the shop page closes itself.
+    await act(async () => {
+      h.store.actions.setSnapshot(snapshot(gameplayView(), undefined, 'tool'))
+    })
+    expect(screen.queryByText('Bread')).toBeNull()
+    // The panel itself stays open — stats remain readable.
+    expect(screen.getByText('商店')).toBeTruthy()
+  })
+
+  it('plays the work entry once per burst, not once per turn', async () => {
+    // Regression, twofold. Bound to the `waiting` phase it replayed on every
+    // turn AND every step start (DSH chains turns, so a delivery immediately
+    // starts the next one). Bound to `sessionActive` it never played at all: a
+    // conversation keeps one session alive for hours, so the flag is already
+    // true on first paint and never rises again. The ear wants "a burst of work
+    // started": enter a work phase after the pet has rested for a while.
+    const definition = petDefinition()
+    definition.gameplay!.workEntry = { track: 'work', holdMs: 2000 }
+    definition.gameplay!.workExit = { track: 'success', holdMs: 2000 }
+    let clock = 1_000_000
+    const now = vi.spyOn(Date, 'now').mockImplementation(() => clock)
+    const h = harness(undefined, definition)
+    h.setTrack.mockClear()
+    const setPhase = (phase: ActivityPhase): void => {
+      act(() => {
+        h.store.actions.setSnapshot(snapshot(gameplayView(), undefined, phase, true))
+      })
+    }
+    const entries = (): number => h.setTrack.mock.calls.filter(call => call[0] === 'work').length
+
+    // First work of the page: the pet has never been seen working, so this is
+    // a fresh burst and the entry plays.
+    setPhase('tool')
+    expect(entries()).toBe(1)
+
+    // A chained turn: delivered, then work resumes milliseconds later. Same
+    // burst, so the walk to the desk must NOT replay.
+    clock += 1_000
+    setPhase('done')
+    clock += 500
+    setPhase('waiting')
+    expect(entries()).toBe(1)
+
+    // Coming back after a real pause starts a new burst, so the entry plays.
+    clock += 1_000
+    setPhase('done')
+    clock += 30_000
+    setPhase('waiting')
+    expect(entries()).toBe(2)
+
+    // The exit is per-turn: every delivery gets its wrap-up exactly once, and a
+    // repeated `done` poll does not restart it.
+    const exits = (): number => h.setTrack.mock.calls.filter(call => call[0] === 'success').length
+    expect(exits()).toBe(2)
+    setPhase('done')
+    expect(exits()).toBe(3)
+    setPhase('done')
+    expect(exits()).toBe(3)
+
+    now.mockRestore()
+  })
+
+  it('plays the entry for a page opened while the agent is already working', () => {
+    // The old sessionActive rule skipped this case on purpose, which is exactly
+    // how the entry animation went missing: the flag is already true on first
+    // paint of a long conversation, so it never rose again. Arriving mid-work
+    // is a fresh burst as far as the window is concerned, and the pet walking
+    // to the desk is the right read.
+    const definition = petDefinition()
+    definition.gameplay!.workEntry = { track: 'work', holdMs: 2000 }
+    const h = harness(undefined, definition, 'tool', true)
+    // Mounted straight into a work phase: entry played once on the first poll.
+    expect(h.setTrack.mock.calls.filter(call => call[0] === 'work')).toHaveLength(1)
+    h.setTrack.mockClear()
+    // A later phase change inside the same burst must not replay it.
+    act(() => {
+      h.store.actions.setSnapshot(snapshot(gameplayView(), undefined, 'review', true))
+    })
+    expect(h.setTrack.mock.calls.filter(call => call[0] === 'work')).toHaveLength(0)
+  })
+
+  it('leaves the beats alone when the pack declares none', () => {
+    const h = harness(undefined, petDefinition())
+    h.setTrack.mockClear()
+    act(() => {
+      h.store.actions.setSnapshot(snapshot(gameplayView(), undefined, 'idle', true))
+    })
+    expect(h.setTrack).not.toHaveBeenCalled()
+  })
+
+  it('accepts the same pack once the phase leaves the blocked set', async () => {
+    // The gate follows the reported phase, so leaving the work phases restores
+    // normal play without reloading anything.
+    const definition = petDefinition()
+    definition.gameplay!.blockPhases = ['thinking', 'tool', 'review']
+    const free = harness(undefined, definition, 'done')
+    act(() => { free.bus.openCard?.(true) })
+    free.setTrack.mockClear()
+    fireEvent.click(screen.getByText('商店'))
+    await act(async () => {
+      fireEvent.click(screen.getByText('Bread'))
+    })
+    expect(free.api.buy).toHaveBeenCalledTimes(1)
+    await act(async () => {
+      free.bus.tap!(0.5, 0.3)
+    })
+    expect(free.api.touch).toHaveBeenCalledTimes(1)
+  })
+
+  it('leaves gameplay alone when the pack declares no blockPhases', async () => {
+    // The lockout is opt-in: without the field every phase behaves as before.
+    const blocked = harness(undefined, petDefinition(), 'tool')
+    act(() => { blocked.bus.openCard?.(true) })
+    fireEvent.click(screen.getByText('商店'))
+    await act(async () => {
+      fireEvent.click(screen.getByText('Bread'))
+    })
+    expect(blocked.api.buy).toHaveBeenCalledTimes(1)
+  })
+
+  it('still holds a mode that is not marked once', async () => {
+    // The default mode contract is unchanged: a held mode goes through the host
+    // so its state and restore cadence stay authoritative.
+    const definition = petDefinition()
+    definition.gameplay!.modes = { bath: { state: 'sleep', label: '洗澡' } }
+    const h = harness(undefined, definition)
+    act(() => { h.bus.openCard?.(true) })
+    await act(async () => {
+      fireEvent.click(screen.getByText('洗澡'))
+    })
+    expect(h.api.setMode).toHaveBeenCalledWith('bath')
+  })
+
 })

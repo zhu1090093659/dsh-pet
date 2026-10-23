@@ -56,6 +56,23 @@ describe('PetStateMachine', () => {
     expect(machine.render().bubble).toBeUndefined()
   })
 
+  it('stamps a stopped turn so a pet can show its cut-short beat', () => {
+    // A user stop projects the calm idle phase, which is why a "cut short"
+    // animation could never fire: idle means both "finished cleanly" and "you
+    // pressed stop". The stamp carries the difference, and ordinary updates
+    // leave it alone so the beat fires once per stop.
+    const machine = new PetStateMachine(defaultPetStateConfig, () => 5_000)
+    machine.onActivityStatus({ phase: 'tool' })
+    expect(machine.render().interruptedAt).toBeUndefined()
+    machine.onActivityStatus({ phase: 'idle', interrupted: true })
+    expect(machine.render()).toMatchObject({ phase: 'idle', animation: 'idle', interruptedAt: 5_000 })
+    expect(machine.render().bubble).toBeUndefined()
+    // A later ordinary update keeps the stamp: the client compares stamps, so
+    // clearing it here would replay the beat on the next poll.
+    machine.onActivityStatus({ phase: 'idle' })
+    expect(machine.render().interruptedAt).toBe(5_000)
+  })
+
   it('never bubbles a settled idle session, even with a projected line', () => {
     // An aborted turn projects idle + '已停止'; a stopped session must not
     // linger in the bubble stack.

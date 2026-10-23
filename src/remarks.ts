@@ -24,7 +24,21 @@ export const REMARK_KINDS: readonly RemarkKind[] = [
 ]
 
 /** Per-pet remark overrides (normalized shape; each slot is a line pool). */
-export type PetRemarks = Partial<Record<RemarkKind, string[]>>
+export type PetRemarks = Partial<Record<RemarkKind, string[]>> & {
+  /**
+   * Per-track lines for the feed reaction, keyed by frames2d track id.
+   *
+   * A pet whose feed rolls a `states` pool shows a different animation per
+   * roll, and one bubble cannot fit them all: "thanks for the food" reads as
+   * nonsense on top of a pet flipping a basin over its head. Keying the copy by
+   * track keeps the bubble and the art chosen together — the host rolls once and
+   * speaks the line that belongs to the roll it made.
+   */
+  feedStates?: Record<string, string[]>
+}
+
+/** Most tracks a feed reaction may carry dedicated lines for. */
+export const REMARK_FEED_STATES_MAX = 16
 
 /** Raw manifest shape: each slot accepts one line or a pool of lines. */
 export type PetRemarksManifest = Partial<Record<RemarkKind, string | string[]>>
@@ -156,23 +170,60 @@ export function normalizePetRemarks(
   }
   const remarks: PetRemarks = {}
   for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    // Per-track feed copy rides the same block under its own key.
+    if (key === 'feedStates') {
+      const states = normalizeFeedStates(value, onWarning)
+      if (states !== undefined) remarks.feedStates = states
+      continue
+    }
     if (!REMARK_KINDS.includes(key as RemarkKind)) {
       onWarning('unknown remarks slot ' + JSON.stringify(key))
       continue
     }
-    const lines = (Array.isArray(value) ? value : [value])
-      .filter((line): line is string => typeof line === 'string')
-      .map(line => line.trim())
-      .filter(line => line !== '')
-      .slice(0, REMARK_LINES_MAX)
-      .map(line => line.slice(0, REMARK_LINE_MAX))
-    if (lines.length === 0) {
+    const lines = normalizeLines(value)
+    if (lines === undefined) {
       onWarning('remarks slot ' + key + ' carries no usable lines')
       continue
     }
     remarks[key as RemarkKind] = lines
   }
   return Object.keys(remarks).length === 0 ? undefined : remarks
+}
+
+/** One pool: a line or a list of them, trimmed, deduplicated of blanks, capped. */
+function normalizeLines(value: unknown): string[] | undefined {
+  const lines = (Array.isArray(value) ? value : [value])
+    .filter((line): line is string => typeof line === 'string')
+    .map(line => line.trim())
+    .filter(line => line !== '')
+    .slice(0, REMARK_LINES_MAX)
+    .map(line => line.slice(0, REMARK_LINE_MAX))
+  return lines.length === 0 ? undefined : lines
+}
+
+/** Normalize the per-track feed copy: `{ <track>: line | line[] }`. */
+function normalizeFeedStates(
+  raw: unknown,
+  onWarning: (message: string) => void,
+): Record<string, string[]> | undefined {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    onWarning('remarks.feedStates must be an object keyed by track id')
+    return undefined
+  }
+  const states: Record<string, string[]> = {}
+  for (const [track, value] of Object.entries(raw as Record<string, unknown>).slice(0, REMARK_FEED_STATES_MAX)) {
+    if (track.trim() === '') {
+      onWarning('remarks.feedStates keys must be track ids')
+      continue
+    }
+    const lines = normalizeLines(value)
+    if (lines === undefined) {
+      onWarning('remarks.feedStates.' + track + ' carries no usable lines')
+      continue
+    }
+    states[track] = lines
+  }
+  return Object.keys(states).length === 0 ? undefined : states
 }
 
 /**

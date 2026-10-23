@@ -12,6 +12,8 @@
  * @module @linxin666/dsh-pet/gameplay
  */
 
+import type { ActivityPhase } from './state.ts'
+
 /** One roam direction the pet may walk in. */
 export type PetRoamDirection = 'up' | 'down' | 'left' | 'right'
 
@@ -52,6 +54,28 @@ export interface PetGameplayStatDef {
   workingDecayPerMinute?: number
   /** Extra decay rate while no session is active. */
   idleDecayPerMinute?: number
+  /**
+   * Read this stat straight off the affinity ledger instead of storing it.
+   *
+   * A pet's "affection" is the same idea the ledger already tracks as points,
+   * and the plugin has always had both: a stored stat that starts at 100 and
+   * decays, next to a ledger that climbs to hundreds through pets and feeds.
+   * They disagree the moment the pet is used, which reads as a broken bar. A
+   * mirrored stat is projection-only — never persisted, never decayed, clamped
+   * to `max` — so the bar simply reports the real number.
+   */
+  mirror?: 'affinity'
+  /**
+   * A floor derived from the affinity ledger: this stat never settles below
+   * `affinityPoints / affinityFloorDivisor` (capped at `max`).
+   *
+   * The gentler alternative to `mirror`. A mirrored bar can never fall at all,
+   * which makes neglect meaningless; a floor lets the stat decay, feed and
+   * starve like the others while the relationship itself stays as a safety net.
+   * With a divisor of 10, 100 affinity guarantees 10 and 1000 guarantees the
+   * whole bar.
+   */
+  affinityFloorDivisor?: number
 }
 
 export interface PetGameplayShopItem {
@@ -85,10 +109,137 @@ export interface PetGameplayModeDef {
   activeLabel?: string
   /** Periodic stat restore while the mode is active (omitted = no restore). */
   restore?: { stat: string; amount: number; intervalMs: number }
+  /**
+   * Run the mode's track once and settle back, instead of holding it until the
+   * button is pressed again.
+   *
+   * A held mode owns the pet for as long as it is active — the pet cannot be
+   * petted, the mode chip stays on screen and the button becomes an "exit"
+   * button. That is right for a bath or a nap, but wrong for a single reaction
+   * an action button should show (eating a cake, a wave): the pet would stay
+   * stuck in it. With `once` the button becomes a one-shot: it plays `state`
+   * for `holdMs`, drops the override, and the pet returns to whatever it was
+   * doing. No mode is entered host-side, so nothing has to be exited and the
+   * next tap is a normal interaction again. `restore` is meaningless here and
+   * is ignored.
+   */
+  once?: boolean
+  /**
+   * Hold time in ms for a `once` mode (defaults to the track's own play time,
+   * or 2000 when the track is empty/undeclared). Ignored without `once`.
+   */
+  holdMs?: number
+}
+
+/**
+ * One panel-button reaction animation ('gameplay.feed').
+ *
+ * `track` names a declared frames2d track played once when the interaction
+ * lands; its own `loop`/`fallback` rules decide where the pet settles after.
+ * The browser half holds the override for `holdMs`, during which the pet
+ * refuses to be re-triggered: taps do not cut the animation short and a second
+ * panel click is dropped instead of restarting it.
+ */
+export interface PetGameplayFeedDef {
+  /** frames2d track played once for a landed interaction. */
+  track?: string
+  /**
+   * A pool rolled per landed interaction instead of always playing `track`.
+   *
+   * Same shape as a shop item's `states`, and the pick is uniform, so the odds
+   * are set by how often a track appears in the list — three rice entries and
+   * one basin entry is a 25% basin. It exists so a pet can ship a rare extra
+   * reaction without a second button or any per-pet code.
+   */
+  states?: string[]
+  /**
+   * How long the override is held, in ms. Also the interruption lock window,
+   * so it should match the track's play time. Defaults to 2000.
+   */
+  holdMs?: number
+  /**
+   * Stat changes a landed interaction applies, exactly like a shop item's
+   * effects.
+   *
+   * Without this a feed only moves affinity: the stat bars decay and nothing
+   * ever fills them back up, because the shop is optional and was the only
+   * other effects source. Declaring effects here makes the feed button the way
+   * a pet gets fed, with the bars as the visible consequence.
+   */
+  effects?: PetGameplayEffect[]
+  /**
+   * workEntry only: how long the pet must have been OUT of work for the next
+   * work phase to count as a new burst. Defaults to 6000.
+   *
+   * This is the knob that decides how often the entry animation is seen. Too
+   * short and every reply-then-message cycle replays it, which reads as random;
+   * a minute or two means it only plays when the player actually walked away.
+   */
+  gapMs?: number
 }
 
 /** The validated manifest 'gameplay' block. */
 export interface PetGameplayManifest {
+  /**
+   * The action a panel-button interaction plays on the pet.
+   *
+   * The panel's pet/feed buttons live in the plugin's injected actions and
+   * have no access to the renderer's track override, so a click there used to
+   * move the economy and speak a bubble without ever changing the sprite. This
+   * block hands the browser half a per-pet track to hold for those
+   * interactions — the same one-shot override the touch zones and the skin
+   * click actions use — so a pet can ship its own feed animation without any
+   * per-pet code.
+   */
+  feed?: PetGameplayFeedDef
+  /**
+   * Activity phases during which the gameplay layer is locked out.
+   *
+   * A pet that maps its ActivityPhases onto work art (a walk-to-desk entry, a
+   * working loop, a wrap-up) owns the sprite for as long as the agent is busy.
+   * Letting a purchase, a feed button or a pet click grab the same track
+   * override mid-animation makes the sprite flip between "working" and
+   * "eating", which reads as a rendering bug rather than as two features.
+   *
+   * Declaring the phases here makes the browser half refuse those interactions
+   * and gray the buttons instead, so the work animation keeps the sprite. The
+   * panel still opens: stats and the shop stay readable, only the actions that
+   * would steal the track are refused.
+   */
+  blockPhases?: ActivityPhase[]
+  /**
+   * A one-shot reaction played when a session becomes active — the "the agent
+   * started working" beat.
+   *
+   * The phase stream cannot express this. Its `waiting` phase fires at EVERY
+   * turn start, every step start and whenever the agent blocks for approval, so
+   * binding a walk-to-desk animation to it replays it several times per task —
+   * and DSH chains turns, so a delivered stage immediately starts a new one and
+   * the entry plays again. `sessionActive` is no boundary either: a conversation
+   * keeps one session alive for hours, so the flag is already true on first
+   * paint and never rises again. The browser half therefore plays this beat when
+   * work RESUMES after the pet has rested for a while — one entry per burst.
+   *
+   * Played through the same track override as the feed reaction, so it survives
+   * the phase changes that arrive while it runs and hands back to the phase map
+   * when it settles.
+   */
+  workEntry?: PetGameplayFeedDef
+  /**
+   * A one-shot reaction played when the active session ends — the bookend to
+   * workEntry. Omit it if the pet shows nothing special on shutdown.
+   */
+  workExit?: PetGameplayFeedDef
+  /**
+   * A one-shot reaction played when a turn ends ABNORMALLY (the `failed` phase:
+   * an error, an interrupt, or the token budget running out) — the pet's "that
+   * was cut short" beat, as opposed to workExit's tidy wrap-up.
+   *
+   * It hangs off the phase rather than a session edge for the same reason
+   * workExit does, and is held through the override slot so the next turn's
+   * phases cannot cut it off mid-animation.
+   */
+  workInterrupt?: PetGameplayFeedDef
   idleDirector?: {
     intervalMs: number
     maxMiss: number
@@ -169,6 +320,8 @@ const MAX_ZONES = 8
 const MAX_BRANCHES = 8
 const MAX_ACTS = 16
 const MAX_SHOP_ITEMS = 32
+/** Tracks one shop item may roll from (a mystery box plays a random one). */
+const MAX_REACTION_STATES = 8
 const MAX_LOTTERY_TIERS = 16
 const MAX_PHRASES = 64
 const PHRASE_MAX_LENGTH = 120
@@ -177,15 +330,21 @@ const MODE_LABEL_MAX_LENGTH = 40
 const STAT_VALUE_MAX = 1_000_000
 const CURRENCY_MAX = 9_999_999
 
-const KNOWN_GAMEPLAY = new Set(['idleDirector', 'stats', 'hitBox', 'touch', 'work', 'sleep', 'modes', 'roam', 'passiveIncome', 'shop', 'dragState', 'dragEndState'])
-const KNOWN_STAT = new Set(['max', 'initial', 'decayPerMinute', 'workingDecayPerMinute', 'idleDecayPerMinute'])
+const KNOWN_GAMEPLAY = new Set(['idleDirector', 'stats', 'hitBox', 'touch', 'work', 'sleep', 'modes', 'roam', 'passiveIncome', 'shop', 'dragState', 'dragEndState', 'feed', 'blockPhases', 'workEntry', 'workExit', 'workInterrupt'])
+
+/** Activity phases a gameplay block may lock itself out of (closed set). */
+export const GAMEPLAY_BLOCKABLE_PHASES: readonly ActivityPhase[] = [
+  'idle', 'waiting', 'thinking', 'tool', 'review', 'done', 'failed',
+]
+const KNOWN_FEED = new Set(['track', 'states', 'holdMs', 'effects', 'gapMs'])
+const KNOWN_STAT = new Set(['max', 'initial', 'decayPerMinute', 'workingDecayPerMinute', 'idleDecayPerMinute', 'mirror', 'affinityFloorDivisor'])
 const KNOWN_ZONE = new Set(['name', 'y0', 'y1', 'branches'])
 const KNOWN_TOUCH = new Set(['zones', 'clickBoost'])
 const KNOWN_BRANCH = new Set(['probability', 'effects', 'state', 'stateMs', 'phrases'])
 const KNOWN_EFFECT = new Set(['stat', 'currency', 'amount'])
 const KNOWN_WORK = new Set(['state', 'successState', 'failState', 'tickMs', 'resultMs', 'successProbability', 'success', 'fail'])
 const KNOWN_SLEEP = new Set(['state', 'wakeState', 'restore'])
-const KNOWN_MODE = new Set(['state', 'label', 'activeLabel', 'restore'])
+const KNOWN_MODE = new Set(['state', 'label', 'activeLabel', 'restore', 'once', 'holdMs'])
 const KNOWN_ROAM = new Set(['state', 'intervalMs', 'probability', 'distanceMin', 'distanceMax', 'speed', 'directions'])
 const KNOWN_RESTORE = new Set(['stat', 'amount', 'intervalMs'])
 const KNOWN_SHOP_ITEM = new Set(['id', 'label', 'image', 'price', 'currency', 'effects', 'lottery'])
@@ -316,6 +475,34 @@ export function parseGameplayManifest(raw: unknown, hooks: GameplayParseHooks): 
   let failed = false
   const fail = (message: string): void => { failed = true; error(message) }
 
+  // --- blockPhases (independent of every other field) ---
+  let blockPhases: ActivityPhase[] | undefined
+  if (raw.blockPhases !== undefined) {
+    if (!Array.isArray(raw.blockPhases) || raw.blockPhases.length === 0) {
+      fail('gameplay.blockPhases must be a non-empty array of activity phases')
+    } else if (raw.blockPhases.length > GAMEPLAY_BLOCKABLE_PHASES.length) {
+      fail('gameplay.blockPhases declares more phases than exist')
+    } else {
+      const kept: ActivityPhase[] = []
+      for (const value of raw.blockPhases) {
+        if (typeof value !== 'string' || !GAMEPLAY_BLOCKABLE_PHASES.includes(value as ActivityPhase)) {
+          fail('gameplay.blockPhases: ' + JSON.stringify(value) + ' is not an activity phase ('
+            + GAMEPLAY_BLOCKABLE_PHASES.join(', ') + ')')
+          continue
+        }
+        // Idle is the resting state: locking it out would leave the player with
+        // a panel that never works, so it is refused rather than silently
+        // ignored as a harmless no-op.
+        if (value === 'idle') {
+          fail('gameplay.blockPhases must not contain "idle" (the pet would never accept an interaction)')
+          continue
+        }
+        if (!kept.includes(value as ActivityPhase)) kept.push(value as ActivityPhase)
+      }
+      if (kept.length > 0) blockPhases = kept
+    }
+  }
+
   // --- stats (parsed first: effects reference them) ---
   const stats: Record<string, PetGameplayStatDef> = {}
   if (raw.stats !== undefined) {
@@ -339,6 +526,14 @@ export function parseGameplayManifest(raw: unknown, hooks: GameplayParseHooks): 
           continue
         }
         const def: PetGameplayStatDef = { max: value.max }
+        if (value.mirror !== undefined) {
+          if (value.mirror !== 'affinity') fail('gameplay.stats.' + name + '.mirror must be "affinity"')
+          else def.mirror = 'affinity'
+        }
+        if (value.affinityFloorDivisor !== undefined) {
+          if (!numIn(value.affinityFloorDivisor, 1, 1000)) fail('gameplay.stats.' + name + '.affinityFloorDivisor must be a number in [1, 1000]')
+          else if (def.mirror === undefined) def.affinityFloorDivisor = value.affinityFloorDivisor
+        }
         if (value.initial !== undefined) {
           if (!numIn(value.initial, 0, value.max)) fail('gameplay.stats.' + name + '.initial must be within [0, max]')
           else def.initial = value.initial
@@ -558,12 +753,35 @@ export function parseGameplayManifest(raw: unknown, hooks: GameplayParseHooks): 
         }
         const restore = value.restore === undefined ? undefined : parseModeRestore(value.restore, 'gameplay.modes.' + name + '.restore', stats, fail)
         if (value.restore !== undefined && restore === undefined) usable = false
+        let once: boolean | undefined
+        if (value.once !== undefined) {
+          if (typeof value.once !== 'boolean') {
+            fail('gameplay.modes.' + name + '.once must be a boolean')
+            usable = false
+          } else if (value.once) once = true
+        }
+        let holdMs: number | undefined
+        if (value.holdMs !== undefined) {
+          if (!intIn(value.holdMs, 500, 10_000)) {
+            fail('gameplay.modes.' + name + '.holdMs must be an integer in [500, 10000]')
+            usable = false
+          } else holdMs = value.holdMs
+        }
+        // A one-shot mode is played and settled by the browser half, so a
+        // restore cadence can never fire; refuse the contradiction rather than
+        // silently dropping the restore the manifest asked for.
+        if (once === true && restore !== undefined) {
+          fail('gameplay.modes.' + name + ': a once mode cannot declare restore')
+          usable = false
+        }
         if (usable && state !== undefined) {
           modes[name] = {
             state,
             ...(label === undefined ? {} : { label }),
             ...(activeLabel === undefined ? {} : { activeLabel }),
             ...(restore === undefined ? {} : { restore }),
+            ...(once === undefined ? {} : { once }),
+            ...(holdMs === undefined ? {} : { holdMs }),
           }
         }
       }
@@ -725,6 +943,7 @@ export function parseGameplayManifest(raw: unknown, hooks: GameplayParseHooks): 
             }
           }
         }
+        // A purchase needs *something* to do: stats or a prize.
         if (item.effects === undefined && item.lottery === undefined) {
           fail('gameplay.shop.' + itemRaw.id + ' needs effects or a lottery')
           continue
@@ -745,6 +964,72 @@ export function parseGameplayManifest(raw: unknown, hooks: GameplayParseHooks): 
     if (state !== undefined) block.dragEndState = state
   }
 
+  // --- one-shot reaction blocks: the panel feed button, and the session
+  // --- start/end beats. Same shape, so they share one parser.
+  const parseReaction = (field: 'feed' | 'workEntry' | 'workExit' | 'workInterrupt', rawValue: unknown): PetGameplayFeedDef | undefined => {
+    if (!isRecord(rawValue)) {
+      fail('gameplay.' + field + ' must be an object { track | states, holdMs? }')
+      return undefined
+    }
+    const extra = unknownKeys(rawValue, KNOWN_FEED)
+    if (extra.length > 0) fail('gameplay.' + field + ': unknown field(s) ' + extra.map(k => JSON.stringify(k)).join(', '))
+    const def: PetGameplayFeedDef = {}
+    // `track` stays the shorthand for a single reaction; `states` is the pool.
+    // A pool wins when both are present, mirroring a shop item's state/states.
+    if (rawValue.track !== undefined) {
+      const track = parseStateRef(rawValue.track, 'gameplay.' + field + '.track', hooks)
+      if (track !== undefined) def.track = track
+    }
+    if (rawValue.states !== undefined) {
+      if (!Array.isArray(rawValue.states) || rawValue.states.length === 0 || rawValue.states.length > MAX_REACTION_STATES) {
+        fail('gameplay.' + field + '.states must be an array of 1..' + MAX_REACTION_STATES + ' tracks')
+      } else {
+        const pool: string[] = []
+        for (const [index, entry] of (rawValue.states as unknown[]).entries()) {
+          const track = parseStateRef(entry, 'gameplay.' + field + '.states[' + index + ']', hooks)
+          if (track !== undefined) pool.push(track)
+        }
+        if (pool.length > 0) def.states = pool
+      }
+    }
+    if (def.track === undefined && def.states === undefined) {
+      if (rawValue.track === undefined && rawValue.states === undefined) {
+        fail('gameplay.' + field + ' needs a "track" or a "states" pool')
+      }
+      return undefined
+    }
+    if (rawValue.holdMs !== undefined) {
+      if (!intIn(rawValue.holdMs, 500, 10_000)) fail('gameplay.' + field + '.holdMs must be an integer in [500, 10000]')
+      else def.holdMs = rawValue.holdMs
+    }
+    if (rawValue.effects !== undefined) {
+      const effects = parseEffects(rawValue.effects, 'gameplay.' + field + '.effects', stats, hooks)
+      if (effects !== undefined) def.effects = effects
+    }
+    if (rawValue.gapMs !== undefined) {
+      if (!intIn(rawValue.gapMs, 0, 3_600_000)) fail('gameplay.' + field + '.gapMs must be an integer in [0, 3600000]')
+      else def.gapMs = rawValue.gapMs
+    }
+    return def
+  }
+  if (raw.feed !== undefined) {
+    const def = parseReaction('feed', raw.feed)
+    if (def !== undefined) block.feed = def
+  }
+  if (raw.workEntry !== undefined) {
+    const def = parseReaction('workEntry', raw.workEntry)
+    if (def !== undefined) block.workEntry = def
+  }
+  if (raw.workExit !== undefined) {
+    const def = parseReaction('workExit', raw.workExit)
+    if (def !== undefined) block.workExit = def
+  }
+  if (raw.workInterrupt !== undefined) {
+    const def = parseReaction('workInterrupt', raw.workInterrupt)
+    if (def !== undefined) block.workInterrupt = def
+  }
+
+  if (blockPhases !== undefined) block.blockPhases = blockPhases
   return failed ? undefined : block
 }
 
@@ -803,7 +1088,26 @@ export function modeRestoreOf(
   if (mode === null) return undefined
   if (mode === 'sleep') return manifest.sleep?.restore
   if (mode === 'work') return undefined
-  return declaredModeOf(manifest, mode)?.restore
+  // A one-shot mode never becomes active host-side, so it can never restore.
+  const declared = declaredModeOf(manifest, mode)
+  if (declared?.once === true) return undefined
+  return declared?.restore
+}
+
+/**
+ * Whether a menu mode runs its track once instead of holding it. One-shot
+ * modes are presentation only: the browser half plays `state` and settles, and
+ * no mode is entered — so the pet stays pettable and needs no exit click.
+ */
+export function isOneShotMode(manifest: PetGameplayManifest, mode: string): boolean {
+  if (mode === 'work' || mode === 'sleep') return false
+  return declaredModeOf(manifest, mode)?.once === true
+}
+
+/** The hold time a one-shot mode asks for, when it declares one. */
+export function oneShotHoldMsOf(manifest: PetGameplayManifest, mode: string): number | undefined {
+  if (!isOneShotMode(manifest, mode)) return undefined
+  return declaredModeOf(manifest, mode)?.holdMs
 }
 
 /** Whether the manifest still declares this gameplay mode id. */
@@ -845,7 +1149,7 @@ export function settleGameplay(
   state: PetGameplayState,
   manifest: PetGameplayManifest,
   now: number,
-  options: { sessionActive: boolean },
+  options: { sessionActive: boolean; affinityPoints?: number },
 ): boolean {
   const elapsedMs = now - state.settledAt
   if (elapsedMs <= 0) return false
@@ -890,6 +1194,23 @@ export function settleGameplay(
   }
   state.settledAt = now
   clampGameplay(state, manifest)
+  // Affection floor: the affinity ledger is the player's permanent progress, and
+  // a pet whose affection decays to zero while the panel reads "822 点很久的
+  // 亲密度" is the one thing that makes the two numbers feel unrelated. Declaring
+  // `affinityFloorDivisor: 10` keeps the bar at least points/10 (capped at max),
+  // so a long relationship can be neglected without ever being erased.
+  if (options.affinityPoints !== undefined) {
+    for (const [name, def] of Object.entries(manifest.stats ?? {})) {
+      if (def.affinityFloorDivisor === undefined) continue
+      const floor = Math.min(def.max, options.affinityPoints / def.affinityFloorDivisor)
+      const current = state.stats[name]
+      if (current === undefined) continue
+      if (current < floor) {
+        state.stats[name] = floor
+        changed = true
+      }
+    }
+  }
   return changed
 }
 
@@ -903,6 +1224,26 @@ export function applyGameplayEffects(state: PetGameplayState, manifest: PetGamep
     }
   }
   clampGameplay(state, manifest)
+}
+
+/**
+ * The track one landed interaction plays: the `states` pool when declared, else
+ * the single `track`. The roll is injected so callers stay deterministic in
+ * tests, and the odds are the pool's own frequencies — repeat an entry to make
+ * it more likely.
+ */
+export function pickFeedTrack(
+  def: PetGameplayFeedDef | undefined,
+  random: () => number = Math.random,
+): string | undefined {
+  if (def === undefined) return undefined
+  const pool = def.states ?? (def.track === undefined ? [] : [def.track])
+  if (pool.length === 0) return undefined
+  if (pool.length === 1) return pool[0]
+  // Clamp: a random() of exactly 1 (or a misbehaving injected roll) must not
+  // index past the end.
+  const index = Math.min(pool.length - 1, Math.max(0, Math.floor(random() * pool.length)))
+  return pool[index]
 }
 
 /** Roll one touch zone branch; undefined when the roll lands in no-op mass. */

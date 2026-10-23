@@ -98,6 +98,14 @@ export interface PetManifestFrames2d {
   defaultFrameMs?: number
   /** Named tracks (1..64, kebab ids). */
   tracks: Record<string, PetManifestFrames2dTrack>
+  /**
+   * Optional display name per track (track id -> short label). Purely
+   * presentational: tracks carry ids, not names, so any surface that wants to
+   * tell the user WHICH track played (a shop purchase announcing the food it
+   * rolled, a feed button naming its dish) reads it here. Keys must name a
+   * declared track; unmapped tracks simply have no name.
+   */
+  trackLabels?: Record<string, string>
   /** ActivityPhase -> track name; idle is required, unmapped phases fall back to it. */
   phases: Partial<Record<ActivityPhase, string>> & { idle: string }
   /**
@@ -190,7 +198,7 @@ export const KNOWN_SPRITE2D = new Set(['spritesheetPath', 'cell', 'columns', 'at
 /** live2d block field allow-list (drift-locked to the schema file). */
 export const KNOWN_LIVE2D = new Set(['model', 'scale', 'translate', 'motions', 'expressions', 'hitAreas', 'lipSync'])
 /** frames2d block field allow-list (drift-locked to the schema file). */
-export const KNOWN_FRAMES2D = new Set(['dir', 'defaultFrameMs', 'tracks', 'phases', 'skins'])
+export const KNOWN_FRAMES2D = new Set(['dir', 'defaultFrameMs', 'tracks', 'trackLabels', 'phases', 'skins'])
 /** frames2d track field allow-list (drift-locked to the schema file). */
 export const KNOWN_FRAMES2D_TRACK = new Set(['frames', 'frameMs', 'loop', 'fallback'])
 /** frames2d skin entry field allow-list (drift-locked to the schema file). */
@@ -399,6 +407,8 @@ const FRAMES2D_MAX_TRACKS = 64
 const FRAMES2D_MAX_FRAMES = 64
 const FRAMES2D_MIN_FRAME_MS = 16
 const FRAMES2D_MAX_FRAME_MS = 5_000
+/** Longest accepted track display label (a dish or prop name, not a sentence). */
+const FRAMES2D_MAX_TRACK_LABEL = 24
 const FRAMES2D_IMAGE_EXTENSIONS = new Set(['.webp', '.png', '.gif', '.jpg', '.jpeg'])
 
 /** Validate one frames2d track name (kebab id, at most 32 chars). */
@@ -498,6 +508,34 @@ function parseFrames2dBlock(raw: unknown, diag: Diagnostics): PetManifestFrames2
     }
   }
   block.tracks = tracks
+  // Track display labels are presentational, but a label on an undeclared
+  // track can never be shown, so it is a typo: fail closed like every other
+  // dangling reference in this block.
+  if (raw.trackLabels !== undefined) {
+    if (!isRecord(raw.trackLabels)) {
+      diag.error('frames2d.trackLabels must be an object mapping track names to labels')
+    } else {
+      const labels: Record<string, string> = {}
+      for (const [name, value] of Object.entries(raw.trackLabels)) {
+        const field = 'frames2d.trackLabels.' + name
+        if (tracks[name] === undefined) {
+          diag.error(field + ' references unknown track ' + JSON.stringify(name))
+          continue
+        }
+        if (typeof value !== 'string' || value.trim().length === 0) {
+          diag.error(field + ' must be a non-empty string')
+          continue
+        }
+        const label = value.trim()
+        if ([...label].length > FRAMES2D_MAX_TRACK_LABEL) {
+          diag.error(field + ' must be at most ' + FRAMES2D_MAX_TRACK_LABEL + ' characters')
+          continue
+        }
+        labels[name] = label
+      }
+      if (Object.keys(labels).length > 0) block.trackLabels = labels
+    }
+  }
   const phases = parsePhaseStringMap(raw.phases, 'frames2d.phases', diag)
   if (raw.phases === undefined) diag.error('frames2d.phases is required (at least an "idle" mapping)')
   else if (phases !== undefined && phases.idle === undefined) diag.error('frames2d.phases.idle is required (unmapped phases fall back to it)')

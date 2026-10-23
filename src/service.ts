@@ -36,6 +36,7 @@ import {
   BUBBLE_SCALE_MIN,
   DISPLAY_SIZE_MIN,
   PET_NAME_MAX_LENGTH,
+  snapPixelSize,
   loadPetPersist,
   petHomeDir,
   savePetPersist,
@@ -67,8 +68,10 @@ import {
 import {
   applyGameplayEffects,
   drawLotteryTier,
+  pickFeedTrack,
   initialGameplayState,
   isDeclaredMode,
+  isOneShotMode,
   rollTouchBranch,
   rollWorkOutcome,
   settleGameplay,
@@ -192,6 +195,13 @@ export interface PetStateView {
   animation: PetStateSnapshot['animation']
   bubble?: string
   phase: PetStateSnapshot['phase']
+  /**
+   * Wall-clock ms of the last user-stopped turn, when one was seen.
+   *
+   * A stop projects the calm idle phase, so a pet with a "cut short" animation
+   * (gameplay.workInterrupt) keys off this stamp changing, not the phase.
+   */
+  interruptedAt?: number
   sessionActive: boolean
   /**
    * Per-session bubbles for every concurrently active TOP-LEVEL session:
@@ -356,7 +366,7 @@ export class PetService extends Service {
    * #677). Cached per pet id; the registry is an immutable snapshot, so the
    * global pack and each entry's pack cannot change behind the cache.
    */
-  private voiceCache: { petId: string; overrides: VoicePackOverrides } | undefined
+  private voiceCache: { petId: string; overrides: VoicePackOverrides; remarks?: PetRemarks } | undefined
   /**
    * Per-session activity, most recent last (Map insertion order). Bounded by
    * MAX_SESSION_BUBBLES so a burst of sessions cannot grow it without bound;
@@ -430,8 +440,11 @@ export class PetService extends Service {
       if (this.voiceCache !== undefined && this.voiceCache.petId === entry.id) {
         return this.voiceCache.overrides
       }
-      const overrides = mergeVoicePacks(this.registry.globalVoice, entry.voice)?.overrides ?? {}
-      this.voiceCache = { petId: entry.id, overrides }
+      const merged = mergeVoicePacks(this.registry.globalVoice, entry.voice)
+      const overrides = merged?.overrides ?? {}
+      // The remarks ride the same merge and are cached with it: the feed roll
+      // needs the per-track lines, and resolving the packs twice would be waste.
+      this.voiceCache = { petId: entry.id, overrides, ...(merged?.remarks === undefined ? {} : { remarks: merged.remarks }) }
       return overrides
     }
   }
@@ -664,7 +677,11 @@ export class PetService extends Service {
           if (transition === undefined) return
           runtime.officialEventsSeen = true
           this.officialEventSessions.add(session)
-          this.applyActivity(session, transition.input, transition.whisper)
+          this.applyActivity(
+            session,
+            transition.interrupted === true ? { ...transition.input, interrupted: true } : transition.input,
+            transition.whisper,
+          )
           if (transition.completedTurn !== undefined) {
             this.rewardTurn(String(session.id), transition.completedTurn)
           }
@@ -752,9 +769,59 @@ export class PetService extends Service {
   /** RPC: pet or feed the pet. */
   async interact(kind: PetInteraction): Promise<PetInteractResult> {
     const nowMs = Date.now()
+    const def = this.gameplayDef()
+    // A feed owns the sprite for several seconds, so it may not land while the
+    // agent is working: the eat animation would replace the work loop the same
+    // way a purchase would. Refused before the ledger so no treat is spent and
+    // no affinity moves; the browser half greys the button already, this is the
+    // path a stale panel or an API caller would take.
+    if (
+      kind === 'feed'
+      && def !== undefined
+      && def.blockPhases !== undefined
+      && this.gameplayLocked(def)
+    ) {
+      return {
+        reaction: '',
+        delta: 0,
+        affinity: this.ledger.affinityView(nowMs),
+        accepted: false,
+        reason: 'blocked',
+      }
+    }
     const result = this.ledger.interact(kind, nowMs)
+    const feed = def?.feed
+    if (kind !== 'feed' || !result.accepted || def === undefined || feed === undefined) {
+      if (this.ledger.takeDirty()) this.flush()
+      return result
+    }
+    // A landed feed FEEDS the pet: without this the stat bars only ever decay,
+    // because the shop was the only other effects source and this pack ships
+    // none. Applies on the same settled state a purchase uses.
+    if (feed.effects !== undefined && feed.effects.length > 0) {
+      const { petId, state } = this.gameplayState(def, nowMs)
+      settleGameplay(state, def, nowMs, this.settleOptions())
+      applyGameplayEffects(state, def, feed.effects)
+      this.drainGameplayTreats(state)
+      this.commitGameplay(petId, state)
+    }
     if (this.ledger.takeDirty()) this.flush()
-    return result
+    // One roll decides both the art and the line. Rolling here (rather than in
+    // the browser half) is what keeps a basin flip from speaking "thanks for
+    // the food": the reaction below is the one that belongs to this roll.
+    const state = pickFeedTrack(feed)
+    if (state === undefined) return result
+    const lines = this.voiceRemarks()?.feedStates?.[state]
+    const line = lines === undefined || lines.length === 0
+      ? undefined
+      : lines[Math.min(lines.length - 1, Math.floor(Math.random() * lines.length))]
+    return line === undefined ? { ...result, state } : { ...result, state, reaction: line }
+  }
+
+  /** The selected pet's normalized remark overrides, if any. */
+  private voiceRemarks(): PetRemarks | undefined {
+    this.voicePools()
+    return this.voiceCache?.remarks
   }
 
   /* ---------------------------------------------------------------- *
@@ -795,6 +862,16 @@ export class PetService extends Service {
     // the client's roam roll — suppressed while any mode is active — would
     // never fire again.
     const def = this.gameplayDef()
+    // A mirrored stat reports the affinity ledger rather than its stored value:
+    // the ledger is the number the player actually earns, and a bar parked at
+    // its initial 100 next to "821 点" reads as broken. Projection only — the
+    // stored value stays put, so no save migration is needed.
+    if (def?.stats !== undefined) {
+      for (const [name, stat] of Object.entries(def.stats)) {
+        if (stat.mirror !== 'affinity') continue
+        stats[name] = Math.min(stat.max, Math.round(this.ledger.snapshot.affinity.points))
+      }
+    }
     const mode = state.mode !== null && def !== undefined && !isDeclaredMode(def, state.mode) ? null : state.mode
     return { stats, mode }
   }
@@ -818,15 +895,31 @@ export class PetService extends Service {
   }
 
   /**
+   * Settle options for one gameplay pass.
+   *
+   * Every settle site needs the same two inputs, and forgetting the affinity
+   * total silently drops a stat's floor — the bug this helper prevents.
+   */
+  private settleOptions(sessionActive = this.machine.render().sessionActive): {
+    sessionActive: boolean
+    affinityPoints: number
+  } {
+    return { sessionActive, affinityPoints: this.ledger.snapshot.affinity.points }
+  }
+
+  /**
    * RPC: a touch on the pet. 'zone' names a touch zone (roll a branch);
    * omitted means a plain click while a touch animation holds (clickBoost).
    */
   async gameplayTouch(zone?: string): Promise<PetGameplayVerbResult> {
     const def = this.gameplayDef()
     if (def === undefined) return { ok: false, error: 'no-gameplay' }
+    // Host-side lockout: a touch reaction plays through the track override, so
+    // it may not land while the agent owns the sprite.
+    if (this.gameplayLocked(def)) return { ok: false, error: 'blocked' }
     const now = Date.now()
     const { petId, state } = this.gameplayState(def, now)
-    settleGameplay(state, def, now, { sessionActive: this.machine.render().sessionActive })
+    settleGameplay(state, def, now, this.settleOptions())
     if (zone === undefined) {
       const boost = def.touch?.clickBoost
       if (boost === undefined) return { ok: false, error: 'no-touch' }
@@ -861,6 +954,22 @@ export class PetService extends Service {
   }
 
   /**
+   * Whether the gameplay lockout holds right now, judged on the host's own
+   * phase rather than the phase the browser half last polled.
+   *
+   * The browser gate is necessary but not sufficient: the phase reaches it on a
+   * 2 s poll, so a click landing in the window between "the agent starts a turn"
+   * and "the browser notices" still saw the previous phase and got through. The
+   * host learns about the turn immediately, so it is the authority — a verb
+   * arriving from a stale panel is refused here.
+   */
+  private gameplayLocked(def: PetGameplayManifest): boolean {
+    const blockPhases = def.blockPhases
+    if (blockPhases === undefined || blockPhases.length === 0) return false
+    return blockPhases.includes(this.machine.render().phase)
+  }
+
+  /**
    * RPC: enter or leave a gameplay mode (null clears it). Every mode the
    * manifest declares is accepted: 'work', 'sleep', or one of the extra
    * 'modes' entries (a bath, a play session…).
@@ -871,9 +980,14 @@ export class PetService extends Service {
     if (mode === 'work' && def.work === undefined) return { ok: false, error: 'no-work' }
     if (mode === 'sleep' && def.sleep === undefined) return { ok: false, error: 'no-sleep' }
     if (mode !== null && !isDeclaredMode(def, mode)) return { ok: false, error: 'unknown-mode' }
+    // A one-shot menu mode is a reaction that plays through the track override,
+    // so it is refused while the agent owns the sprite. Real modes (work/sleep)
+    // stay reachable: they are how the player leaves the state being protected.
+    const oneShot = mode !== null && isOneShotMode(def, mode)
+    if (oneShot && this.gameplayLocked(def)) return { ok: false, error: 'blocked' }
     const now = Date.now()
     const { petId, state } = this.gameplayState(def, now)
-    settleGameplay(state, def, now, { sessionActive: this.machine.render().sessionActive })
+    settleGameplay(state, def, now, this.settleOptions())
     // Switching modes restarts the restore cadence: a leftover carry from the
     // previous mode must not advance the new mode's first tick.
     if (state.mode !== mode) state.restoreCarryMs = 0
@@ -890,7 +1004,7 @@ export class PetService extends Service {
     const now = Date.now()
     const { petId, state } = this.gameplayState(def, now)
     if (state.mode !== 'work') return { ok: false, error: 'not-working' }
-    settleGameplay(state, def, now, { sessionActive: this.machine.render().sessionActive })
+    settleGameplay(state, def, now, this.settleOptions())
     const outcome = rollWorkOutcome(def.work, Math.random)
     const effects = outcome === 'success' ? def.work.success?.effects : def.work.fail?.effects
     if (effects !== undefined) applyGameplayEffects(state, def, effects)
@@ -905,9 +1019,14 @@ export class PetService extends Service {
     if (def === undefined) return { ok: false, error: 'no-gameplay' }
     const item = def.shop?.items.find(entry => entry.id === itemId)
     if (item === undefined) return { ok: false, error: 'unknown-item' }
+    // Host-side lockout: a purchase plays a reaction track, so it may not land
+    // while the agent owns the sprite. The browser gate alone lets one through
+    // when the panel was opened before the turn started and the click beat the
+    // next poll.
+    if (this.gameplayLocked(def)) return { ok: false, error: 'blocked' }
     const now = Date.now()
     const { petId, state } = this.gameplayState(def, now)
-    settleGameplay(state, def, now, { sessionActive: this.machine.render().sessionActive })
+    settleGameplay(state, def, now, this.settleOptions())
     // The unified currency is the shared treat ledger (wallet removed): shop
     // prices and prizes ride the same balance the panel shows and feeding
     // consumes, capped by the stock cap.
@@ -930,7 +1049,11 @@ export class PetService extends Service {
     }
     this.drainGameplayTreats(state)
     this.commitGameplay(petId, state)
-    return { ok: true, ...(prize === undefined ? {} : { prize }), view: this.gameplayViewOf(state) }
+    return {
+      ok: true,
+      ...(prize === undefined ? {} : { prize }),
+      view: this.gameplayViewOf(state),
+    }
   }
 
   /** RPC: show or hide the pet. */
@@ -974,7 +1097,7 @@ export class PetService extends Service {
   /** RPC: update display config (size / position / bubble scale). Pixel values are clamped to whole pixels. */
   async setConfig(patch: Partial<PetDisplayConfig>): Promise<{ ok: true; display: PetDisplayConfig }> {
     const next = { ...this.ledger.snapshot.display, ...patch }
-    next.size = Math.round(Math.min(DISPLAY_SIZE_MAX, Math.max(DISPLAY_SIZE_MIN, next.size)))
+    next.size = this.pixelSafeSize(next.size)
     next.right = Math.round(Math.min(DISPLAY_INSET_MAX, Math.max(0, next.right)))
     next.bottom = Math.round(Math.min(DISPLAY_INSET_MAX, Math.max(0, next.bottom)))
     next.bubbleScale = Math.min(BUBBLE_SCALE_MAX, Math.max(BUBBLE_SCALE_MIN, next.bubbleScale))
@@ -982,6 +1105,27 @@ export class PetService extends Service {
     this.flush()
     this.syncSettingsFromPet()
     return { ok: true, display: this.ledger.snapshot.display }
+  }
+
+  /**
+   * Clamp a requested display size to something the selected pet can render
+   * without smearing its pixels.
+   *
+   * A frames2d pack draws on a fixed pixel grid and renders with
+   * `image-rendering: pixelated`, so a size that is not a clean fraction of the
+   * cell (128 / 192 / 256 for a 256px cell) makes some art pixels double-width
+   * while their neighbours stay single. The size field is a free number, so the
+   * snap lands here rather than in the form — that way an API caller, a settings
+   * paste and the card all end up with the same pixel-safe value. Other
+   * renderers keep the plain 32..1024 clamp: a Live2D model scales smoothly and
+   * has no grid to protect.
+   */
+  private pixelSafeSize(size: number): number {
+    const entry = this.activeEntry()
+    if (entry.renderer !== 'frames2d') {
+      return Math.round(Math.min(DISPLAY_SIZE_MAX, Math.max(DISPLAY_SIZE_MIN, size)))
+    }
+    return snapPixelSize(size, entry.cell.height)
   }
 
   /** RPC: rename the selected pet (trimmed, 1–20 chars, per-pet storage). */
@@ -1020,7 +1164,7 @@ export class PetService extends Service {
     // re-enabling it (or restarting) read that stored `false` straight back
     // (#1762).
     next.visible = section.visible
-    next.size = Math.round(Math.min(DISPLAY_SIZE_MAX, Math.max(DISPLAY_SIZE_MIN, section.size)))
+    next.size = this.pixelSafeSize(section.size)
     next.right = Math.round(Math.min(DISPLAY_INSET_MAX, Math.max(0, section.right)))
     next.bottom = Math.round(Math.min(DISPLAY_INSET_MAX, Math.max(0, section.bottom)))
     next.bubbleScale = Math.min(BUBBLE_SCALE_MAX, Math.max(BUBBLE_SCALE_MIN, section.bubbleScale ?? next.bubbleScale))
@@ -1101,7 +1245,7 @@ export class PetService extends Service {
     let gameplay: PetGameplayStateView | undefined
     if (gameplayDef !== undefined) {
       const { state } = this.gameplayState(gameplayDef, Date.now())
-      settleGameplay(state, gameplayDef, Date.now(), { sessionActive: snapshot.sessionActive })
+      settleGameplay(state, gameplayDef, Date.now(), this.settleOptions(snapshot.sessionActive))
       gameplay = this.gameplayViewOf(state)
     }
     // Read-only: the ledger settles on economic events only, never on a read,
@@ -1125,6 +1269,7 @@ export class PetService extends Service {
       animation: snapshot.animation,
       ...(snapshot.bubble === undefined ? {} : { bubble: snapshot.bubble }),
       phase: snapshot.phase,
+      ...(snapshot.interruptedAt === undefined ? {} : { interruptedAt: snapshot.interruptedAt }),
       sessionActive: snapshot.sessionActive,
       sessions,
       ...(decoration === undefined ? {} : { decoration }),

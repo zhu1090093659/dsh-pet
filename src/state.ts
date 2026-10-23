@@ -33,6 +33,14 @@ export interface PetStateInput {
   line?: string
   /** Playful phrase from the activity tracker, when any. */
   phrase?: string
+  /**
+   * This update ended a turn that the user stopped (or that was aborted).
+   *
+   * The phase reports the calm idle that follows, so a pet that ships a "cut
+   * short" animation needs this flag to tell that ending apart from a normal
+   * finish.
+   */
+  interrupted?: boolean
 }
 
 /** Animation decision plus the copy the pet should show. */
@@ -45,6 +53,8 @@ export interface PetStateSnapshot {
   animationStartedAt: number
   /** Raw phase, for debugging and client-side rendering decisions. */
   phase: ActivityPhase
+  /** Wall-clock ms of the last user-stopped turn, when one was seen. */
+  interruptedAt?: number
   /** True when there is an active session (pet mounted). */
   sessionActive: boolean
 }
@@ -107,6 +117,7 @@ export class PetStateMachine {
   private sessionActive = false
   private doneAt: number | undefined
   private failedAt: number | undefined
+  private interruptedAt: number | undefined
   private readonly config: PetStateConfig
 
   constructor(
@@ -123,6 +134,11 @@ export class PetStateMachine {
     this.phrase = input.phrase
     this.doneAt = input.phase === 'done' ? this.now() : undefined
     this.failedAt = input.phase === 'failed' ? this.now() : undefined
+    // A stopped turn projects idle, so the phase cannot carry "this was cut
+    // short". The stamp does: the browser half plays a pet's interrupt
+    // animation when it changes, and consumers that only read `phase` see
+    // exactly the calm idle they always did.
+    if (input.interrupted === true) this.interruptedAt = this.now()
   }
 
   /** A session became the active one (or a fresh session started). */
@@ -160,6 +176,7 @@ export class PetStateMachine {
       ...(bubble === undefined ? {} : { bubble }),
       animationStartedAt: nowMs,
       phase: this.phase,
+      ...(this.interruptedAt === undefined ? {} : { interruptedAt: this.interruptedAt }),
       sessionActive: this.sessionActive,
     }
   }

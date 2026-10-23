@@ -46,6 +46,13 @@ export const zh = {
   'pet.gameplay.buy': '购买',
   'pet.gameplay.insufficient': '{currency}不足',
   'pet.gameplay.prize': '中奖 +{amount} {currency}',
+  // 购买后飘一句「得到了 xx！」。xx 取自宠物包 frames2d.trackLabels 给那条
+  // 轨道起的名字（「饭团」「吐司」「铁盆」…）；没起名时退回 gotPlain。
+  'pet.gameplay.got': '得到了 {name}！',
+  'pet.gameplay.gotPlain': '得到了食物！',
+  // 宠物包声明 gameplay.blockPhases 时，命中的阶段里玩法按钮变灰并飘这句：
+  // 工作动画正占着精灵，不能让吃东西的动画把它挤掉。
+  'pet.gameplay.busy': '工作中…',
   'pet.gameplay.working': '打工中',
   'pet.gameplay.sleeping': '睡觉中',
   'pet.gameplay.stat.hunger': '饱食',
@@ -69,7 +76,7 @@ export const zh = {
   'settings.visible': '显示宠物',
   'settings.visibleHint': '关闭后宠物隐藏，可从聊天输入区重新召唤。',
   'settings.size': '大小（px）',
-  'settings.sizeHint': '精灵单元高度，范围 32–1024。',
+  'settings.sizeHint': '像素宠只吸附三档：128 / 192 / 256（对应 1/2、3/4、原尺寸）。',
   'settings.bubbleScale': '气泡字号倍率',
   'settings.bubbleScaleHint': '状态、碎碎念与用量气泡的字号会随宠物大小自动缩放；这一项是在此基础上再乘一个倍率（0.5–2，默认 1）。字号本身不小于 10px、不大于 24px。',
   'settings.right': '距右侧（px）',
@@ -133,6 +140,9 @@ export const en = {
   'pet.gameplay.buy': 'Buy',
   'pet.gameplay.insufficient': 'Not enough {currency}',
   'pet.gameplay.prize': 'Prize +{amount} {currency}',
+  'pet.gameplay.got': 'Got {name}!',
+  'pet.gameplay.gotPlain': 'Got food!',
+  'pet.gameplay.busy': 'Busy working...',
   'pet.gameplay.working': 'Working',
   'pet.gameplay.sleeping': 'Sleeping',
   'pet.gameplay.stat.hunger': 'Hunger',
@@ -156,7 +166,7 @@ export const en = {
   'settings.visible': 'Show the pet',
   'settings.visibleHint': 'When off, the pet hides; summon it again from the input row.',
   'settings.size': 'Size (px)',
-  'settings.sizeHint': 'Sprite cell height, 32\u20131024.',
+  'settings.sizeHint': 'Pixel pets snap to 128 / 192 / 256 (half, three quarters, native).',
   'settings.bubbleScale': 'Bubble text multiplier',
   'settings.bubbleScaleHint': 'Status, whisper, and usage bubbles scale with the pet automatically; this multiplies that result (0.5\u20132, default 1). The rendered text stays between 10px and 24px.',
   'settings.right': 'Right inset (px)',

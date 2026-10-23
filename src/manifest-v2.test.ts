@@ -297,6 +297,34 @@ describe('parsePetManifest v2 frames2d', () => {
     expect(parsePetManifest(badFallback, 'mem').ok).toBe(false)
   })
 
+  it('accepts frames2d.trackLabels and fails closed on unusable ones', () => {
+    // Given a pack that names its tracks; when parsed; then the names land on
+    // the frames2d block so a surface can say WHICH track played.
+    const named = v2Frames2d()
+    ;(named.frames2d as Record<string, unknown>).trackLabels = { idle: '待机', happy: '开心' }
+    const ok = parsePetManifest(named, 'mem')
+    expect(ok.ok).toBe(true)
+    expect(ok.ok && ok.manifest.frames2d?.trackLabels).toEqual({ idle: '待机', happy: '开心' })
+    // Omitting the map entirely stays valid (it is purely presentational).
+    const none = parsePetManifest(v2Frames2d(), 'mem')
+    expect(none.ok).toBe(true)
+    expect(none.ok && none.manifest.frames2d?.trackLabels).toBeUndefined()
+    // A label a track can never show is always a typo, so it fails closed:
+    // undeclared track, blank label, over-long label, and a non-string label.
+    const dangling = v2Frames2d()
+    ;(dangling.frames2d as Record<string, unknown>).trackLabels = { ghost: '鬼' }
+    expect(parsePetManifest(dangling, 'mem').ok).toBe(false)
+    const blank = v2Frames2d()
+    ;(blank.frames2d as Record<string, unknown>).trackLabels = { idle: '   ' }
+    expect(parsePetManifest(blank, 'mem').ok).toBe(false)
+    const long = v2Frames2d()
+    ;(long.frames2d as Record<string, unknown>).trackLabels = { idle: '字'.repeat(25) }
+    expect(parsePetManifest(long, 'mem').ok).toBe(false)
+    const notString = v2Frames2d()
+    ;(notString.frames2d as Record<string, unknown>).trackLabels = { idle: 7 }
+    expect(parsePetManifest(notString, 'mem').ok).toBe(false)
+  })
+
   it('rejects unknown activity phases in frames2d.phases', () => {
     const bad = v2Frames2d()
     ;((bad.frames2d as Record<string, unknown>).phases as Record<string, unknown>).sleeping = 'idle'

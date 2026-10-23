@@ -18,6 +18,7 @@ import {
   emptyPersist,
   loadPetPersist,
   savePetPersist,
+  snapPixelSize,
 } from './persist.ts'
 
 function tempDir(): string {
@@ -226,5 +227,26 @@ describe('loadPetPersist', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
+  })
+
+  it('snaps a pixel pet to the sizes that keep its art pixels even', () => {
+    // A 256px cell rendered with pixelated scaling: only half / three quarters /
+    // native keep every art pixel the same size on screen. Anything between them
+    // makes some pixels double-width while their neighbours stay single, which
+    // shows up first in text and thin lines, so the service snaps to these three
+    // instead of accepting the raw number the form sends.
+    expect(snapPixelSize(256, 256)).toBe(256)
+    expect(snapPixelSize(128, 256)).toBe(128)
+    expect(snapPixelSize(192, 256)).toBe(192)
+    // Nearest step wins on both sides of the midpoint.
+    expect(snapPixelSize(200, 256)).toBe(192)
+    expect(snapPixelSize(230, 256)).toBe(256)
+    expect(snapPixelSize(100, 256)).toBe(128)
+    // Out of range clamps to the step list, not to the global 32..1024 window:
+    // a pet smaller than half its cell loses detail for nothing.
+    expect(snapPixelSize(32, 256)).toBe(128)
+    expect(snapPixelSize(1024, 256)).toBe(256)
+    // Non-finite input is passed through so the caller's own clamp reports it.
+    expect(snapPixelSize(Number.NaN, 256)).toBeNaN()
   })
 })

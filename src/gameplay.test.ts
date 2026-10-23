@@ -10,6 +10,9 @@ import {
   clampGameplay,
   declaredModes,
   isDeclaredMode,
+  isOneShotMode,
+  oneShotHoldMsOf,
+  pickFeedTrack,
   drawLotteryTier,
   initialGameplayState,
   modeRestoreOf,
@@ -19,6 +22,7 @@ import {
   settleGameplay,
   touchZoneAt,
   type PetGameplayManifest,
+  type PetGameplayShopItem,
 } from './gameplay.ts'
 
 /** A miku-shaped frames2d manifest carrying the full gameplay block. */
@@ -119,6 +123,227 @@ describe('gameplay manifest', () => {
     expect(gameplay.dragState).toBe('drag')
   })
 
+  it('accepts a declared feed reaction track and rejects a dangling or malformed one', () => {    // Given gameplay.feed naming a declared track; when parsed; then the block
+    // carries it (holdMs is optional) and the validator refuses a track that is
+    // not declared, an unknown field, and an out-of-range hold.
+    const ok = parsePetManifest(mikuManifest({ feed: { track: 'eat', holdMs: 1500 } }), 'mem')
+    expect(ok.ok).toBe(true)
+    if (ok.ok) expect(ok.manifest.gameplay?.feed).toEqual({ track: 'eat', holdMs: 1500 })
+    const noHold = parsePetManifest(mikuManifest({ feed: { track: 'eat' } }), 'mem')
+    expect(noHold.ok).toBe(true)
+    if (noHold.ok) expect(noHold.manifest.gameplay?.feed).toEqual({ track: 'eat' })
+    expect(parsePetManifest(mikuManifest({ feed: { track: 'ghost' } }), 'mem').ok).toBe(false)
+    expect(parsePetManifest(mikuManifest({ feed: { track: 'eat', loop: true } }), 'mem').ok).toBe(false)
+    expect(parsePetManifest(mikuManifest({ feed: { track: 'eat', holdMs: 10 } }), 'mem').ok).toBe(false)
+    expect(parsePetManifest(mikuManifest({ feed: { track: 'eat', holdMs: 60_000 } }), 'mem').ok).toBe(false)
+  })
+
+  it('accepts a feed states pool and rolls one track per feed', () => {
+    // Given a pack that ships a rare extra reaction — three rice entries and one
+    // basin entry, so a quarter of feeds flip the basin; when parsed; then the
+    // pool lands on the block and the roll is uniform over it. The shorthand
+    // `track` still parses, and an empty or dangling pool fails closed.
+    const ok = parsePetManifest(mikuManifest({
+      stats: { hunger: { max: 100 } },
+      feed: { states: ['work', 'work', 'work', 'sleep'], holdMs: 4800 },
+    }), 'mem')
+    expect(ok.ok).toBe(true)
+    expect(ok.ok && ok.manifest.gameplay?.feed).toEqual({ states: ['work', 'work', 'work', 'sleep'], holdMs: 4800 })
+    const feed = ok.ok ? ok.manifest.gameplay?.feed : undefined
+
+    // The odds are the pool's own frequencies: the injected rolls stay inside
+    // each quarter, and a roll of exactly 1 must not index past the end.
+    const at = (r: number): string | undefined => pickFeedTrack(feed, () => r)
+    expect(at(0)).toBe('work')
+    expect(at(0.74)).toBe('work')
+    expect(at(0.75)).toBe('sleep')
+    expect(at(0.999)).toBe('sleep')
+    expect(at(1)).toBe('sleep')
+    // A single-track reaction is the one-element pool.
+    expect(pickFeedTrack({ track: 'work' }, () => 0.99)).toBe('work')
+    expect(pickFeedTrack(undefined)).toBeUndefined()
+
+    expect(parsePetManifest(mikuManifest({
+      stats: { hunger: { max: 100 } },
+      feed: { track: 'work' },
+    }), 'mem').ok).toBe(true)
+    expect(parsePetManifest(mikuManifest({
+      stats: { hunger: { max: 100 } },
+      feed: { states: [] },
+    }), 'mem').ok).toBe(false)
+    expect(parsePetManifest(mikuManifest({
+      stats: { hunger: { max: 100 } },
+      feed: { states: ['ghost'] },
+    }), 'mem').ok).toBe(false)
+    expect(parsePetManifest(mikuManifest({
+      stats: { hunger: { max: 100 } },
+      feed: { holdMs: 4800 },
+    }), 'mem').ok).toBe(false)
+
+    // A feed may also feed the pet: the effects ride the same block, so a pack
+    // without a shop can still refill its bars. Unknown stats fail closed.
+    const filled = parsePetManifest(mikuManifest({
+      stats: { hunger: { max: 100 } },
+      feed: {
+        states: ['work', 'sleep'],
+        effects: [{ stat: 'hunger', amount: 30 }],
+      },
+    }), 'mem')
+    expect(filled.ok).toBe(true)
+    expect(filled.ok && filled.manifest.gameplay?.feed?.effects).toEqual([{ stat: 'hunger', amount: 30 }])
+    expect(parsePetManifest(mikuManifest({
+      stats: { hunger: { max: 100 } },
+      feed: { track: 'work', effects: [{ stat: 'ghost', amount: 1 }] },
+    }), 'mem').ok).toBe(false)
+  })
+
+  it('accepts a stat mirrored off the affinity ledger', () => {
+    // A pet whose "affection" bar should report the affinity points it actually
+    // earns declares the stat as a mirror: projection-only, never stored or
+    // decayed, so the bar cannot sit at its initial value while the ledger
+    // climbs into the hundreds. Any other mirror source fails closed.
+    const ok = parsePetManifest(mikuManifest({
+      stats: {
+        hunger: { max: 100 },
+        affection: { max: 5000, mirror: 'affinity' },
+      },
+    }), 'mem')
+    expect(ok.ok).toBe(true)
+    expect(ok.ok && ok.manifest.gameplay?.stats?.affection).toEqual({ max: 5000, mirror: 'affinity' })
+
+    expect(parsePetManifest(mikuManifest({
+      stats: { affection: { max: 100, mirror: 'mood' } },
+    }), 'mem').ok).toBe(false)
+  })
+
+  it('holds a stat at its affinity floor once it decays below it', () => {
+    // The relationship is permanent progress; the daily stat is not. A floor of
+    // affinity/divisor lets affection starve and refill like the other bars but
+    // never fall under what a long friendship guarantees — the middle ground
+    // between "two unrelated numbers" and "a bar that cannot move".
+    const parsed = parsePetManifest(mikuManifest({
+      stats: {
+        affection: { max: 100, initial: 100, decayPerMinute: 10, affinityFloorDivisor: 10 },
+      },
+    }), 'mem')
+    expect(parsed.ok).toBe(true)
+    if (!parsed.ok || parsed.manifest.gameplay === undefined) return
+    const def = parsed.manifest.gameplay
+    const state = initialGameplayState(def, 0)
+    state.stats.affection = 40
+    state.settledAt = 0
+    // 10 minutes at 10/min would drain it to zero; 822 affinity holds it at 82.2.
+    settleGameplay(state, def, 10 * 60_000, { sessionActive: true, affinityPoints: 822 })
+    expect(state.stats.affection).toBeCloseTo(82.2, 5)
+    // A lower affinity lowers the floor, and decay gets closer to the bottom.
+    settleGameplay(state, def, 20 * 60_000, { sessionActive: true, affinityPoints: 100 })
+    expect(state.stats.affection).toBeCloseTo(10, 5)
+    // Without an affinity total there is no floor: plain decay clamps at zero.
+    state.stats.affection = 5
+    settleGameplay(state, def, 30 * 60_000, { sessionActive: true })
+    expect(state.stats.affection).toBe(0)
+  })
+
+  it('accepts workEntry / workExit session beats and refuses unusable ones', () => {
+    // Given a pack that wants a walk-to-desk beat when a session starts and a
+    // bookend when it ends; when parsed; then both land on the gameplay block
+    // with their hold times. A dangling track, an out-of-range hold and an
+    // unknown field all fail closed, exactly like the feed reaction.
+    const ok = parsePetManifest(mikuManifest({
+      stats: { hunger: { max: 100 } },
+      workEntry: { track: 'work', holdMs: 3600 },
+      workExit: { track: 'happy' },
+    }), 'mem')
+    expect(ok.ok).toBe(true)
+    expect(ok.ok && ok.manifest.gameplay?.workEntry).toEqual({ track: 'work', holdMs: 3600 })
+    expect(ok.ok && ok.manifest.gameplay?.workExit).toEqual({ track: 'happy' })
+
+    const none = parsePetManifest(mikuManifest({ stats: { hunger: { max: 100 } } }), 'mem')
+    expect(none.ok).toBe(true)
+    expect(none.ok && none.manifest.gameplay?.workEntry).toBeUndefined()
+    expect(none.ok && none.manifest.gameplay?.workExit).toBeUndefined()
+
+    expect(parsePetManifest(mikuManifest({
+      stats: { hunger: { max: 100 } },
+      workEntry: { track: 'ghost' },
+    }), 'mem').ok).toBe(false)
+    expect(parsePetManifest(mikuManifest({
+      stats: { hunger: { max: 100 } },
+      workEntry: { track: 'work', holdMs: 100 },
+    }), 'mem').ok).toBe(false)
+    expect(parsePetManifest(mikuManifest({
+      stats: { hunger: { max: 100 } },
+      workEntry: { track: 'work', extra: 1 },
+    }), 'mem').ok).toBe(false)
+    expect(parsePetManifest(mikuManifest({
+      stats: { hunger: { max: 100 } },
+      workExit: 'work',
+    }), 'mem').ok).toBe(false)
+
+    // The abnormal-ending beat parses like the other two and fails closed the
+    // same way: it is the pet's "cut short" beat when a turn is interrupted,
+    // so a dangling track would leave the sprite on whoever owned it.
+    const cut = parsePetManifest(mikuManifest({
+      stats: { hunger: { max: 100 } },
+      workInterrupt: { track: 'fail', holdMs: 2400 },
+    }), 'mem')
+    expect(cut.ok).toBe(true)
+    expect(cut.ok && cut.manifest.gameplay?.workInterrupt).toEqual({ track: 'fail', holdMs: 2400 })
+    expect(parsePetManifest(mikuManifest({
+      stats: { hunger: { max: 100 } },
+      workInterrupt: { track: 'ghost' },
+    }), 'mem').ok).toBe(false)
+  })
+
+  it('accepts gameplay.blockPhases and refuses unusable ones', () => {
+    // Given a pack that locks gameplay out of its work phases; when parsed;
+    // then the phase list lands on the gameplay block. 'idle' is refused (a pet
+    // that blocks idle would never accept an interaction at all), as are
+    // unknown phases, an empty list and a non-array.
+    const ok = parsePetManifest(mikuManifest({
+      stats: { hunger: { max: 100 } },
+      blockPhases: ['thinking', 'tool', 'review'],
+    }), 'mem')
+    expect(ok.ok).toBe(true)
+    expect(ok.ok && ok.manifest.gameplay?.blockPhases).toEqual(['thinking', 'tool', 'review'])
+
+    const none = parsePetManifest(mikuManifest({ stats: { hunger: { max: 100 } } }), 'mem')
+    expect(none.ok).toBe(true)
+    expect(none.ok && none.manifest.gameplay?.blockPhases).toBeUndefined()
+
+    const blockedIdle = parsePetManifest(mikuManifest({
+      stats: { hunger: { max: 100 } },
+      blockPhases: ['idle'],
+    }), 'mem')
+    expect(blockedIdle.ok).toBe(false)
+
+    const unknownPhase = parsePetManifest(mikuManifest({
+      stats: { hunger: { max: 100 } },
+      blockPhases: ['sleeping'],
+    }), 'mem')
+    expect(unknownPhase.ok).toBe(false)
+
+    const empty = parsePetManifest(mikuManifest({
+      stats: { hunger: { max: 100 } },
+      blockPhases: [],
+    }), 'mem')
+    expect(empty.ok).toBe(false)
+
+    const notArray = parsePetManifest(mikuManifest({
+      stats: { hunger: { max: 100 } },
+      blockPhases: 'thinking',
+    }), 'mem')
+    expect(notArray.ok).toBe(false)
+
+    // Duplicates collapse instead of being rejected: the list is a set.
+    const duplicated = parsePetManifest(mikuManifest({
+      stats: { hunger: { max: 100 } },
+      blockPhases: ['tool', 'tool', 'thinking'],
+    }), 'mem')
+    expect(duplicated.ok).toBe(true)
+    expect(duplicated.ok && duplicated.manifest.gameplay?.blockPhases).toEqual(['tool', 'thinking'])
+  })
+
   it('rejects gameplay on non-frames2d renderers', () => {
     const sprite = {
       petManifestVersion: 2, id: 'cat', displayName: 'Cat', license: 'CC0-1.0',
@@ -172,6 +397,49 @@ describe('gameplay manifest', () => {
     })
     expect(gameplay.modes?.play).toEqual({ state: 'happy' })
     expect(declaredModes(gameplay)).toEqual(['sleep', 'bath', 'play'])
+  })
+
+  it('user declares a one-shot mode and it round-trips without a restore', () => {
+    // Given a mode marked once with a hold time; when parsed; then it survives,
+    // reads as one-shot, exposes its hold, and modeRestoreOf reports nothing
+    // (a one-shot mode never becomes active host-side, so it can never restore).
+    const withOnce = mikuManifest({
+      ...FULL_GAMEPLAY,
+      modes: { feeding: { state: 'eat', label: '投喂', once: true, holdMs: 3400 } },
+    })
+    const result = parsePetManifest(withOnce, 'mem')
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const gameplay = result.manifest.gameplay!
+    expect(gameplay.modes?.feeding).toEqual({ state: 'eat', label: '投喂', once: true, holdMs: 3400 })
+    expect(isOneShotMode(gameplay, 'feeding')).toBe(true)
+    expect(oneShotHoldMsOf(gameplay, 'feeding')).toBe(3400)
+    expect(modeRestoreOf(gameplay, 'feeding')).toBeUndefined()
+    // A held mode and the reserved loops are never one-shot.
+    expect(isOneShotMode(gameplay, 'sleep')).toBe(false)
+    expect(isOneShotMode(gameplay, 'work')).toBe(false)
+    expect(oneShotHoldMsOf(gameplay, 'sleep')).toBeUndefined()
+    // Omitting the explicit `once` reads as a held mode, not a one-shot.
+    const plain = parsePetManifest(mikuManifest({ ...FULL_GAMEPLAY, modes: { play: { state: 'happy' } } }), 'mem')
+    expect(plain.ok).toBe(true)
+    if (plain.ok) {
+      expect(isOneShotMode(plain.manifest.gameplay!, 'play')).toBe(false)
+      expect(plain.manifest.gameplay!.modes?.play).toEqual({ state: 'happy' })
+    }
+  })
+
+  it('rejects a one-shot mode that contradicts itself', () => {
+    // A once mode has no active window, so a restore cadence is a contradiction
+    // rather than something to silently drop; holdMs is ranged like feed.holdMs.
+    const restoreOnOnce = mikuManifest({
+      ...FULL_GAMEPLAY,
+      modes: { feeding: { state: 'eat', once: true, restore: { stat: 'mood', amount: 3, intervalMs: 1000 } } },
+    })
+    expect(parsePetManifest(restoreOnOnce, 'mem').ok).toBe(false)
+    expect(parsePetManifest(mikuManifest({ ...FULL_GAMEPLAY, modes: { feeding: { state: 'eat', once: 'yes' } } }), 'mem').ok).toBe(false)
+    expect(parsePetManifest(mikuManifest({ ...FULL_GAMEPLAY, modes: { feeding: { state: 'eat', once: true, holdMs: 100 } } }), 'mem').ok).toBe(false)
+    expect(parsePetManifest(mikuManifest({ ...FULL_GAMEPLAY, modes: { feeding: { state: 'eat', once: true, holdMs: 60_000 } } }), 'mem').ok).toBe(false)
+    expect(parsePetManifest(mikuManifest({ ...FULL_GAMEPLAY, modes: { feeding: { state: 'ghost', once: true } } }), 'mem').ok).toBe(false)
   })
 
   it('user declares a roam block and malformed ones are rejected', () => {

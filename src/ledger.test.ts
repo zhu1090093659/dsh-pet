@@ -85,8 +85,35 @@ describe('PetLedger', () => {
     expect(ledger.snapshot.treats.treats).toBe(1)
     const res = ledger.interact('feed', n + 40)
     expect(res.delta).toBe(defaultAffinityConfig.feedReward)
+    expect(res.accepted).toBe(true)
+    expect(res.reason).toBeUndefined()
     expect(ledger.snapshot.treats.treats).toBe(0)
     expect(ledger.snapshot.affinity.feeds).toBe(1)
+  })
+
+  it('reports a refused interaction so the browser half can skip the reaction animation', () => {
+    // The panel feed button plays its animation only when the interaction
+    // actually landed. `delta` alone cannot carry that: a refused pet is also
+    // delta 0, and an empty stock is delta 0 with no cooldown at all.
+    const n = 1_000_000
+    const stocked = new PetLedger(emptyPersist())
+    for (let turn = 1; turn <= 30; turn++) stocked.rewardTurn('s1', turn, n + turn)
+    const first = stocked.interact('feed', n + 40)
+    expect(first.accepted).toBe(true)
+    const cooled = stocked.interact('feed', n + 41)
+    expect(cooled.accepted).toBe(false)
+    expect(cooled.reason).toBe('cooldown')
+    // Empty stock: a distinct reason, so a pet can tell the two refusals apart.
+    const empty = new PetLedger(emptyPersist())
+    const noTreats = empty.interact('feed', n)
+    expect(noTreats.accepted).toBe(false)
+    expect(noTreats.reason).toBe('no-treats')
+    // A pet inside its own cooldown is refused the same way.
+    const petLedger = new PetLedger(emptyPersist())
+    expect(petLedger.interact('pet', n).accepted).toBe(true)
+    const petCooled = petLedger.interact('pet', n + 1)
+    expect(petCooled.accepted).toBe(false)
+    expect(petCooled.reason).toBe('cooldown')
   })
 
   it('cycles per-pet custom remarks per slot and falls back to built-ins', () => {

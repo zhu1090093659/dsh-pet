@@ -47,6 +47,24 @@ export interface LedgerInteractionResult {
   delta: number
   /** Full affinity snapshot (same shape as the state view). */
   affinity: PetAffinityView
+  /**
+   * Whether the interaction actually landed. A feed inside its cooldown, or
+   * one with an empty treat stock, is refused and must not play a reaction
+   * animation — the browser half gates the pet's feed track on this flag
+   * instead of guessing from `delta`, which is also 0 for a refused pet.
+   */
+  accepted: boolean
+  /** Why a refused interaction was refused (absent when accepted). */
+  reason?: 'cooldown' | 'no-treats' | 'blocked'
+  /**
+   * The track a landed feed rolled, when the pet declares a `states` pool.
+   *
+   * The roll happens host-side so the bubble and the animation cannot disagree:
+   * the same roll picks the art (this field) and, through `remarks.feedStates`,
+   * the line. The browser half plays exactly this track instead of rolling its
+   * own, which is what used to put "thanks for the food" on a basin flip.
+   */
+  state?: string
 }
 
 /**
@@ -265,6 +283,8 @@ export class PetLedger {
         reaction: this.picker.pickAt('feedCooldown', before.feedRejects),
         delta: 0,
         affinity: this.affinityView(nowMs),
+        accepted: false,
+        reason: 'cooldown',
       }
     }
     if (kind === 'feed') {
@@ -274,6 +294,8 @@ export class PetLedger {
           reaction: this.picker.pick('noTreats'),
           delta: 0,
           affinity: this.affinityView(nowMs),
+          accepted: false,
+          reason: 'no-treats',
         }
       }
       this.current = { ...this.current, treats: consume.ledger }
@@ -288,6 +310,8 @@ export class PetLedger {
       reaction: this.picker.pickAt(outcome.accepted ? kind : 'petCooldown', count),
       delta: outcome.delta,
       affinity: this.affinityView(nowMs),
+      accepted: outcome.accepted,
+      ...(outcome.accepted ? {} : { reason: 'cooldown' as const }),
     }
   }
 

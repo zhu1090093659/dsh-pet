@@ -261,6 +261,18 @@
           "maximum": 5000,
           "default": 200
         },
+        "trackLabels": {
+          "type": "object",
+          "description": "Optional display name per track id. Purely presentational: tracks carry ids, so any surface that names the track it played (the shop announcing the food a purchase rolled, a feed button naming its dish) reads the label here. Keys must name a declared track.",
+          "propertyNames": {
+            "pattern": "^[a-z0-9][a-z0-9-]*$"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 24
+          }
+        },
         "tracks": {
           "type": "object",
           "minProperties": 1,
@@ -311,13 +323,34 @@
           ],
           "description": "ActivityPhase -> track name; idle is required, unmapped phases fall back to it.",
           "properties": {
-            "idle": { "type": "string", "minLength": 1 },
-            "waiting": { "type": "string", "minLength": 1 },
-            "thinking": { "type": "string", "minLength": 1 },
-            "tool": { "type": "string", "minLength": 1 },
-            "review": { "type": "string", "minLength": 1 },
-            "done": { "type": "string", "minLength": 1 },
-            "failed": { "type": "string", "minLength": 1 }
+            "idle": {
+              "type": "string",
+              "minLength": 1
+            },
+            "waiting": {
+              "type": "string",
+              "minLength": 1
+            },
+            "thinking": {
+              "type": "string",
+              "minLength": 1
+            },
+            "tool": {
+              "type": "string",
+              "minLength": 1
+            },
+            "review": {
+              "type": "string",
+              "minLength": 1
+            },
+            "done": {
+              "type": "string",
+              "minLength": 1
+            },
+            "failed": {
+              "type": "string",
+              "minLength": 1
+            }
           }
         },
         "skins": {
@@ -416,7 +449,392 @@
     },
     "gameplay": {
       "type": "object",
-      "description": "Optional gameplay layer (frames2d pets only): stat decay, currencies, touch zones, work/sleep loops, passive income and a shop with optional lotteries. State references name frames2d tracks; structure is fail-closed in the validator."
+      "description": "Optional gameplay layer (frames2d pets only): stat decay, currencies, touch zones, work/sleep loops, passive income and a shop with optional lotteries. State references name frames2d tracks; structure is fail-closed in the validator.",
+      "properties": {
+        "blockPhases": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 7,
+          "uniqueItems": true,
+          "description": "Activity phases during which the gameplay layer is locked out. A pet that maps its phases onto work art (walk to the desk, work loop, wrap-up) owns the sprite while the agent runs; letting a purchase, a feed button or a pet click grab the same track override mid-animation makes the sprite flip between working and eating. In the listed phases the browser half refuses those interactions and grays the buttons. The panel still opens: stats and the shop stay readable.",
+          "items": {
+            "type": "string",
+            "enum": [
+              "waiting",
+              "thinking",
+              "tool",
+              "review",
+              "done",
+              "failed"
+            ],
+            "description": "An ActivityPhase other than idle: locking out idle would leave the player with a panel that never accepts an interaction."
+          }
+        },
+        "workEntry": {
+          "type": "object",
+          "description": "One-shot reaction played when a session becomes active (sessionActive false -> true): the walk-to-desk beat. The phase stream cannot express this - its waiting phase fires at every turn start, every step start and whenever the agent blocks for approval, so a phase-bound entry replays several times per task. The track plays through the same override slot as feed, so it survives the phase changes that arrive while it runs.",
+          "properties": {
+            "track": {
+              "type": "string",
+              "description": "A declared frames2d track, played once; its loop/fallback rules decide where the pet settles."
+            },
+            "holdMs": {
+              "type": "integer",
+              "minimum": 500,
+              "maximum": 10000,
+              "default": 2000,
+              "description": "Hold time of the override in ms, and the interruption lock window. Should match the track's play time."
+            },
+            "states": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 8,
+              "description": "A pool rolled uniformly per occurrence, in place of the single track. Odds are the pool's own frequencies: repeat an entry to make it more likely.",
+              "items": {
+                "type": "string"
+              }
+            },
+            "gapMs": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 86400000,
+              "default": 6000,
+              "description": "Minimum idle gap in ms before a re-entry into work replays the beat. 0 replays on every turn; the default only replays after a real break."
+            }
+          },
+          "additionalProperties": false,
+          "anyOf": [
+            {
+              "required": [
+                "track"
+              ]
+            },
+            {
+              "required": [
+                "states"
+              ]
+            }
+          ]
+        },
+        "workExit": {
+          "type": "object",
+          "description": "One-shot reaction played when the active session ends (sessionActive true -> false): the bookend to workEntry.",
+          "properties": {
+            "track": {
+              "type": "string",
+              "description": "A declared frames2d track, played once; its loop/fallback rules decide where the pet settles."
+            },
+            "holdMs": {
+              "type": "integer",
+              "minimum": 500,
+              "maximum": 10000,
+              "default": 2000,
+              "description": "Hold time of the override in ms, and the interruption lock window."
+            },
+            "states": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 8,
+              "description": "A pool rolled uniformly per occurrence, in place of the single track. Odds are the pool's own frequencies: repeat an entry to make it more likely.",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "additionalProperties": false,
+          "anyOf": [
+            {
+              "required": [
+                "track"
+              ]
+            },
+            {
+              "required": [
+                "states"
+              ]
+            }
+          ]
+        },
+        "workInterrupt": {
+          "type": "object",
+          "description": "One-shot reaction played when a turn ends abnormally (the failed phase: an error, an interrupt, or the token budget running out) - the pet's 'that was cut short' beat, as opposed to workExit's tidy wrap-up.",
+          "properties": {
+            "track": {
+              "type": "string",
+              "description": "A declared frames2d track, played once; its loop/fallback rules decide where the pet settles."
+            },
+            "holdMs": {
+              "type": "integer",
+              "minimum": 500,
+              "maximum": 10000,
+              "default": 2000,
+              "description": "Hold time of the override in ms, and the interruption lock window."
+            },
+            "states": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 8,
+              "description": "A pool rolled uniformly per occurrence, in place of the single track. Odds are the pool's own frequencies: repeat an entry to make it more likely.",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "additionalProperties": false,
+          "anyOf": [
+            {
+              "required": [
+                "track"
+              ]
+            },
+            {
+              "required": [
+                "states"
+              ]
+            }
+          ]
+        },
+        "feed": {
+          "type": "object",
+          "description": "Panel-button reaction animation: the frames2d track the browser half plays once when the pet/feed interaction lands. The panel buttons live outside the renderer, so without this block a click only moves the economy and speaks a bubble. The track is held for holdMs, during which the pet refuses to be re-triggered (taps cannot cut the animation, a second click is dropped). A states pool rolls one track per landed interaction instead, which is how a pack ships a rare extra reaction.",
+          "anyOf": [
+            {
+              "required": [
+                "track"
+              ]
+            },
+            {
+              "required": [
+                "states"
+              ]
+            }
+          ],
+          "properties": {
+            "track": {
+              "type": "string",
+              "description": "A declared frames2d track, played once; its loop/fallback rules decide where the pet settles."
+            },
+            "states": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 8,
+              "description": "A pool rolled uniformly per landed interaction, in place of the single track. The odds are the pool's own frequencies: repeat an entry to make it more likely (three rice entries plus one basin entry is a 25% basin).",
+              "items": {
+                "type": "string",
+                "description": "A declared frames2d track."
+              }
+            },
+            "holdMs": {
+              "type": "integer",
+              "minimum": 500,
+              "maximum": 10000,
+              "default": 2000,
+              "description": "Hold time of the override in ms, and the interruption lock window. Should match the track's play time."
+            },
+            "effects": {
+              "type": "array",
+              "description": "Stat changes applied by a landed interaction, exactly like a shop item's effects. Without it a feed only moves affinity and the stat bars never refill.",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "stat": {
+                    "type": "string",
+                    "description": "A declared gameplay stat id."
+                  },
+                  "currency": {
+                    "type": "string",
+                    "description": "A gameplay currency id instead of a stat."
+                  },
+                  "amount": {
+                    "type": "integer",
+                    "description": "Signed amount to add."
+                  }
+                },
+                "required": [
+                  "amount"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "modes": {
+          "type": "object",
+          "description": "Extra named modes beyond work/sleep. Each one renders its own button in the gameplay card. A held mode (the default) keeps its track until the button is pressed again and owns the pet meanwhile; a once mode is a one-shot reaction — it plays its track for holdMs, settles back, and enters no mode at all.",
+          "additionalProperties": {
+            "type": "object",
+            "required": [
+              "state"
+            ],
+            "properties": {
+              "state": {
+                "type": "string",
+                "description": "A declared frames2d track: held while a normal mode is active, played once for a once mode."
+              },
+              "label": {
+                "type": "string",
+                "maxLength": 40,
+                "description": "Action-button label; falls back to the i18n key pet.gameplay.<name>."
+              },
+              "activeLabel": {
+                "type": "string",
+                "maxLength": 40,
+                "description": "Label while the mode is active; ignored by a once mode, which never becomes active."
+              },
+              "restore": {
+                "type": "object",
+                "description": "Periodic stat restore while the mode is active. Refused together with once, which has no active window.",
+                "required": [
+                  "stat",
+                  "amount",
+                  "intervalMs"
+                ],
+                "properties": {
+                  "stat": {
+                    "type": "string"
+                  },
+                  "amount": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 1000
+                  },
+                  "intervalMs": {
+                    "type": "integer",
+                    "minimum": 1000,
+                    "maximum": 600000
+                  }
+                },
+                "additionalProperties": false
+              },
+              "once": {
+                "type": "boolean",
+                "description": "Play state once for holdMs and settle back instead of holding it; no mode is entered host-side, so the pet stays pettable and no exit click is needed."
+              },
+              "holdMs": {
+                "type": "integer",
+                "minimum": 500,
+                "maximum": 10000,
+                "description": "Hold time for a once mode (defaults to the track's play time, or 2000). Ignored without once."
+              }
+            },
+            "additionalProperties": false
+          }
+        },
+        "shop": {
+          "type": "object",
+          "description": "Shop: items priced in a currency, each carrying effects and/or a tiered lottery. Items are consumed immediately - there is no inventory - so a purchase may also declare the reaction track the pet plays for it.",
+          "required": [
+            "items"
+          ],
+          "properties": {
+            "state": {
+              "type": "string",
+              "description": "A declared track held while the shop page is open (optional)."
+            },
+            "items": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 32,
+              "items": {
+                "type": "object",
+                "required": [
+                  "id",
+                  "label",
+                  "price",
+                  "currency"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "label": {
+                    "type": "string",
+                    "maxLength": 80
+                  },
+                  "image": {
+                    "type": "string",
+                    "description": "Optional manifest-relative frame path shown as the item icon."
+                  },
+                  "price": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 1000000
+                  },
+                  "currency": {
+                    "type": "string"
+                  },
+                  "effects": {
+                    "type": "array",
+                    "description": "Stat changes applied when the purchase lands.",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "stat",
+                        "amount"
+                      ],
+                      "properties": {
+                        "stat": {
+                          "type": "string"
+                        },
+                        "amount": {
+                          "type": "number"
+                        }
+                      }
+                    }
+                  },
+                  "lottery": {
+                    "type": "object",
+                    "description": "A tiered draw: exactly one tier is picked per purchase and its prize paid out.",
+                    "required": [
+                      "tiers"
+                    ],
+                    "properties": {
+                      "effects": {
+                        "type": "array",
+                        "items": {
+                          "type": "object"
+                        }
+                      },
+                      "currency": {
+                        "type": "string"
+                      },
+                      "tiers": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 16,
+                        "items": {
+                          "type": "object",
+                          "required": [
+                            "probability",
+                            "prize"
+                          ],
+                          "properties": {
+                            "probability": {
+                              "type": "number",
+                              "exclusiveMinimum": 0,
+                              "maximum": 1
+                            },
+                            "prize": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "currency": {
+                              "type": "string"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "additionalProperties": true
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      }
     }
   },
   "allOf": [

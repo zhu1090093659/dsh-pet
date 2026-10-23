@@ -604,6 +604,11 @@ export function apply(ctx: ClientContext): void {
         },
         gameplay: {
           touch: (zone) => petApi.gameplayTouch(zone),
+          // Raw interaction for the HUD's panel-button animation path: its
+          // `accepted` flag gates the reaction track, and the caller writes the
+          // feedback bubble itself. The plugin-level `feed`/`pet` actions above
+          // stay as the bubble-only fallback for pets without a gameplay block.
+          interact: (kind) => petApi.interact(kind),
           setSkin: (skin) => petApi.setSkin(skin).then((result) => {
             if (result.ok) pollNow()
             return result
