@@ -333,6 +333,7 @@ describe('loadPetRegistry', () => {
       'ouo-neko',
       'starry-doll',
       'whale-girl',
+      'whale-girl-red',
       'whale-girl-refined',
     ])
     expect(registry.byId('blue-throated-bee-eater')).toMatchObject({
@@ -369,18 +370,33 @@ describe('loadPetRegistry', () => {
     expect(existsSync(petAtlasFile(registry.byId('starry-doll')!))).toBe(true)
     expect(registry.byId('whale-girl')?.displayName).toBe('鲸鱼娘（原版）')
     expect(registry.byId('whale-girl-refined')?.displayName).toBe('鲸鱼娘（精致版）')
+    expect(registry.byId('whale-girl-red')).toMatchObject({
+      displayName: '鲸鱼娘（红色）',
+      renderer: 'sprite2d',
+      cell: { width: 192, height: 208 },
+      atlasRows: 9,
+      columns: 8,
+      rows: [6, 8, 8, 4, 5, 8, 6, 6, 6],
+      atlasUrl: '/pet/whale-girl-red/spritesheet.webp',
+    })
+    expect(existsSync(petAtlasFile(registry.byId('whale-girl-red')!))).toBe(true)
+    expect(readFileSync(petAtlasFile(registry.byId('whale-girl-red')!)).equals(
+      readFileSync(petAtlasFile(registry.byId('whale-girl-refined')!)),
+    )).toBe(false)
     expect(existsSync(petAtlasFile(registry.byId('whale-girl-refined')!))).toBe(true)
     expect(readFileSync(petAtlasFile(registry.byId('whale-girl')!)).equals(
       readFileSync(petAtlasFile(registry.byId('whale-girl-refined')!)),
     )).toBe(false)
     expect(registry.defaultEntry().id).toBe('whale-girl')
-    // Both built-in whales and every override-free pet share the one slow
+    // All built-in whales and every override-free pet share the one slow
     // global rhythm (user request: all pets were too fast at the legacy
     // hatch-pet contract pace).
     for (const track of PET_ROW_ORDER) {
       expect(registry.byId('whale-girl')!.tracks[track].durations)
         .toEqual(DEFAULT_TRACK_PATTERNS[track].durations)
       expect(registry.byId('whale-girl-refined')!.tracks[track].durations)
+        .toEqual(DEFAULT_TRACK_PATTERNS[track].durations)
+      expect(registry.byId('whale-girl-red')!.tracks[track].durations)
         .toEqual(DEFAULT_TRACK_PATTERNS[track].durations)
     }
     expect(DEFAULT_TRACK_PATTERNS.idle.durations[0]!).toBeGreaterThanOrEqual(500)

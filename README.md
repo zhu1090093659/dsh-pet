@@ -259,6 +259,9 @@ Settings > Pet > Status bubbles (`auto` by default, `off` to silence the pet). `
 | `ouo-neko` | OUO Neko | Pink-sakura cat-eared companion contributed by `Pessimist0906` under MIT |
 | `whale-girl` | 鲸鱼娘（原版） | The repository's original whale-girl atlas |
 | `whale-girl-refined` | 鲸鱼娘（精致版） | An AI-assisted derivative with repaired and refined details, based on the whale-girl design direction |
+| `whale-girl-red` | 鲸鱼娘（红色） | Red-and-white recolor of the refined variant with matching burgundy panels and red buttons; preserves all 57 frames, timing and atlas transparency |
+
+![鲸鱼娘（红色）](assets/whale-red/previews/idle.gif)
 
 The Miku pet is deliberately not bundled: it is a frames2d gameplay pet installed on demand from the Workshop (see the frames2d section above). The **Starry Doll pet** (星夜人偶, contributed by Theater-ahyeon under CC-BY-NC-SA-4.0) is likewise Workshop-only: a sprite2d gothic starry doll cut out from a single illustration and animated with paper-doll transforms (breath, hop, wave, droop, and a review-state magnifier); install it from the Workshop's pet list and it lands in `$DSH_HOME/pets/starry-doll/`. The **Doro pet** (built in) is likewise unofficial fan artwork derived from Dorothy (*Goddess of Victory: Nikke*); the character and its rights belong to SHIFT UP and the assets are personal non-commercial use only — see THIRD_PARTY_NOTICES.md.
 
@@ -308,6 +311,7 @@ dsh-pet/
 |       `-- pet.module.css
 |-- assets/whale/            # built-in original whale-girl (manifest + atlas + previews)
 |-- assets/whale-refined/    # built-in refined whale-girl registry variant
+|-- assets/whale-red/        # bundled red-and-white whale-girl variant
 |-- assets/ouo-neko/         # built-in OUO Neko v2 pet (11-row atlas + previews)
 |-- assets/blue-throated-bee-eater/  # built-in Blue-throated Bee-eater pet (9-row atlas + previews)
 `-- cordis.patch.yml         # bundle patch: inserts the pet plugin row
@@ -365,7 +369,7 @@ The browser bundle rides the `window.__ModuleLoader__.load` contract; React/cord
 
 ## Sprites and animation-track calibration
 
-The two built-in whale-girl atlases use the same 9-state × 8-column contract: `assets/whale/` is the original and `assets/whale-refined/` is the refined variant. Each atlas is 1536×1872 (8 columns × 9 rows of 192×208 cells). Frame counts, rhythm, and scene rotation live in each directory's `pet.json`; pets without overrides follow the hatch-pet contract rhythm and canonical single-track scene mapping (row order: 0 idle / 1 running-right / 2 running-left / 3 waving / 4 jumping / 5 failed / 6 waiting / 7 running / 8 review).
+The three built-in whale-girl atlases use the same 9-state × 8-column contract: `assets/whale/` is the original, `assets/whale-refined/` is the refined variant, and `assets/whale-red/` is the red-and-white recolor. Each atlas is 1536×1872 (8 columns × 9 rows of 192×208 cells). Frame counts, rhythm, and scene rotation live in each directory's `pet.json`; pets without overrides follow the hatch-pet contract rhythm and canonical single-track scene mapping (row order: 0 idle / 1 running-right / 2 running-left / 3 waving / 4 jumping / 5 failed / 6 waiting / 7 running / 8 review).
 
 OUO Neko uses the extended v2 contract: a 1536×2288 atlas with the same 9 animation rows plus 2 eight-frame look-direction rows. Its manifest declares `sprite2d.atlasRows: 11`, and the renderer treats the last 16 cells as the clockwise look loop.
 

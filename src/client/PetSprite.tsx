@@ -763,6 +763,7 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
     <div
       ref={floatRef}
       className={styles.float}
+      data-dsh-pet-id={definition.id}
       style={{
         right: pos.right,
         bottom: pos.bottom,

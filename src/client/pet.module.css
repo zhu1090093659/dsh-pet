@@ -747,3 +747,84 @@
     animation: none;
   }
 }
+
+/* Match the red whale girl without changing other pets or status semantics. */
+.float[data-dsh-pet-id="whale-girl-red"] .panel {
+  background: linear-gradient(165deg, rgba(55, 13, 27, .96), rgba(27, 6, 14, .98));
+  border-color: rgba(251, 113, 133, .45);
+  color: #fff1f2;
+  box-shadow: 0 8px 24px rgba(25, 3, 11, .45), 0 0 0 1px rgba(190, 40, 75, .16), inset 0 1px 0 rgba(255, 228, 230, .1);
+}
+
+.float[data-dsh-pet-id="whale-girl-red"] .nameCell {
+  background: linear-gradient(90deg, #fff1f2, #fda4af 60%, #fb7185);
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+}
+
+.float[data-dsh-pet-id="whale-girl-red"] .statRank {
+  color: #fecdd3;
+}
+
+.float[data-dsh-pet-id="whale-girl-red"] .statTreats {
+  color: #fff1f2;
+}
+
+.float[data-dsh-pet-id="whale-girl-red"] .statPoints {
+  color: #ffe4e6;
+}
+
+.float[data-dsh-pet-id="whale-girl-red"] .action {
+  background: linear-gradient(180deg, #bd2949, #8f1735);
+  color: #fff;
+  box-shadow: 0 2px 6px rgba(159, 18, 57, .3);
+}
+
+.float[data-dsh-pet-id="whale-girl-red"] .action:hover {
+  box-shadow: 0 4px 10px rgba(190, 40, 75, .4);
+}
+
+.float[data-dsh-pet-id="whale-girl-red"] .action:active {
+  box-shadow: 0 1px 4px rgba(159, 18, 57, .3);
+}
+
+.float[data-dsh-pet-id="whale-girl-red"] .action:focus-visible {
+  box-shadow: 0 0 0 2px #fda4af;
+}
+
+.float[data-dsh-pet-id="whale-girl-red"] .nameInput {
+  background: rgba(55, 13, 27, .95);
+  border-color: rgba(251, 113, 133, .55);
+  color: #fff1f2;
+}
+
+.float[data-dsh-pet-id="whale-girl-red"] .nameInput:focus {
+  border-color: #fb7185;
+  box-shadow: 0 0 0 2px rgba(251, 113, 133, .4);
+}
+
+.float[data-dsh-pet-id="whale-girl-red"] .bubblePet {
+  background: rgba(190, 40, 75, .96);
+}
+
+.float[data-dsh-pet-id="whale-girl-red"] .bubbleFeed {
+  background: rgba(143, 23, 53, .96);
+}
+
+.float[data-dsh-pet-id="whale-girl-red"] .bubbleStatus {
+  background: linear-gradient(160deg, rgba(55, 13, 27, .94), rgba(27, 6, 14, .97));
+  border-color: rgba(251, 113, 133, .45);
+  color: #fff1f2;
+  box-shadow: 0 4px 12px rgba(25, 3, 11, .35), inset 0 1px 0 rgba(255, 228, 230, .1), 0 0 12px rgba(190, 40, 75, .18);
+}
+
+.float[data-dsh-pet-id="whale-girl-red"] .bubbleMore {
+  background: linear-gradient(160deg, #bd2949, #8f1735);
+  border-color: #fb7185;
+  color: #fff1f2;
+}
+
+.float[data-dsh-pet-id="whale-girl-red"] .bubbleMore:focus-visible {
+  box-shadow: 0 0 0 2px #fda4af;
+}

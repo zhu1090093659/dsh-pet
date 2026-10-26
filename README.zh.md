@@ -259,6 +259,9 @@ ctx.effect(() => ctx.pet.registerPanelAction({
 | `ouo-neko` | OUO Neko | `Pessimist0906` 以 MIT 许可证贡献的粉色樱花猫耳伙伴 |
 | `whale-girl` | 鲸鱼娘（原版） | 仓库原有的鲸鱼娘图集 |
 | `whale-girl-refined` | 鲸鱼娘（精致版） | 以鲸鱼娘设计方向为基础，经 AI 辅助二次创作、修复和细节精修的衍生版本 |
+| `whale-girl-red` | 鲸鱼娘（红色） | 精致版的红白配色变体，搭配酒红浮窗和红色按钮；保留全部 57 帧动画、原始节奏和图集透明度 |
+
+![鲸鱼娘（红色）](assets/whale-red/previews/idle.gif)
 
 Miku 宠物有意不随包内置：它是 frames2d 玩法宠物，经创意工坊按需安装（见上文 frames2d 一节）。**星夜人偶（Starry Doll）**（Theater-ahyeon 以 CC-BY-NC-SA-4.0 贡献）同样仅经创意工坊分发：sprite2d 哥特星夜人偶，从单张插画抠像后以剪纸变换生成动画（呼吸、蹦跳、挥手、沮丧、review 态放大镜道具），从创意工坊宠物列表安装后落在 `$DSH_HOME/pets/starry-doll/`。**Doro 宠物**（内置）同样是《胜利女神：妮姬》桃乐丝的非官方同人衍生形象；角色及相关权利归 SHIFT UP 所有，素材仅限个人非商业使用——见 THIRD_PARTY_NOTICES.md。
 
@@ -308,6 +311,7 @@ dsh-pet/
 |       `-- pet.module.css
 |-- assets/whale/            # 内置原版鲸鱼娘（manifest + 图集 + 预览）
 |-- assets/whale-refined/    # 内置精致版鲸鱼娘注册表变体
+|-- assets/whale-red/        # 内置红白配色鲸鱼娘变体
 |-- assets/ouo-neko/         # 内置 OUO Neko v2 宠物（11 行图集 + 预览）
 |-- assets/blue-throated-bee-eater/  # 内置蓝喉蜂虎宠物（9 行图集 + 预览）
 `-- cordis.patch.yml         # bundle 补丁：插入宠物插件行
@@ -365,7 +369,7 @@ pnpm typecheck    # 仅类型检查
 
 ## 精灵图与动画轨道校准
 
-两套内置鲸鱼娘图集使用同一份 9 态 × 8 列契约：`assets/whale/` 是原版，`assets/whale-refined/` 是精致版。每张图集均为 1536×1872（8 列 × 9 行，192×208 单元格）。每行帧数、节奏与场景轮换写在各目录的 `pet.json` 中；未覆盖的宠物沿用 hatch-pet 契约节奏和标准单轨场景映射（行序：0 idle / 1 running-right / 2 running-left / 3 waving / 4 jumping / 5 failed / 6 waiting / 7 running / 8 review）。
+三套内置鲸鱼娘图集使用同一份 9 态 × 8 列契约：`assets/whale/` 是原版，`assets/whale-refined/` 是精致版，`assets/whale-red/` 是红白配色版。每张图集均为 1536×1872（8 列 × 9 行，192×208 单元格）。每行帧数、节奏与场景轮换写在各目录的 `pet.json` 中；未覆盖的宠物沿用 hatch-pet 契约节奏和标准单轨场景映射（行序：0 idle / 1 running-right / 2 running-left / 3 waving / 4 jumping / 5 failed / 6 waiting / 7 running / 8 review）。
 
 OUO Neko 使用扩展 v2 契约：图集为 1536×2288，在相同 9 行动画之后增加 2 行、共 16 帧观察方向。其清单声明 `sprite2d.atlasRows: 11`，渲染器把最后 16 个单元格作为顺时针观察方向循环。
 

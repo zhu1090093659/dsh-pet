@@ -152,6 +152,29 @@ function fireComposingKeydown(target: Element, key: string): void {
   fireEvent.compositionEnd(target)
 }
 
+describe('PetSprite pet-specific surfaces', () => {
+  it('updates the surface identity when switching from the red whale to the refined whale', () => {
+    const definition = {
+      ...petDefinition(),
+      id: 'whale-girl-red',
+      displayName: '鲸鱼娘（红色）',
+    }
+    const props = petProps({ definition })
+    const view = render(<PetSprite {...props} />)
+    const redSurface = document.querySelector('[data-dsh-pet-id="whale-girl-red"]')
+    expect(redSurface).not.toBeNull()
+    expect(redSurface?.querySelector('[role="button"]')?.getAttribute('aria-label'))
+      .toBe('鲸鱼娘（红色）')
+    fireEvent.pointerOver(screen.getByRole('button', { name: '鲸鱼娘（红色）' }))
+    fireEvent.click(screen.getByText('喂食'))
+    expect(props.onFeed).toHaveBeenCalledOnce()
+
+    view.rerender(<PetSprite {...props} definition={{ ...petDefinition(), id: 'whale-girl-refined' }} />)
+    expect(document.querySelector('[data-dsh-pet-id="whale-girl-red"]')).toBeNull()
+    expect(document.querySelector('[data-dsh-pet-id="whale-girl-refined"]')).not.toBeNull()
+  })
+})
+
 describe('PetSprite custom visual (pet-center M3)', () => {
   it('renders the visual inside the sprite box and skips the atlas background', () => {
     renderPet({ visual: <canvas data-testid="custom-visual" /> })
