@@ -71,6 +71,62 @@ export interface PetManifestLive2d {
   hitAreas?: string[]
   /** Whisper-paced lip sync (post-M3). */
   lipSync?: boolean
+  /**
+   * Part ids that make up the eyes when the model has no usable eyelid rig.
+   * The renderer hides them for the short moment of a blink, which is the only
+   * way to blink an authored model whose eyes are painted open and whose
+   * eyelid parameter covers nothing. Omit it and the renderer relies on the
+   * standard ParamEyeLOpen/ParamEyeROpen pair alone.
+   */
+  blinkParts?: string[]
+  /**
+   * Extra milliseconds an emotion expression stays on screen after its phase
+   * ended (per phase). The host owns how long a phase itself lasts, so this is
+   * how a cry can linger past the failure window.
+   */
+  expressionHold?: Partial<Record<ActivityPhase, number>>
+  /**
+   * Expression the renderer applies for the blink moment. Use it when the model
+   * closes its eyes through ParamEyeLOpen/ParamEyeROpen only: an expression that
+   * overwrites them with 0 is the one path that survives the engine's per-frame
+   * parameter restore.
+   */
+  blinkExpression?: string
+  /**
+   * Optional selectable outfits: each skin applies a declared model expression
+   * (e.g. a parameter that swaps the drawn costume) while it is selected. The
+   * choice is persisted per pet, so it survives reloads; no selection = the
+   * model's own default look, untouched.
+   */
+  skins?: PetManifestLive2dSkin[]
+}
+
+/**
+ * One selectable live2d outfit. Unlike a frames2d skin (which swaps the idle
+ * track) a live2d skin layers an expression, so the costume change costs no
+ * extra textures and keeps every motion/physics binding intact.
+ */
+export interface PetManifestLive2dSkin {
+  /** Stable id the host persists (lowercase kebab, at most 24 chars). */
+  id: string
+  /** UI-facing label in the pet's panel. */
+  label: string
+  /** Name of an expression declared by the model3.json `Expressions` list. */
+  expression: string
+  /**
+   * Per-phase emotion expressions composed WITH this outfit (the expression
+   * slot holds one expression at a time, so a costume that must survive an
+   * emotion needs the outfit parameter baked into the emotion's file).
+   */
+  expressions?: Partial<Record<ActivityPhase, string>>
+  /**
+   * Blink expression composed with this outfit. The expression slot holds one
+   * expression at a time, so a shared blink file would drop the costume for the
+   * duration of every blink.
+   */
+  blinkExpression?: string
+  /** Lines the pet says when this outfit is chosen (bubble copy, one at random). */
+  switchLines?: string[]
 }
 
 /** One frames2d track: an ordered frame sequence plus its rhythm. */
@@ -188,7 +244,13 @@ export const KNOWN_TOP_LEVEL = new Set([
 /** sprite2d block field allow-list (drift-locked to the schema file). */
 export const KNOWN_SPRITE2D = new Set(['spritesheetPath', 'cell', 'columns', 'atlasRows', 'frames', 'tracks'])
 /** live2d block field allow-list (drift-locked to the schema file). */
-export const KNOWN_LIVE2D = new Set(['model', 'scale', 'translate', 'motions', 'expressions', 'hitAreas', 'lipSync'])
+export const KNOWN_LIVE2D = new Set(['model', 'scale', 'translate', 'motions', 'expressions', 'hitAreas', 'lipSync', 'blinkParts', 'blinkExpression', 'expressionHold', 'skins'])
+/** live2d skin entry field allow-list (drift-locked to the schema file). */
+export const KNOWN_LIVE2D_SKIN = new Set(['id', 'label', 'expression', 'expressions', 'blinkExpression', 'switchLines'])
+/** Max selectable outfits a live2d manifest may declare. */
+export const LIVE2D_MAX_SKINS = 8
+/** Skin/outfit id shape: lowercase kebab, the manifest's stable selection key. */
+const PET_SKIN_ID = /^[a-z0-9][a-z0-9-]*$/
 /** frames2d block field allow-list (drift-locked to the schema file). */
 export const KNOWN_FRAMES2D = new Set(['dir', 'defaultFrameMs', 'tracks', 'phases', 'skins'])
 /** frames2d track field allow-list (drift-locked to the schema file). */
@@ -207,6 +269,13 @@ export const FRAMES2D_MAX_SKIN_GAMEPLAY = 8
 const SKIN_CLICK_MAX_PHRASES = 5
 /** Max length of one spoken line. */
 const SKIN_CLICK_PHRASE_MAX_LENGTH = 120
+
+/** Optional outfit-change lines: 1..6 short strings. */
+function parseSwitchLines(raw: unknown): string[] | undefined {
+  if (!Array.isArray(raw) || raw.length === 0 || raw.length > 6) return undefined
+  const lines = raw.filter((line): line is string => typeof line === 'string').map(line => line.trim()).filter(line => line !== '' && line.length <= 80)
+  return lines.length > 0 ? lines : undefined
+}
 
 /** Validate a skin click action's optional phrase pool (same spirit as gameplay phrases). */
 function parseSkinPhrases(raw: unknown, field: string, diag: Diagnostics): string[] | undefined {
@@ -390,6 +459,95 @@ function parseLive2dBlock(raw: unknown, diag: Diagnostics): PetManifestLive2d | 
   if (raw.lipSync !== undefined) {
     if (typeof raw.lipSync !== 'boolean') diag.error('live2d.lipSync must be a boolean')
     else block.lipSync = raw.lipSync
+  }
+  // Eye parts: a model painted mid-blink cannot blink through its eyelid
+  // parameter, so the renderer can hide the eye parts for the blink moment.
+  if (raw.blinkParts !== undefined) {
+    if (!Array.isArray(raw.blinkParts) || raw.blinkParts.length === 0 || raw.blinkParts.length > 16
+      || raw.blinkParts.some(part => typeof part !== 'string' || part.trim() === '')) {
+      diag.error('live2d.blinkParts must be an array of 1..16 non-empty part ids')
+    } else {
+      block.blinkParts = (raw.blinkParts as string[]).map(part => part.trim())
+    }
+  }
+  if (raw.blinkExpression !== undefined) {
+    if (typeof raw.blinkExpression !== 'string' || raw.blinkExpression.trim() === '' || raw.blinkExpression.length > 64) {
+      diag.error('live2d.blinkExpression must name an expression declared by the model (at most 64 chars)')
+    } else {
+      block.blinkExpression = raw.blinkExpression.trim()
+    }
+  }
+  // Optional per-phase expression hold: how long an emotion outlives its phase.
+  if (raw.expressionHold !== undefined) {
+    if (!isRecord(raw.expressionHold)) {
+      diag.error('live2d.expressionHold must be an object mapping phases to milliseconds')
+    } else {
+      const hold: Partial<Record<ActivityPhase, number>> = {}
+      for (const [phase, value] of Object.entries(raw.expressionHold)) {
+        if (!PET_ACTIVITY_PHASES.includes(phase as ActivityPhase)) {
+          diag.error('live2d.expressionHold: unknown phase ' + JSON.stringify(phase))
+          continue
+        }
+        if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 60_000) {
+          diag.error('live2d.expressionHold.' + phase + ' must be milliseconds in [0, 60000]')
+          continue
+        }
+        hold[phase as ActivityPhase] = Math.round(value)
+      }
+      if (Object.keys(hold).length > 0) block.expressionHold = hold
+    }
+  }
+  // Optional outfits: each selects one expression the model declares, so the
+  // costume swap rides the expression layer (no extra textures, no lost
+  // motion binding). id/label are UI-facing; expression is structure.
+  if (raw.skins !== undefined) {
+    if (!Array.isArray(raw.skins) || raw.skins.length === 0 || raw.skins.length > LIVE2D_MAX_SKINS) {
+      diag.error('live2d.skins must be an array of 1..' + LIVE2D_MAX_SKINS + ' skins')
+    } else {
+      const skins: PetManifestLive2dSkin[] = []
+      const seen = new Set<string>()
+      for (const [index, entry] of raw.skins.entries()) {
+        const field = 'live2d.skins[' + index + ']'
+        if (!isRecord(entry)) {
+          diag.error(field + ' must be an object')
+          continue
+        }
+        const extra = unknownKeys(entry, KNOWN_LIVE2D_SKIN)
+        if (extra.length > 0) diag.error(field + ': unknown field(s) ' + extra.map(k => JSON.stringify(k)).join(', '))
+        const id = typeof entry.id === 'string' ? entry.id.trim() : ''
+        if (id === '' || id.length > 24 || !PET_SKIN_ID.test(id)) {
+          diag.error(field + '.id must be a lowercase kebab id of at most 24 chars')
+          continue
+        }
+        if (seen.has(id)) {
+          diag.error(field + ': duplicate skin id ' + JSON.stringify(id))
+          continue
+        }
+        seen.add(id)
+        const label = typeof entry.label === 'string' ? entry.label.trim() : ''
+        if (label === '' || label.length > 40) {
+          diag.error(field + '.label must be a non-empty string of at most 40 chars')
+          continue
+        }
+        const expression = typeof entry.expression === 'string' ? entry.expression.trim() : ''
+        if (expression === '' || expression.length > 64) {
+          diag.error(field + '.expression must name an expression declared by the model (at most 64 chars)')
+          continue
+        }
+        const skinExpressions = parsePhaseStringMap(entry.expressions, field + '.expressions', diag)
+        skins.push({
+          id,
+          label,
+          expression,
+          ...(skinExpressions === undefined ? {} : { expressions: skinExpressions }),
+          ...(typeof entry.blinkExpression === 'string' && entry.blinkExpression.trim() !== ''
+            ? { blinkExpression: entry.blinkExpression.trim() }
+            : {}),
+          ...(parseSwitchLines(entry.switchLines) === undefined ? {} : { switchLines: parseSwitchLines(entry.switchLines)! }),
+        })
+      }
+      if (skins.length > 0) block.skins = skins
+    }
   }
   return diag.hasErrors ? undefined : block
 }

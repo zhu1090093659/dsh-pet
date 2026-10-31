@@ -80,6 +80,7 @@ function injected(): PetInjected {
     panelAction: vi.fn(),
     openSession: vi.fn(),
     feedbackDone: vi.fn(),
+    remark: vi.fn(),
     gameplay: {
       touch: vi.fn(),
       setMode: vi.fn(),

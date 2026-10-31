@@ -106,10 +106,10 @@ describe('normalizePool', () => {
   })
 
   it('caps pool length and truncates long lines', () => {
-    const lines = Array.from({ length: 80 }, (_, i) => '行' + i)
+    const lines = Array.from({ length: 120 }, (_, i) => '行' + i)
     const warnings: string[] = []
     const pool = normalizePool(lines, 'status', m => warnings.push(m))
-    expect(pool).toHaveLength(64)
+    expect(pool).toHaveLength(96)
     expect(warnings.join('\n')).toContain('extra lines')
     expect(normalizePool(['x'.repeat(500)], 'status')?.[0]).toHaveLength(VOICE_LINE_MAX)
   })

@@ -237,6 +237,85 @@
           "type": "boolean",
           "default": false,
           "description": "Optional whisper-paced lip sync (post-M3)."
+        },
+        "blinkParts": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 16,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "Part ids that hold the eyes when the model has no usable eyelid rig. The renderer hides them for the blink moment (a hard cut, not a fade). Omit it and blinking relies on the standard ParamEyeLOpen/ParamEyeROpen pair, which does nothing for a model whose eyes are painted open."
+        },
+        "expressionHold": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Extra milliseconds an emotion expression stays on screen after its phase ended, per phase. The host owns how long a phase itself lasts, so this is how a cry can linger past the failure window.",
+          "properties": {
+            "idle": { "type": "number", "minimum": 0, "maximum": 60000 },
+            "waiting": { "type": "number", "minimum": 0, "maximum": 60000 },
+            "thinking": { "type": "number", "minimum": 0, "maximum": 60000 },
+            "tool": { "type": "number", "minimum": 0, "maximum": 60000 },
+            "review": { "type": "number", "minimum": 0, "maximum": 60000 },
+            "done": { "type": "number", "minimum": 0, "maximum": 60000 },
+            "failed": { "type": "number", "minimum": 0, "maximum": 60000 }
+          }
+        },        "blinkExpression": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "description": "Expression the renderer applies for the blink moment. Use it when the model closes its eyes through ParamEyeLOpen/ParamEyeROpen only: an expression that overwrites them with 0 is the one parameter path that survives the engine's per-frame parameter restore."
+        },
+        "skins": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "description": "Optional selectable outfits. Each entry applies one expression the model declares (typically a parameter that swaps the drawn costume), so the choice costs no extra textures and keeps every motion/physics binding. Declare the default look first: no stored selection resolves to entry 0. The choice is persisted per pet.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "label",
+              "expression"
+            ],
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 24,
+                "pattern": "^[a-z0-9][a-z0-9-]*$",
+                "description": "Stable selection key (lowercase kebab)."
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 40,
+                "description": "UI-facing outfit name in the pet's panel."
+              },
+              "expression": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "description": "Name of an expression in the model3.json Expressions list; an undeclared name is dropped by the registry with a warning."
+              },
+              "expressions": {
+                "type": "object",
+                "additionalProperties": false,
+                "description": "Per-phase emotion expressions composed WITH this outfit. The expression slot holds one expression at a time, so an outfit that must survive an emotion needs the outfit parameter baked into the emotion file.",
+                "properties": {
+                  "idle": { "type": "string", "minLength": 1 },
+                  "waiting": { "type": "string", "minLength": 1 },
+                  "thinking": { "type": "string", "minLength": 1 },
+                  "tool": { "type": "string", "minLength": 1 },
+                  "review": { "type": "string", "minLength": 1 },
+                  "done": { "type": "string", "minLength": 1 },
+                  "failed": { "type": "string", "minLength": 1 }
+                }
+              }
+            }
+          }
         }
       }
     },

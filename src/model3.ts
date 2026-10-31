@@ -69,6 +69,19 @@ export function collectModel3References(model3: unknown): { references: string[]
   return { references: [...collected].sort(), errors }
 }
 
+/** The expression names a model3.json declares (for skin/outfit diagnostics). */
+export function model3ExpressionNames(model3: unknown): string[] {
+  if (typeof model3 !== 'object' || model3 === null) return []
+  const fileReferences = (model3 as Record<string, unknown>).FileReferences
+  if (typeof fileReferences !== 'object' || fileReferences === null) return []
+  const expressions = (fileReferences as Record<string, unknown>).Expressions
+  if (!Array.isArray(expressions)) return []
+  return expressions
+    .map(entry => typeof entry === 'object' && entry !== null ? (entry as Record<string, unknown>).Name : undefined)
+    .filter((name): name is string => typeof name === 'string' && name !== '')
+    .sort()
+}
+
 /** The motion group names a model3.json declares (for CLI diagnostics). */
 export function model3MotionGroups(model3: unknown): string[] {
   if (typeof model3 !== 'object' || model3 === null) return []

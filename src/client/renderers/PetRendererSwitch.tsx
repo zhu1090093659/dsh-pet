@@ -25,6 +25,8 @@ export function PetRendererSwitch(props: {
   definition: PetDefinition
   /** Current activity phase (fed to renderer visuals). */
   phase: ActivityPhase
+  /** Selected outfit id (live2d; host-persisted). */
+  skin?: string
   /** The chrome's pet interaction (affinity write-back owner). */
   onPet: () => void
   /** External drag stream (gameplay HUD shares it); created locally otherwise. */
@@ -61,6 +63,7 @@ export function PetRendererSwitch(props: {
       <Live2dVisualMount
         definition={props.definition}
         phase={props.phase}
+        {...(props.skin === undefined ? {} : { skin: props.skin })}
         onPet={props.onPet}
         t={props.t}
       />

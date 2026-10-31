@@ -22,6 +22,8 @@ import type { NS } from '../../locales.ts'
 export function Live2dVisualMount(props: {
   definition: PetDefinition
   phase: ActivityPhase
+  /** Selected outfit id (host-persisted); applied to the mounted model. */
+  skin?: string
   onPet: () => void
   t: PropsLocale<typeof NS>['t']
 }): ReactElement {
@@ -68,6 +70,13 @@ export function Live2dVisualMount(props: {
   useEffect(() => {
     streamRef.current?.push(props.phase)
   }, [props.phase])
+
+  // Apply the selected outfit. This runs after the mount effect on the first
+  // render (handle exists, model may still be booting — the renderer resolves
+  // the pending selection once it is ready) and on every later change.
+  useEffect(() => {
+    handleRef.current?.setSkin?.(props.skin)
+  }, [props.skin])
 
   return (
     <div

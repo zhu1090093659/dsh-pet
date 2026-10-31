@@ -54,6 +54,7 @@ import {
   type PetRegistryDiagnostic,
 } from './registry.ts'
 import { WHISPER_TTL_MS, type VoicePackOverrides, type VoicePoolsProvider } from './chatter.ts'
+import { DesktopProbe, type DesktopActivity } from './desktop-activity.ts'
 import { mergeVoicePacks } from './voice-pack.ts'
 import type { PetRemarks } from './remarks.ts'
 import type { DecorationView } from './contracts/status-decoration.ts'
@@ -193,6 +194,8 @@ export interface PetStateView {
   bubble?: string
   phase: PetStateSnapshot['phase']
   sessionActive: boolean
+  /** What the user is doing on the desktop right now (idle chatter context). */
+  desktop?: DesktopActivity
   /**
    * Per-session bubbles for every concurrently active TOP-LEVEL session:
    * the GUI's current session first when reported, the rest most recently
@@ -357,6 +360,8 @@ export class PetService extends Service {
    * global pack and each entry's pack cannot change behind the cache.
    */
   private voiceCache: { petId: string; overrides: VoicePackOverrides } | undefined
+  /** Foreground-window probe feeding the idle chatter (Windows only). */
+  private readonly desktopProbe = new DesktopProbe()
   /**
    * Per-session activity, most recent last (Map insertion order). Bounded by
    * MAX_SESSION_BUBBLES so a burst of sessions cannot grow it without bound;
@@ -944,22 +949,30 @@ export class PetService extends Service {
   /**
    * The persisted skin for one entry, when the manifest still declares it: a
    * stale id (skin removed from the manifest, pet swapped) reads as "default"
-   * rather than pinning a track the browser half cannot resolve.
+   * rather than pinning a track the browser half cannot resolve. A pet is one
+   * renderer, so the frames2d skins and the live2d outfits share the single
+   * per-pet selection slot.
    */
   private persistedSkin(entry: NonNullable<PetRegistry['entries'][number]>): string | undefined {
     const stored = this.ledger.petSkin(entry.id)
     if (stored === undefined) return undefined
-    return entry.frames2d?.skins?.some(skin => skin.id === stored) === true ? stored : undefined
+    return this.declaredSkins(entry).some(skin => skin.id === stored) === true ? stored : undefined
+  }
+
+  /** The selectable skins/outfits one entry declares (one renderer per pet). */
+  private declaredSkins(entry: NonNullable<PetRegistry['entries'][number]>): readonly { id: string }[] {
+    return entry.frames2d?.skins ?? entry.live2d?.skins ?? []
   }
 
   /**
-   * RPC: select the current pet's frames2d skin (`undefined` restores the
-   * pet's default look). The choice is stored per pet, so every later state
-   * view (reload, client restart, pet re-selection) serves it back.
+   * RPC: select the current pet's visual skin (`undefined` restores the pet's
+   * default look). frames2d swaps the base idle track; live2d applies the
+   * outfit expression. The choice is stored per pet, so every later state view
+   * (reload, client restart, pet re-selection) serves it back.
    */
   async setSkin(skin: string | undefined): Promise<{ ok: true; skin?: string } | { ok: false; error: string }> {
     const entry = this.activeEntry()
-    const declared = entry.frames2d?.skins ?? []
+    const declared = this.declaredSkins(entry)
     if (skin === undefined) {
       this.ledger.setPetSkin(entry.id, undefined)
       this.flush()
@@ -1131,6 +1144,7 @@ export class PetService extends Service {
       ...(announcement === undefined ? {} : { announcement }),
       ...(announcements.length === 0 ? {} : { announcements }),
       statusBubbles: this.statusBubbles,
+      ...(this.desktopProbe.read() === undefined ? {} : { desktop: this.desktopProbe.read() }),
       ...(panelActions.length === 0 ? {} : { panelActions }),
       affinity: this.ledger.affinityView(Date.now()),
       // The one place the two visibility answers are combined: the pet's own
