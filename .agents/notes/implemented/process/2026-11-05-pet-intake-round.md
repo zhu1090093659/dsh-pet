@@ -35,3 +35,27 @@ Zero pull requests merged in `dsh-pet` during this round; the `satellites/dsh-pe
 #23 has a settled distribution boundary—market-only via `assets/`, excluded from the npm package—so once the author rebases onto `main`, supplies user-visible evidence under `docs/pr-evidence/` and the PR description, and completes the rights and liability notices in `assets/whale-red/README.md` and `THIRD_PARTY_NOTICES.md`, it can be integrated without expanding the published npm payload.
 
 #26 and #20 remain stalled with zero author commits since their previous review rounds; neither can advance until their authors push revisions addressing both the prior review items and the schema, documentation, and runtime defects recorded in this round.
+
+## 傍晚第二轮
+
+傍晚复检覆盖同一批三个开放 PR（#23、#26、#20），对 #23 补充逐帧像素比对与分支基线核验，全部维持未合入状态：
+
+- **#23 `whale-red`（基于 `assets/whale-refined` 的确定性改色衍生）：阻塞退回，共五处问题。**
+  1. 图集 `assets/whale-red/spritesheet.webp` 改色时把 HSV 色相下界卡在 `0.48`，原版发梢偏青蓝的渐变与半透明抗锯齿边缘落在阈值外；逐帧比对 `whale-refined` 后，全 57 帧共检出 12,576 个青绿残留像素（判定式 `G > 1.25*R` 且 `G > 0.35` 且 `S > 0.25` 且 `A > 64`），第 1、2 行左右奔跑与第 5 行失败状态的发尾最明显，每帧 250-400 个。
+  2. PR 描述无任何运行实测证据；`previews/idle.gif` 是资产本身，不能替代「设置页宠物选择器出现该宠物、切换后各状态动画运行」的截图或录屏。
+  3. 未按同仓 `jyn-loli`、`deep-chan` 的标准在根 `THIRD_PARTY_NOTICES.md` 登记 `whale-red` 条目，且缺少「基于 DeepSeek 鲸鱼标识的非官方同人衍生、非官方、与本仓库无关、仅供个人非商业使用、版权与衍生责任由贡献者承担」的声明。
+  4. 把 `assets/whale-red` 加进了 `package.json` 的 `files` 白名单，会让每个安装 `dsh-pet` 的用户多承担 2.33 MB；配色变体应按 `CONTRIBUTING` 走市场按需分发。
+  5. 分支落后 `main` 21 个提交，`README.i18n.yaml` 存在冲突，`src/registry.test.ts` 的内置宠物断言缺 `deep-chan`、`jyn-loli`、`long-niang` 三只。
+- **#20 与 #26 维持既有 `CHANGES_REQUESTED`，作者尚未回应。** #26 仍处于可合并状态但分支内容未发生改动，处于合并冲突状态的是 #20。
+
+### Alternatives considered
+
+**把 #23 当作简单改色变体直接收录。** 否决：青绿伪影在全部 57 帧肉眼可见（累计 12,576 个青绿残留像素，第 1、2 行左右奔跑与第 5 行失败状态每帧 250-400 个），属于 HSV 色相阈值截断造成的素材质量缺陷，而非风格取舍。
+
+**允许把 `whale-red` 配色变体随 npm 包分发。** 否决：`CONTRIBUTING` 要求非默认内置宠物经市场按需分发以控制 npm 包体积（避免每次安装 `dsh-pet` 额外增加 2.33 MB），且加入 `package.json` 的 `files` 白名单与同仓既有变体的分发方式不一致。
+
+### Consequences
+
+#23 待作者修复图集青绿残留、补齐运行实测证据与 `THIRD_PARTY_NOTICES.md` 声明、移出 `package.json` 的 `files` 白名单并同步 `main` 解决冲突与测试断言后重新提交，本轮不合入。
+
+`dsh-pet` 的 `main` 本轮未发生变更，因此不涉及主仓 `satellites/dsh-pet` 钉版移动；同时由于 #23 未合入，本轮不产生任何市场产物重建或上架动作。
