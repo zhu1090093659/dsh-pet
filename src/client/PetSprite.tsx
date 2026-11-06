@@ -57,6 +57,14 @@ export interface PetSpriteProps {
    * of its own.
    */
   onPanelAction: (id: string) => void
+  /**
+   * Select a live2d outfit (persisted by the host). Present only for pets whose
+   * manifest declares `live2d.skins`; the panel then renders one 换装 action
+   * that cycles through them.
+   */
+  onSkin?: (id: string | undefined) => void
+  /** Currently selected outfit id (live2d); undefined = the model's default. */
+  skin?: string
   /** Navigate to the session one status bubble reports on. */
   onOpenSession: (sessionId: string) => void
   /** Clear the reaction bubble (after its CSS animation). */
@@ -347,6 +355,13 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
   }
   const panelShows = (action: 'feed' | 'rename' | 'hide'): boolean =>
     panel?.actions === undefined || panel.actions.includes(action)
+  // Live2d outfits: the panel renders one action that cycles through them (the
+  // button's tooltip names the next outfit). Pets without a choice render
+  // nothing. No stored selection reads as the first declared outfit, which the
+  // manifest convention (and every shipped model) uses for the default look.
+  const outfits = definition.live2d?.skins ?? []
+  const storedOutfit = outfits.findIndex(outfit => outfit.id === props.skin)
+  const nextOutfit = outfits.length < 2 ? undefined : outfits[((storedOutfit < 0 ? 0 : storedOutfit) + 1) % outfits.length]
 
   // Load the atlas once; the definition carries the authoritative per-row
   // frame counts and per-track durations, so nothing else is fetched. A
@@ -1015,6 +1030,20 @@ export function PetSprite(props: PetSpriteProps): ReactPortal {
                     }}
                   >
                     {panelLabel('rename', props.t('pet.rename'))}
+                  </button>
+                )}
+                {props.onSkin !== undefined && nextOutfit !== undefined && (
+                  <button
+                    type="button"
+                    className={styles.action}
+                    data-dsh-pet-outfit={props.skin ?? ''}
+                    title={nextOutfit.label}
+                    onClick={() => {
+                      clearHideTimer()
+                      props.onSkin?.(nextOutfit.id)
+                    }}
+                  >
+                    {props.t('pet.skin')}
                   </button>
                 )}
                 {panelShows('hide') && (

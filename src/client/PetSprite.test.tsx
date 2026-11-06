@@ -1677,3 +1677,53 @@ describe('PetSprite roaming (issue #17)', () => {
   })
 })
 
+
+describe('live2d outfits', () => {
+  /** A live2d definition declaring two outfits (the xiaolong shape). */
+  function live2dDefinition(): PetDefinition {
+    return {
+      ...petDefinition(),
+      renderer: 'live2d',
+      live2d: {
+        modelUrl: '/pet/whale-girl/model/whale-girl.model3.json',
+        modelPath: 'model/whale-girl.model3.json',
+        motions: { idle: 'Idle' },
+        skins: [
+          { id: 'white', label: '白装', expression: 'outfit-white' },
+          { id: 'green', label: '绿魔女装', expression: 'outfit-green' },
+        ],
+      },
+    }
+  }
+
+  it('cycles to the next outfit from the panel action', () => {
+    const onSkin = vi.fn()
+    render(<PetSprite {...petProps({ definition: live2dDefinition(), onSkin })} />)
+    fireEvent.pointerOver(screen.getByRole('button', { name: petDefinition().displayName }))
+    const button = screen.getByText('换装')
+    // No stored selection reads as the first declared outfit (the default look),
+    // so the tooltip names entry 2 and the click reports that id.
+    expect(button.getAttribute('title')).toBe('绿魔女装')
+    fireEvent.click(button)
+    expect(onSkin).toHaveBeenCalledWith('green')
+  })
+
+  it('reports the entry after the stored outfit', () => {
+    const onSkin = vi.fn()
+    render(<PetSprite {...petProps({ definition: live2dDefinition(), onSkin, skin: 'green' })} />)
+    fireEvent.pointerOver(screen.getByRole('button', { name: petDefinition().displayName }))
+    expect(screen.getByText('换装').getAttribute('title')).toBe('白装')
+    fireEvent.click(screen.getByText('换装'))
+    expect(onSkin).toHaveBeenCalledWith('white')
+  })
+
+  it('renders no outfit action without declared skins or a handler', () => {
+    render(<PetSprite {...petProps({ onSkin: vi.fn() })} />)
+    fireEvent.pointerOver(screen.getByRole('button', { name: petDefinition().displayName }))
+    expect(screen.queryByText('换装')).toBeNull()
+    cleanup()
+    render(<PetSprite {...petProps({ definition: live2dDefinition() })} />)
+    fireEvent.pointerOver(screen.getByRole('button', { name: petDefinition().displayName }))
+    expect(screen.queryByText('换装')).toBeNull()
+  })
+})

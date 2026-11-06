@@ -71,6 +71,10 @@ export interface PetPanelView {
 }
 
 /** One normalized voice pack (a pet's voice.json or the global override). */
+/** Idle-chatter buckets: what the pet muses about while nothing happens. */
+export const LIFE_CATEGORIES = ['generic', 'game', 'video', 'work', 'late'] as const
+export type LifeCategory = (typeof LIFE_CATEGORIES)[number]
+
 export interface VoicePack {
   /** Chatter pool overrides (draw-time merged with the built-in pools). */
   overrides: VoicePackOverrides
@@ -80,10 +84,12 @@ export interface VoicePack {
   remarks?: PetRemarks
   /** Affinity rank name overrides (issue #1226). */
   ranks?: Record<string, string>
+  /** Idle chatter (life): what she says when left alone, per desktop context. */
+  life?: Partial<Record<LifeCategory, readonly string[]>>
 }
 
 /** Hard caps shared by every pool slot (mirrors the remarks discipline). */
-export const VOICE_POOL_LINES_MAX = 64
+export const VOICE_POOL_LINES_MAX = 96
 export const VOICE_LINE_MAX = 160
 export const VOICE_LABEL_MAX = 40
 export const VOICE_STAT_MAX = 80
@@ -362,7 +368,7 @@ export function normalizePanel(
 }
 
 /** Voice-pack top-level fields ('$schema' mirrors the schema twin; drift-locked in tests). */
-export const VOICE_PACK_KEYS = new Set(['$schema', 'voicePackVersion', 'status', 'tools', 'toolRemaining', 'whispers', 'panel', 'remarks', 'ranks'])
+export const VOICE_PACK_KEYS = new Set(['$schema', 'voicePackVersion', 'status', 'tools', 'toolRemaining', 'whispers', 'panel', 'remarks', 'ranks', 'life'])
 
 /** Allowed whisper-section fields (drift-locked in tests). */
 export const WHISPER_KEYS = new Set(['categories', 'results'])
@@ -454,6 +460,24 @@ export function normalizeVoicePack(
   }
   const panel = raw.panel === undefined ? undefined : normalizePanel(raw.panel, onWarning)
   const remarks = raw.remarks === undefined ? undefined : normalizePetRemarks(raw.remarks, onWarning)
+  let life: Partial<Record<LifeCategory, readonly string[]>> | undefined
+  const lifeRaw = raw.life
+  if (lifeRaw !== undefined) {
+    if (!isRecord(lifeRaw)) {
+      onWarning('life must be an object')
+    } else {
+      const pools: Partial<Record<LifeCategory, readonly string[]>> = {}
+      for (const [key, value] of Object.entries(lifeRaw)) {
+        if (!(LIFE_CATEGORIES as readonly string[]).includes(key)) {
+          onWarning('unknown life category ' + key + ' ignored')
+          continue
+        }
+        const pool = normalizePool(value, 'whisperResult', onWarning)
+        if (pool !== undefined && pool.length > 0) pools[key as LifeCategory] = pool
+      }
+      if (Object.keys(pools).length > 0) life = pools
+    }
+  }
   const ranksRaw = raw.ranks
   let ranks: Record<string, string> | undefined
   if (ranksRaw !== undefined) {
@@ -475,6 +499,7 @@ export function normalizeVoicePack(
     overrides.status === undefined && overrides.tools === undefined
     && overrides.toolRemaining === undefined && overrides.whispers === undefined
     && panel === undefined && remarks === undefined && ranks === undefined
+    && life === undefined
   ) {
     return undefined
   }
@@ -483,6 +508,7 @@ export function normalizeVoicePack(
     ...(panel === undefined ? {} : { panel }),
     ...(remarks === undefined ? {} : { remarks }),
     ...(ranks === undefined ? {} : { ranks }),
+    ...(life === undefined ? {} : { life }),
   }
 }
 

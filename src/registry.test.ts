@@ -627,6 +627,49 @@ describe('loadPetRegistry pet-center v2 (issue #623)', () => {
     }
   })
 
+  it('keeps only outfits whose expression the model declares', () => {
+    const root = tempDir()
+    try {
+      const petsDir = join(root, 'pets')
+      mkdirSync(join(petsDir, 'xiaolong', 'textures'), { recursive: true })
+      mkdirSync(join(petsDir, 'xiaolong', 'motions'), { recursive: true })
+      writeFileSync(join(petsDir, 'xiaolong', 'pet.json'), JSON.stringify({
+        petManifestVersion: 2, id: 'xiaolong', displayName: 'Xiaolong', license: 'Proprietary',
+        renderer: 'live2d',
+        live2d: {
+          model: 'xiaolong.model3.json',
+          motions: { idle: 'Idle' },
+          skins: [
+            { id: 'white', label: '白装', expression: 'outfit-white' },
+            { id: 'green', label: '绿魔女装', expression: 'outfit-green' },
+          ],
+        },
+      }), 'utf8')
+      writeFileSync(join(petsDir, 'xiaolong', 'xiaolong.model3.json'), JSON.stringify({
+        Version: 3,
+        FileReferences: {
+          Moc: 'xiaolong.moc3',
+          Textures: ['textures/texture_00.png'],
+          Expressions: [{ Name: 'outfit-white', File: 'motions/expression_11.exp3.json' }],
+          Motions: { Idle: [{ File: 'motions/motion_01.motion3.json' }] },
+        },
+      }), 'utf8')
+      writeFileSync(join(petsDir, 'xiaolong', 'xiaolong.moc3'), 'moc', 'utf8')
+      writeFileSync(join(petsDir, 'xiaolong', 'textures', 'texture_00.png'), 'png', 'utf8')
+      writeFileSync(join(petsDir, 'xiaolong', 'motions', 'expression_11.exp3.json'), '{}', 'utf8')
+      writeFileSync(join(petsDir, 'xiaolong', 'motions', 'motion_01.motion3.json'), '{}', 'utf8')
+      const registry = loadPetRegistry({ packageRoot: join(root, 'none'), petsDir, dshPetsDir: '' })
+      const entry = registry.byId('xiaolong')
+      expect(entry).toBeDefined()
+      // An expression the model never declares can never be applied, so the
+      // outfit is dropped with a warning instead of shipping a dead button.
+      expect(entry!.live2d!.skins).toEqual([{ id: 'white', label: '白装', expression: 'outfit-white' }])
+      expect(registry.diagnostics.some(d => d.level === 'warning' && d.message.includes('undeclared'))).toBe(true)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   it('rejects live2d pets whose model3.json is unreadable', () => {
     const root = tempDir()
     try {
