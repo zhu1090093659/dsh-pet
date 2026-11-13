@@ -581,6 +581,10 @@ export function apply(ctx: ClientContext): void {
             // Ignore; next poll resyncs.
           })
         },
+        // A one-off line in the pet's bubble (outfit changes and the like).
+        remark: (text: string) => {
+          setFeedback({ text, kind: 'none', at: Date.now() })
+        },
         feedbackDone: () => {
           setFeedback(null)
         },

@@ -256,6 +256,18 @@
         }
       }
     },
+    "life": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Idle chatter: what the pet says when left alone, bucketed by what the user is doing on the desktop.",
+      "properties": {
+        "generic": { "$ref": "#/definitions/pool" },
+        "game": { "$ref": "#/definitions/pool" },
+        "video": { "$ref": "#/definitions/pool" },
+        "work": { "$ref": "#/definitions/pool" },
+        "late": { "$ref": "#/definitions/pool" }
+      }
+    },
     "ranks": {
       "type": "object",
       "additionalProperties": {
@@ -274,7 +286,7 @@
         },
         {
           "type": "array",
-          "maxItems": 64,
+          "maxItems": 96,
           "items": {
             "type": "string",
             "maxLength": 160

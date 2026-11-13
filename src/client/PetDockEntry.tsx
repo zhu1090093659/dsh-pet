@@ -12,7 +12,7 @@
  * @module @linxin666/dsh-pet/client/PetDockEntry
  */
 
-import { useEffect, useRef, useSyncExternalStore, type ReactElement } from 'react'
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactElement } from 'react'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { PetDisplayConfig } from '../persist.ts'
 import type { PetStoreInstance } from './pet-store.ts'
@@ -51,6 +51,8 @@ export interface PetInjected {
   openSession: (sessionId: string) => void
   /** Clear the reaction bubble. */
   feedbackDone: () => void
+  /** Show a one-off line in the pet's bubble. */
+  remark: (text: string) => void
   /** Gameplay verb API (miku-pet generalization); wired but unused for pets without a gameplay block. */
   gameplay: GameplayApi
 }
@@ -103,6 +105,69 @@ export function PetDockEntry(props: PetDockEntryProps): ReactElement {
   }
   const aux = auxRef.current
   const gameplay = definition?.gameplay
+  // Live2d outfit selection: rendered optimistically (the world would otherwise
+  // change only on the next poll tick), then reconciled with the host snapshot —
+  // a rejected write falls back to the persisted choice.
+  const persistedSkin = snapshot?.skin
+  const [skin, setSkin] = useState<string | undefined>(persistedSkin)
+  const skinPetRef = useRef<string | undefined>(definition?.id)
+  useEffect(() => {
+    if (skinPetRef.current !== definition?.id) {
+      // A different pet carries its own persisted choice.
+      skinPetRef.current = definition?.id
+      setSkin(persistedSkin)
+      return
+    }
+    // A poll that momentarily serves no skin must not clear the worn outfit:
+    // the outfit only changes when the user picks one.
+    if (persistedSkin !== undefined) setSkin(persistedSkin)
+  }, [definition?.id, persistedSkin])
+  const chooseSkin = (id: string | undefined): void => {
+    setSkin(id)
+    const lines = definition?.live2d?.skins?.find(candidate => candidate.id === id)?.switchLines
+    if (lines !== undefined && lines.length > 0) {
+      props.remark(lines[Math.floor(Math.random() * lines.length)]!)
+    }
+    void props.gameplay.setSkin(id).then((result) => {
+      if (!result.ok) setSkin(persistedSkin)
+    }, () => { setSkin(persistedSkin) })
+  }
+
+  // Idle chatter: while the pet has nothing to do she now and then says
+  // something about her own life, picked from the voice pack's `life` pools.
+  // The desktop category (a game, a video, an editor) tints the choice; a pool
+  // that is missing falls back to `generic`.
+  const lifeLines = definition?.lifeLines
+  const desktopCategory = snapshot?.desktop?.category
+  const phase = snapshot?.phase
+  const nextChatAtRef = useRef<number>(Date.now() + 60_000 + Math.random() * 60_000)
+  useEffect(() => {
+    if (lifeLines === undefined) return
+    const timer = setInterval(() => {
+      if (Date.now() < nextChatAtRef.current) return
+      if (phase !== 'idle' || !visible) return
+      // Desktop buckets are finer than the chatter buckets: fold them down.
+      const key = desktopCategory === 'game'
+        ? 'game'
+        : desktopCategory === 'video' || desktopCategory === 'music'
+          ? 'video'
+          : desktopCategory === 'editor' || desktopCategory === 'terminal' || desktopCategory === 'office'
+            ? 'work'
+            : undefined
+      const hour = new Date().getHours()
+      const lateNight = hour >= 23 || hour < 6
+      const pool = (key === undefined ? undefined : lifeLines[key])
+        ?? (lateNight ? lifeLines.late : undefined)
+        ?? lifeLines.generic
+      if (pool === undefined || pool.length === 0) {
+        nextChatAtRef.current = Date.now() + 60_000
+        return
+      }
+      props.remark(pool[Math.floor(Math.random() * pool.length)]!)
+      nextChatAtRef.current = Date.now() + 90_000 + Math.random() * 120_000
+    }, 10_000)
+    return () => { clearInterval(timer) }
+  }, [lifeLines, desktopCategory, phase, visible, props])
 
   if (visible) {
     return (
@@ -113,6 +178,7 @@ export function PetDockEntry(props: PetDockEntryProps): ReactElement {
             <PetRendererSwitch
               definition={definition}
               phase={snapshot?.phase ?? 'idle'}
+              {...(skin === undefined ? {} : { skin })}
               onPet={props.pet}
               {...(aux === null ? {} : { drag: aux.drag, bus: aux.bus })}
               t={props.t}
@@ -128,6 +194,8 @@ export function PetDockEntry(props: PetDockEntryProps): ReactElement {
                 onDragEnd={props.dragEnd}
                 onRename={props.rename}
                 onPanelAction={props.panelAction}
+                {...(skin === undefined ? {} : { skin })}
+                {...(definition.live2d?.skins === undefined ? {} : { onSkin: chooseSkin })}
                 onOpenSession={props.openSession}
                 onFeedbackDone={props.feedbackDone}
                 portalTarget={props.portalTarget}

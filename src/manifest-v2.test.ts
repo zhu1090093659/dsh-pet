@@ -141,6 +141,42 @@ describe('parsePetManifest v2 fail-closed validation', () => {
     expect(result.manifest.live2d?.hitAreas).toEqual(['Head', 'Body'])
   })
 
+  it('accepts and validates live2d outfits (skins)', () => {
+    const accepted = parsePetManifest(v2Live2d({
+      live2d: {
+        model: 'models/haru.model3.json',
+        motions: { idle: 'Idle' },
+        skins: [
+          { id: 'white', label: '白装', expression: 'outfit-white' },
+          { id: 'green-witch', label: '绿魔女装', expression: 'outfit-green' },
+        ],
+      },
+    }), 'mem')
+    expect(accepted.ok).toBe(true)
+    if (!accepted.ok) return
+    expect(accepted.manifest.live2d?.skins).toEqual([
+      { id: 'white', label: '白装', expression: 'outfit-white' },
+      { id: 'green-witch', label: '绿魔女装', expression: 'outfit-green' },
+    ])
+
+    // Duplicate ids, bad id shapes, a missing expression and unknown fields
+    // are structure errors, so the whole manifest fails closed.
+    const cases: unknown[] = [
+      [{ id: 'a', label: 'A', expression: 'e' }, { id: 'a', label: 'B', expression: 'f' }],
+      [{ id: 'Bad Id', label: 'A', expression: 'e' }],
+      [{ id: 'a', label: '', expression: 'e' }],
+      [{ id: 'a', label: 'A' }],
+      [{ id: 'a', label: 'A', expression: 'e', idleTrack: 'idle' }],
+      [],
+    ]
+    for (const skins of cases) {
+      const rejected = parsePetManifest(v2Live2d({
+        live2d: { model: 'models/haru.model3.json', motions: { idle: 'Idle' }, skins },
+      }), 'mem')
+      expect(rejected.ok).toBe(false)
+    }
+  })
+
   it('fails closed on unknown top-level fields', () => {
     const result = parsePetManifest(v2Sprite({ surprise: true }), 'mem')
     expect(result.ok).toBe(false)
