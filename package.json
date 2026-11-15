@@ -30,6 +30,8 @@
       "default": "./lib/client.js"
     },
     "./src/*": "./src/*",
+    "./locale/en.json": "./locale/en.json",
+    "./locale/zh.json": "./locale/zh.json",
     "./package.json": "./package.json"
   },
   "files": [
@@ -45,6 +47,7 @@
     "assets/blue-throated-bee-eater",
     "assets/decorations",
     "contracts",
+    "locale",
     "icon.svg"
   ],
   "license": "Apache-2.0",
