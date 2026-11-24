@@ -146,6 +146,7 @@ function getRoute(ctx: Context, path: string, run: (req: IncomingMessage) => Pro
   return {
     kind: 'exact',
     path,
+    auth: 'anonymous',
     handler: (req: IncomingMessage, res: ServerResponse): void => {
       if (!guard(ctx, req, res)) return
       if (!requireMethod(req, res, 'GET')) return
@@ -161,6 +162,7 @@ function postRoute(ctx: Context, path: string, run: (body: Record<string, unknow
   return {
     kind: 'exact',
     path,
+    auth: 'anonymous',
     handler: (req: IncomingMessage, res: ServerResponse): Promise<void> => {
       if (!guard(ctx, req, res)) return Promise.resolve()
       if (!requireMethod(req, res, 'POST')) return Promise.resolve()
@@ -648,12 +650,14 @@ export function makePetRoutes(deps: { service: PetService; ctx: Context; assetCa
   const assetRoute: WebRoute = {
     kind: 'prefix',
     path: PET_ASSET_PREFIX,
+    auth: 'anonymous',
     handler: assetHandler(ctx, service.registrySnapshot(), deps.assetCaps ?? PET_ASSET_CAPS),
   }
 
   const runtimeRoute: WebRoute = {
     kind: 'prefix',
     path: PET_RUNTIME_PREFIX,
+    auth: 'anonymous',
     handler: runtimeHandler(ctx, {
       runtimeDir: deps.runtimeDir ?? join(dshHome(), 'pets', '.runtime'),
       vendorDir: deps.vendorDir ?? join(petPackageRoot(import.meta.url), 'lib'),
@@ -663,6 +667,7 @@ export function makePetRoutes(deps: { service: PetService; ctx: Context; assetCa
   const decorationRoute: WebRoute = {
     kind: 'prefix',
     path: DECORATION_ASSET_PREFIX,
+    auth: 'anonymous',
     handler: decorationHandler(ctx, service.registrySnapshot(), deps.assetCaps ?? PET_ASSET_CAPS),
   }
 

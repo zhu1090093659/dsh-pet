@@ -455,4 +455,15 @@ describe('post body failure contract (shared readJsonBody migration)', () => {  
       body: '{"pad":"' + 'x'.repeat(64 * 1024) + '"}',
     })).rejects.toThrow()
   })
+
+  it('marks every pet route anonymous so the plugin enforces its own access fence', () => {
+    // Given the full route family registered by makePetRoutes
+    // When each route's host auth declaration is inspected
+    // Then every route explicitly opts into anonymous instead of inheriting the
+    // host webserver's default authenticated gate.
+    expect(routes.length).toBeGreaterThan(0)
+    for (const route of routes) {
+      expect(route.auth, route.path).toBe('anonymous')
+    }
+  })
 })

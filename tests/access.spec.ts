@@ -83,4 +83,37 @@ describe('isPetAllowed', () => {
     }))).toBe(false)
     expect(get).toHaveBeenCalledWith('remoteWebUiPairing', false)
   })
+
+  it('allows a remote client admitted by the official host connection service', () => {
+    // Given an official host connection service that admits the remote browser
+    const req = request({
+      remoteAddress: '192.168.1.20',
+      host: 'dsh.example:443',
+      cookie: 'dsh_session=ok',
+    })
+    const admit = vi.fn(() => ({ peer: { id: 'remote-1' } }))
+    const ctx = { get: (name: string) => name === 'connection' ? { admit } : undefined }
+
+    // When the pet access fence evaluates the request
+    const allowed = isPetAllowed(ctx as never, req)
+
+    // Then the admitted remote client is allowed through
+    expect(allowed).toBe(true)
+    expect(admit).toHaveBeenCalledWith(req)
+  })
+
+  it('refuses a remote client rejected by the official host connection service', () => {
+    // Given an official host connection service that rejects the request
+    const req = request({
+      remoteAddress: '192.168.1.20',
+      host: 'dsh.example:443',
+    })
+    const ctx = { get: (name: string) => name === 'connection' ? { admit: () => ({ rejection: { status: 401 } }) } : undefined }
+
+    // When the pet access fence evaluates the request
+    const allowed = isPetAllowed(ctx as never, req)
+
+    // Then the rejected client stays blocked
+    expect(allowed).toBe(false)
+  })
 })
